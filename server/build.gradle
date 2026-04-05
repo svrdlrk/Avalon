@@ -1,0 +1,29 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '3.5.13'
+    id 'io.spring.dependency-management' version '1.1.7'
+}
+
+group = 'com.avalon.dnd'
+version = '1.0.0'
+description = 'server'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+dependencies {
+    implementation project(':shared')
+
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-websocket'
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    implementation 'com.fasterxml.jackson.core:jackson-databind'
+
+    runtimeOnly 'com.h2database:h2'          // H2 для разработки
+    runtimeOnly 'org.postgresql:postgresql'   // PostgreSQL для прода
+
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+}
