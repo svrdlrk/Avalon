@@ -5,6 +5,7 @@ import { useGameStore } from '../store/gameStore';
 const ConnectionPanel: React.FC = () => {
     const [sessionId, setSessionId] = useState('');
     const [playerName, setPlayerName] = useState('');
+    const [isDm, setIsDm] = useState(false);
     const [isConnected, setIsConnected] = useState(false);
     const { myPlayerId } = useGameStore();
 
@@ -15,7 +16,7 @@ const ConnectionPanel: React.FC = () => {
             'http://localhost:8080',   // можно потом вынести в env
             sessionId.trim(),
             playerName.trim(),
-            false,                     // игрок (не DM)
+            isDm,                     // игрок (не DM)
             () => {
                 setIsConnected(true);
                 console.log('✅ Подключено к сессии', sessionId);
@@ -64,6 +65,13 @@ const ConnectionPanel: React.FC = () => {
                 onChange={(e) => setPlayerName(e.target.value)}
                 className="w-full mb-4 px-4 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
             />
+
+            <input
+                type="checkbox"
+                checked={isDm}
+                onChange={(e) => setIsDm(e.target.checked)}
+            />
+            <span>Join as DM</span>
 
             <button
                 onClick={handleConnect}
