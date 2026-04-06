@@ -17,16 +17,16 @@ public class TokenWsController {
 
     private final TokenService tokenService;
     private final SessionService sessionService;
-    private final SimpMessagingTemplate messagingTemplate;
+    private final SimpMessagingTemplate messaging;
     private final SessionValidationService validationService;
 
     public TokenWsController(TokenService tokenService,
                              SessionService sessionService,
-                             SimpMessagingTemplate messagingTemplate,
+                             SimpMessagingTemplate messaging,
                              SessionValidationService validationService) {
         this.tokenService = tokenService;
         this.sessionService = sessionService;
-        this.messagingTemplate = messagingTemplate;
+        this.messaging = messaging;
         this.validationService = validationService;
     }
 
@@ -36,21 +36,9 @@ public class TokenWsController {
                           @Header("sessionId") String sessionId) {
 
         Player player = validationService.validate(sessionId, playerId);
-        GameSession session = sessionService.getSession(sessionId);
-
+        GameSession session = getSession(sessionId);
         Token updated = tokenService.moveToken(event, player);
-        long version = session.incrementVersion();
-        WsMessage<TokenDto> message = new WsMessage<>(
-                WsEventType.TOKEN_MOVED,
-                sessionId,
-                version,
-                toDto(updated)
-        );
-
-        messagingTemplate.convertAndSend(
-                "/topic/session/" + sessionId,
-                message
-        );
+        broadcast(sessionId, session, WsEventType.TOKEN_MOVED, toDto(updated));
     }
 
     @MessageMapping("/token.create")
@@ -59,21 +47,9 @@ public class TokenWsController {
                             @Header("sessionId") String sessionId) {
 
         Player player = validationService.validate(sessionId, playerId);
-        GameSession session = sessionService.getSession(sessionId);
-
+        GameSession session = getSession(sessionId);
         Token token = tokenService.createToken(request, player);
-        long version = session.incrementVersion();
-        WsMessage<TokenDto> message = new WsMessage<>(
-                WsEventType.TOKEN_ADDED,
-                sessionId,
-                version,
-                toDto(token)
-        );
-
-        messagingTemplate.convertAndSend(
-                "/topic/session/" + sessionId,
-                message
-        );
+        broadcast(sessionId, session, WsEventType.TOKEN_ADDED, toDto(token));
     }
 
     @MessageMapping("/token.remove")
@@ -82,21 +58,9 @@ public class TokenWsController {
                             @Header("sessionId") String sessionId) {
 
         Player player = validationService.validate(sessionId, playerId);
-        GameSession session = sessionService.getSession(sessionId);
-
+        GameSession session = getSession(sessionId);
         String removedId = tokenService.removeToken(event, player);
-        long version = session.incrementVersion();
-        WsMessage<String> message = new WsMessage<>(
-                WsEventType.TOKEN_REMOVED,
-                sessionId,
-                version,
-                removedId
-        );
-
-        messagingTemplate.convertAndSend(
-                "/topic/session/" + sessionId,
-                message
-        );
+        broadcast(sessionId, session, WsEventType.TOKEN_REMOVED, removedId);
     }
 
     @MessageMapping("/token.assign")
@@ -105,21 +69,9 @@ public class TokenWsController {
                             @Header("sessionId") String sessionId) {
 
         Player player = validationService.validate(sessionId, playerId);
-        GameSession session = sessionService.getSession(sessionId);
-
+        GameSession session = getSession(sessionId);
         Token updated = tokenService.assignToken(request, player);
-        long version = session.incrementVersion();
-        WsMessage<TokenDto> message = new WsMessage<>(
-                WsEventType.TOKEN_ASSIGNED,
-                sessionId,
-                version,
-                toDto(updated)
-        );
-
-        messagingTemplate.convertAndSend(
-                "/topic/session/" + sessionId,
-                message
-        );
+        broadcast(sessionId, session, WsEventType.TOKEN_ASSIGNED, toDto(updated));
     }
 
     @MessageMapping("/token.hp")
@@ -128,25 +80,35 @@ public class TokenWsController {
                          @Header("sessionId") String sessionId) {
 
         Player player = validationService.validate(sessionId, playerId);
-        GameSession session = sessionService.getSession(sessionId);
-
+        GameSession session = getSession(sessionId);
         Token updated = tokenService.updateHp(event, player);
-        long version = session.incrementVersion();
-        WsMessage<TokenDto> message = new WsMessage<>(
-                WsEventType.TOKEN_HP,
-                sessionId,
-                version,
-                toDto(updated)
-        );
+        // TOKEN_HP — отдельный тип, не TOKEN_MOVED
+        broadcast(sessionId, session, WsEventType.TOKEN_HP, toDto(updated));
+    }
 
-        messagingTemplate.convertAndSend(
+    // --- helpers ---
+
+    private GameSession getSession(String sessionId) {
+        GameSession s = sessionService.getSession(sessionId);
+        if (s == null) throw new RuntimeException("Session not found: " + sessionId);
+        return s;
+    }
+
+    private <T> void broadcast(String sessionId, GameSession session,
+                               WsEventType type, T payload) {
+        long version = session.incrementVersion();
+        messaging.convertAndSend(
                 "/topic/session/" + sessionId,
-                message
+                new WsMessage<>(type, sessionId, version, payload)
         );
     }
 
     private static TokenDto toDto(Token t) {
-        return new TokenDto(t.getId(), t.getName(), t.getCol(), t.getRow(),
-                t.getOwnerId(), t.getHp(), t.getMaxHp());
+        return new TokenDto(
+                t.getId(), t.getName(),
+                t.getCol(), t.getRow(),
+                t.getOwnerId(),
+                t.getHp(), t.getMaxHp()
+        );
     }
 }

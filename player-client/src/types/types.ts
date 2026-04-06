@@ -14,6 +14,8 @@ export interface TokenDto {
     col: number;
     row: number;
     ownerId: string | null;
+    hp: number;
+    maxHp: number;
 }
 
 export interface PlayerDto {
@@ -39,11 +41,19 @@ export interface SessionStateDto {
     objects: MapObjectDto[];
 }
 
+export interface MapLayoutUpdateDto {
+    grid: GridConfig;
+    tokens: TokenDto[];
+    objects: MapObjectDto[];
+}
+
 export type WsEventType =
     | 'TOKEN_MOVED'
     | 'TOKEN_ADDED'
     | 'TOKEN_REMOVED'
     | 'TOKEN_ASSIGNED'
+    | 'TOKEN_HP'
+    | 'MAP_UPDATED'
     | 'MAP_OBJECT_ADDED'
     | 'MAP_OBJECT_REMOVED'
     | 'PLAYER_JOINED'

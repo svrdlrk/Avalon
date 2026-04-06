@@ -2,11 +2,12 @@ import { Client, StompHeaders } from '@stomp/stompjs';
 import SockJS from 'sockjs-client';
 import { useGameStore } from '../store/gameStore';
 import type {
+    MapLayoutUpdateDto,
     MapObjectDto,
     PlayerDto,
     SessionStateDto,
     TokenDto,
-    WsMessage
+    WsMessage,
 } from '../types/types';
 
 class WsClient {
@@ -17,6 +18,8 @@ class WsClient {
     private applySessionState(msg: WsMessage<SessionStateDto>, sid: string) {
         const state = msg.payload;
         this.playerId = state.myPlayerId;
+        // Сохраняем playerId для rejoin при обновлении страницы
+        sessionStorage.setItem(`avalon_player_${sid}`, state.myPlayerId);
         useGameStore.getState().applyState(state, sid);
     }
 
@@ -48,7 +51,10 @@ class WsClient {
 
         this.client = new Client({
             webSocketFactory: () => new SockJS(`${serverUrl}/ws`),
+            // Автоматический реконнект при обрыве (раз в 5 сек)
+            reconnectDelay: 5000,
             onConnect: () => {
+                // Подписка на общий канал сессии
                 this.client!.subscribe(
                     `/topic/session/${sessionId}`,
                     (frame) => {
@@ -57,6 +63,7 @@ class WsClient {
                     }
                 );
 
+                // Подписка на одноразовый канал join — получим SESSION_STATE
                 this.client!.subscribe(
                     `/topic/session/${sessionId}/join/${joinNonce}`,
                     (frame) => {
@@ -96,11 +103,18 @@ class WsClient {
 
         switch (msg.type) {
             case 'SESSION_STATE':
+                // SESSION_STATE приходит только через join/private каналы,
+                // но на всякий случай игнорируем здесь
                 break;
 
             case 'TOKEN_MOVED':
             case 'TOKEN_ADDED':
             case 'TOKEN_ASSIGNED':
+                store.moveToken(msg.payload as TokenDto);
+                break;
+
+            // Отдельный кейс для HP — семантически это не "move"
+            case 'TOKEN_HP':
                 store.moveToken(msg.payload as TokenDto);
                 break;
 
@@ -116,17 +130,30 @@ class WsClient {
                 store.removeObject(msg.payload as string);
                 break;
 
+            // Этот кейс раньше отсутствовал — карта у игроков не обновлялась
+            case 'MAP_UPDATED':
+                store.applyMapLayoutUpdate(msg.payload as MapLayoutUpdateDto);
+                break;
+
             case 'PLAYER_JOINED':
                 store.addPlayer(msg.payload as PlayerDto);
                 break;
 
+            case 'PLAYER_LEFT':
+                // TODO: removePlayer когда добавим
+                break;
+
             default:
+                console.warn('Unknown WS event:', msg.type);
                 break;
         }
     }
 
     send(destination: string, payload: unknown) {
-        if (!this.client?.connected) return;
+        if (!this.client?.connected) {
+            console.warn('WS not connected, dropping message to', destination);
+            return;
+        }
 
         const headers: StompHeaders = {
             sessionId: this.sessionId ?? '',
@@ -143,6 +170,10 @@ class WsClient {
     disconnect() {
         this.client?.deactivate();
         this.client = null;
+    }
+
+    getPlayerId(): string | null {
+        return this.playerId;
     }
 }
 

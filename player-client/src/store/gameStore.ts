@@ -1,5 +1,12 @@
 import { create } from 'zustand';
-import type { GridConfig, MapObjectDto, PlayerDto, SessionStateDto, TokenDto } from '../types/types';
+import type {
+    GridConfig,
+    MapLayoutUpdateDto,
+    MapObjectDto,
+    PlayerDto,
+    SessionStateDto,
+    TokenDto,
+} from '../types/types';
 
 interface GameState {
     sessionId: string | null;
@@ -10,6 +17,7 @@ interface GameState {
     players: Record<string, PlayerDto>;
 
     applyState: (state: SessionStateDto, sessionId: string) => void;
+    applyMapLayoutUpdate: (dto: MapLayoutUpdateDto) => void;
     moveToken: (token: TokenDto) => void;
     removeToken: (tokenId: string) => void;
     addObject: (obj: MapObjectDto) => void;
@@ -25,36 +33,53 @@ export const useGameStore = create<GameState>((set) => ({
     objects: {},
     players: {},
 
-    applyState: (state, sessionId) => set({
-        sessionId,
-        myPlayerId: state.myPlayerId,
-        grid: state.grid,
-        tokens: Object.fromEntries(state.tokens.map(t => [t.id, t])),
-        objects: Object.fromEntries(state.objects.map(o => [o.id, o])),
-        players: Object.fromEntries(state.players.map(p => [p.id, p])),
-    }),
+    applyState: (state, sessionId) =>
+        set({
+            sessionId,
+            myPlayerId: state.myPlayerId,
+            grid: state.grid,
+            tokens: Object.fromEntries(state.tokens.map((t) => [t.id, t])),
+            objects: Object.fromEntries(state.objects.map((o) => [o.id, o])),
+            players: Object.fromEntries(state.players.map((p) => [p.id, p])),
+        }),
 
-    moveToken: (token) => set(state => ({
-        tokens: { ...state.tokens, [token.id]: token }
-    })),
+    // Применяется при MAP_UPDATED от DM — сетка, токены и объекты обновляются вместе
+    applyMapLayoutUpdate: (dto) =>
+        set((state) => ({
+            grid: dto.grid,
+            tokens: Object.fromEntries(dto.tokens.map((t) => [t.id, t])),
+            // объекты могут отсутствовать в старых сообщениях
+            objects: dto.objects
+                ? Object.fromEntries(dto.objects.map((o) => [o.id, o]))
+                : state.objects,
+        })),
 
-    removeToken: (tokenId) => set(state => {
-        const tokens = { ...state.tokens };
-        delete tokens[tokenId];
-        return { tokens };
-    }),
+    moveToken: (token) =>
+        set((state) => ({
+            tokens: { ...state.tokens, [token.id]: token },
+        })),
 
-    addObject: (obj) => set(state => ({
-        objects: { ...state.objects, [obj.id]: obj }
-    })),
+    removeToken: (tokenId) =>
+        set((state) => {
+            const tokens = { ...state.tokens };
+            delete tokens[tokenId];
+            return { tokens };
+        }),
 
-    removeObject: (objId) => set(state => {
-        const objects = { ...state.objects };
-        delete objects[objId];
-        return { objects };
-    }),
+    addObject: (obj) =>
+        set((state) => ({
+            objects: { ...state.objects, [obj.id]: obj },
+        })),
 
-    addPlayer: (player) => set(state => ({
-        players: { ...state.players, [player.id]: player }
-    })),
+    removeObject: (objId) =>
+        set((state) => {
+            const objects = { ...state.objects };
+            delete objects[objId];
+            return { objects };
+        }),
+
+    addPlayer: (player) =>
+        set((state) => ({
+            players: { ...state.players, [player.id]: player },
+        })),
 }));
