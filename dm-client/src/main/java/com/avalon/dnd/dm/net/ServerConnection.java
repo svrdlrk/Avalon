@@ -12,6 +12,7 @@ import org.springframework.web.socket.messaging.WebSocketStompClient;
 import org.springframework.web.socket.sockjs.client.SockJsClient;
 import org.springframework.web.socket.sockjs.client.WebSocketTransport;
 
+import java.io.File;
 import java.lang.reflect.Type;
 import java.util.List;
 import java.util.UUID;
@@ -210,5 +211,28 @@ public class ServerConnection {
                 default -> {}
             }
         });
+    }
+
+    // ==================== МЕТОДЫ ДЛЯ DM ====================
+
+    public void createSession(String sessionName, GridConfig grid) {
+        System.out.println("DM → Server: createSession '" + sessionName + "' " + grid.getCols() + "x" + grid.getRows());
+        // TODO: Реальная отправка через STOMP
+        // sessionTemplate.convertAndSend("/app/session.create", new CreateSessionRequest(sessionName, grid));
+    }
+
+    public void uploadMap(File file) {
+        System.out.println("DM → Server: uploadMap " + file.getName());
+        // TODO: Отправка файла (base64 или multipart)
+    }
+
+    public void addToken(String name, int col, int row, int hp, int maxHp) {
+        System.out.println("DM → Server: addToken '" + name + "' at (" + col + "," + row + ")");
+        // TODO: Отправка TokenCreateRequest
+    }
+
+    public void revealAllFog() {
+        System.out.println("DM → Server: revealAllFog");
+        // TODO: Отправка события очистки тумана
     }
 }
