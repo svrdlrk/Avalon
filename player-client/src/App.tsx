@@ -3,7 +3,7 @@ import ConnectionPanel from './components/ConnectionPanel';
 
 function App() {
     return (
-        <div className="min-h-screen bg-zinc-950 relative">
+        <div style={{ position: 'relative', width: '100vw', height: '100vh', overflow: 'hidden' }}>
             <ConnectionPanel />
             <BattleMap />
         </div>

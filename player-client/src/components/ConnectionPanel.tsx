@@ -2,24 +2,118 @@ import React, { useState } from 'react';
 import { wsClient } from '../net/wsClient';
 import { useGameStore } from '../store/gameStore';
 
+const s: Record<string, React.CSSProperties> = {
+    overlay: {
+        position: 'fixed',
+        top: '16px',
+        left: '16px',
+        zIndex: 50,
+    },
+    connectedBar: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '12px',
+        background: '#18181b',
+        border: '1px solid #3f3f46',
+        borderRadius: '8px',
+        padding: '10px 16px',
+        fontSize: '14px',
+    },
+    dot: {
+        color: '#22c55e',
+        fontWeight: 700,
+    },
+    sessionHint: {
+        color: '#a1a1aa',
+        fontFamily: 'monospace',
+    },
+    disconnectBtn: {
+        padding: '4px 12px',
+        background: '#dc2626',
+        color: '#fff',
+        border: 'none',
+        borderRadius: '6px',
+        cursor: 'pointer',
+        fontSize: '13px',
+    },
+    panel: {
+        background: '#18181b',
+        border: '1px solid #3f3f46',
+        borderRadius: '10px',
+        padding: '24px',
+        width: '320px',
+        boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+    },
+    title: {
+        margin: '0 0 20px',
+        fontSize: '18px',
+        fontWeight: 600,
+        color: '#f4f4f5',
+    },
+    input: {
+        display: 'block',
+        width: '100%',
+        marginBottom: '12px',
+        padding: '10px 14px',
+        background: '#27272a',
+        border: '1px solid #3f3f46',
+        borderRadius: '7px',
+        color: '#f4f4f5',
+        fontSize: '15px',
+        outline: 'none',
+        boxSizing: 'border-box',
+    },
+    checkRow: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px',
+        marginBottom: '16px',
+        color: '#a1a1aa',
+        fontSize: '14px',
+        cursor: 'pointer',
+    },
+    connectBtn: {
+        display: 'block',
+        width: '100%',
+        padding: '12px',
+        background: '#2563eb',
+        color: '#fff',
+        border: 'none',
+        borderRadius: '7px',
+        fontSize: '16px',
+        fontWeight: 600,
+        cursor: 'pointer',
+    },
+    connectBtnDisabled: {
+        background: '#3f3f46',
+        cursor: 'not-allowed',
+    },
+};
+
 const ConnectionPanel: React.FC = () => {
+    const [serverUrl, setServerUrl] = useState('http://localhost:8080');
     const [sessionId, setSessionId] = useState('');
     const [playerName, setPlayerName] = useState('');
     const [isDm, setIsDm] = useState(false);
     const [isConnected, setIsConnected] = useState(false);
+    const [status, setStatus] = useState('');
+
     const { myPlayerId } = useGameStore();
 
     const handleConnect = () => {
-        if (!sessionId || !playerName) return;
-
+        if (!sessionId.trim() || !playerName.trim()) {
+            setStatus('Заполни все поля');
+            return;
+        }
+        setStatus('Подключение...');
         wsClient.connect(
-            'http://localhost:8080',   // можно потом вынести в env
+            serverUrl.trim(),
             sessionId.trim(),
             playerName.trim(),
-            isDm,                     // игрок (не DM)
+            isDm,
             () => {
                 setIsConnected(true);
-                console.log('✅ Подключено к сессии', sessionId);
+                setStatus('');
             }
         );
     };
@@ -31,55 +125,78 @@ const ConnectionPanel: React.FC = () => {
 
     if (isConnected && myPlayerId) {
         return (
-            <div className="absolute top-4 left-4 bg-zinc-900 p-3 rounded border border-zinc-700 z-50 flex items-center gap-3">
-                <div className="text-green-400">● Подключено</div>
-                <div className="text-sm text-zinc-400">
-                    Сессия: <span className="font-mono">{sessionId}</span>
+            <div style={s.overlay}>
+                <div style={s.connectedBar}>
+                    <span style={s.dot}>● Подключено</span>
+                    <span style={s.sessionHint}>
+                        {sessionId.slice(0, 8)}…
+                    </span>
+                    <button style={s.disconnectBtn} onClick={handleDisconnect}>
+                        Выйти
+                    </button>
                 </div>
-                <button
-                    onClick={handleDisconnect}
-                    className="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-sm"
-                >
-                    Отключиться
-                </button>
             </div>
         );
     }
 
+    const canConnect = sessionId.trim().length > 0 && playerName.trim().length > 0;
+
     return (
-        <div className="absolute top-4 left-4 bg-zinc-900 p-6 rounded border border-zinc-700 z-50 w-80">
-            <h2 className="text-lg font-bold mb-4">Подключение к бою</h2>
+        <div style={s.overlay}>
+            <div style={s.panel}>
+                <h2 style={s.title}>⚔ Avalon DnD</h2>
 
-            <input
-                type="text"
-                placeholder="ID сессии"
-                value={sessionId}
-                onChange={(e) => setSessionId(e.target.value)}
-                className="w-full mb-3 px-4 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
-            />
+                <input
+                    style={s.input}
+                    type="text"
+                    placeholder="Адрес сервера"
+                    value={serverUrl}
+                    onChange={e => setServerUrl(e.target.value)}
+                />
 
-            <input
-                type="text"
-                placeholder="Ваше имя"
-                value={playerName}
-                onChange={(e) => setPlayerName(e.target.value)}
-                className="w-full mb-4 px-4 py-2 bg-zinc-800 border border-zinc-700 rounded focus:outline-none focus:border-blue-500"
-            />
+                <input
+                    style={s.input}
+                    type="text"
+                    placeholder="ID сессии (от DM)"
+                    value={sessionId}
+                    onChange={e => setSessionId(e.target.value)}
+                />
 
-            <input
-                type="checkbox"
-                checked={isDm}
-                onChange={(e) => setIsDm(e.target.checked)}
-            />
-            <span>Join as DM</span>
+                <input
+                    style={s.input}
+                    type="text"
+                    placeholder="Твоё имя"
+                    value={playerName}
+                    onChange={e => setPlayerName(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && canConnect && handleConnect()}
+                />
 
-            <button
-                onClick={handleConnect}
-                disabled={!sessionId || !playerName}
-                className="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-zinc-700 rounded font-medium disabled:cursor-not-allowed"
-            >
-                Присоединиться
-            </button>
+                <label style={s.checkRow}>
+                    <input
+                        type="checkbox"
+                        checked={isDm}
+                        onChange={e => setIsDm(e.target.checked)}
+                    />
+                    Войти как DM
+                </label>
+
+                <button
+                    style={{
+                        ...s.connectBtn,
+                        ...(canConnect ? {} : s.connectBtnDisabled),
+                    }}
+                    disabled={!canConnect}
+                    onClick={handleConnect}
+                >
+                    Присоединиться
+                </button>
+
+                {status && (
+                    <p style={{ marginTop: '12px', color: '#a1a1aa', fontSize: '14px', textAlign: 'center' }}>
+                        {status}
+                    </p>
+                )}
+            </div>
         </div>
     );
 };
