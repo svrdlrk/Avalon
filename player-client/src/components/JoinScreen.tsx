@@ -10,6 +10,7 @@ export default function JoinScreen({ onJoined }: Props) {
     const [sessionId, setSessionId] = useState('');
     const [playerName, setPlayerName] = useState('');
     const [status, setStatus] = useState('');
+    const [isDm, setIsDm] = useState(false);
 
     const handleJoin = () => {
         if (!sessionId || !playerName) {
@@ -48,6 +49,15 @@ export default function JoinScreen({ onJoined }: Props) {
                 onChange={e => setPlayerName(e.target.value)}
                 placeholder="Имя персонажа"
             />
+
+            <label>
+                <input
+                    type="checkbox"
+                    checked={isDm}
+                    onChange={(e) => setIsDm(e.target.checked)}
+                />
+                Join as DM
+            </label>
 
             <button style={styles.button} onClick={handleJoin}>
                 Войти в сессию
