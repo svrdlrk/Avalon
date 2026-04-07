@@ -35,7 +35,9 @@ public class MapObjectService {
                 request.getRow(),
                 request.getWidth(),
                 request.getHeight(),
-                player.getSessionId()
+                player.getSessionId(),
+                request.getGridSize(),
+                request.getImageUrl()
         );
 
         session.getObjects().put(id, obj);
@@ -61,5 +63,16 @@ public class MapObjectService {
         }
 
         return event.getObjectId();
+    }
+
+
+    public static MapObjectDto toDto(MapObject o) {
+        return new MapObjectDto(
+                o.getId(), o.getType(),
+                o.getCol(), o.getRow(),
+                o.getWidth(), o.getHeight(),
+                o.getGridSize(),
+                o.getImageUrl()
+        );
     }
 }

@@ -16,6 +16,10 @@ export interface TokenDto {
     ownerId: string | null;
     hp: number;
     maxHp: number;
+    /** Размер токена в клетках (1..4). */
+    gridSize: number;
+    /** Относительный URL изображения или null. */
+    imageUrl: string | null;
 }
 
 export interface PlayerDto {
@@ -31,6 +35,10 @@ export interface MapObjectDto {
     row: number;
     width: number;
     height: number;
+    /** Размер объекта в клетках (1..4). */
+    gridSize: number;
+    /** Относительный URL текстуры или null. */
+    imageUrl: string | null;
 }
 
 export interface SessionStateDto {

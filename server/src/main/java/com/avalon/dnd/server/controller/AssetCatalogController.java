@@ -1,0 +1,36 @@
+package com.avalon.dnd.server.controller;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.core.io.ClassPathResource;
+import org.springframework.web.bind.annotation.*;
+
+import java.io.InputStream;
+
+/**
+ * Отдаёт каталог существ и объектов из assets/catalog.json
+ * (файл лежит в src/main/resources/assets/catalog.json или classpath).
+ * В dev-режиме можно просто скопировать catalog.json в resources/assets/.
+ */
+@RestController
+@RequestMapping("/api/assets")
+public class AssetCatalogController {
+
+    private final ObjectMapper mapper = new ObjectMapper();
+
+    @GetMapping("/catalog")
+    public JsonNode getCatalog() {
+        try {
+            // Ищем catalog.json в classpath (resources/assets/catalog.json)
+            ClassPathResource res = new ClassPathResource("assets/catalog.json");
+            try (InputStream is = res.getInputStream()) {
+                return mapper.readTree(is);
+            }
+        } catch (Exception e) {
+            // Если файла нет — возвращаем пустой каталог
+            return mapper.createObjectNode()
+                    .set("tokens", mapper.createArrayNode())
+                    .deepCopy();
+        }
+    }
+}

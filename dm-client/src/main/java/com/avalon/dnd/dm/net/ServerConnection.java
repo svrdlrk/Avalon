@@ -22,28 +22,24 @@ import java.util.function.Consumer;
 public class ServerConnection {
 
     private static final ServerConnection INSTANCE = new ServerConnection();
-
-    public static ServerConnection getInstance() {
-        return INSTANCE;
-    }
+    public static ServerConnection getInstance() { return INSTANCE; }
 
     private StompSession stompSession;
     private final ObjectMapper mapper = new ObjectMapper();
     private Consumer<Void> onConnected;
 
-    // FIX: убрана зависимость tyrus-standalone-client, используем OkHttp только для HTTP
     private final OkHttpClient httpClient = new OkHttpClient.Builder()
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(10, TimeUnit.SECONDS)
             .build();
 
-    private ServerConnection() {
-    }
+    private ServerConnection() {}
+
+    // ================================================================ STOMP
 
     public void connect(String serverUrl, String sessionId,
                         String playerName, boolean isDm,
                         Consumer<Void> onConnected) {
-
         disconnect();
         this.onConnected = onConnected;
         String joinNonce = UUID.randomUUID().toString();
@@ -56,20 +52,18 @@ public class ServerConnection {
             @Override
             public void afterConnected(StompSession session, StompHeaders connectedHeaders) {
                 stompSession = session;
-
                 stompSession.subscribe("/topic/session/" + sessionId, new BroadcastHandler());
                 stompSession.subscribe(
                         "/topic/session/" + sessionId + "/join/" + joinNonce,
                         new JoinStateHandler(sessionId, true)
                 );
 
-                JoinSessionRequestDto joinRequest = new JoinSessionRequestDto();
-                joinRequest.setSessionId(sessionId);
-                joinRequest.setPlayerName(playerName);
-                joinRequest.setDm(isDm);
-                joinRequest.setJoinNonce(joinNonce);
-
-                stompSession.send("/app/session.join", joinRequest);
+                JoinSessionRequestDto req = new JoinSessionRequestDto();
+                req.setSessionId(sessionId);
+                req.setPlayerName(playerName);
+                req.setDm(isDm);
+                req.setJoinNonce(joinNonce);
+                stompSession.send("/app/session.join", req);
             }
 
             @Override
@@ -113,26 +107,26 @@ public class ServerConnection {
         );
     }
 
-    // ==================== BROADCAST HANDLER ====================
+    // ================================================================ Handlers
 
     private class BroadcastHandler extends StompSessionHandlerAdapter {
-
-        @Override
-        public Type getPayloadType(StompHeaders headers) {
-            return WsMessage.class;
-        }
+        @Override public Type getPayloadType(StompHeaders h) { return String.class; }
 
         @Override
         public void handleFrame(StompHeaders headers, Object payload) {
-            WsMessage<?> msg = (WsMessage<?>) payload;
-            handleEvent(msg);
+            try {
+                String json = (String) payload;
+                JavaType type = mapper.getTypeFactory()
+                        .constructParametricType(WsMessage.class, Object.class);
+                WsMessage<?> msg = mapper.readValue(json, type);
+                handleEvent(msg);
+            } catch (Exception e) {
+                System.err.println("Broadcast parse error: " + e.getMessage());
+            }
         }
     }
 
-    // ==================== JOIN / PRIVATE HANDLER ====================
-
     private class JoinStateHandler extends StompSessionHandlerAdapter {
-
         private final String sessionId;
         private final boolean completeHandshake;
 
@@ -141,49 +135,44 @@ public class ServerConnection {
             this.completeHandshake = completeHandshake;
         }
 
-        @Override
-        public Type getPayloadType(StompHeaders headers) {
-            return WsMessage.class;
-        }
+        @Override public Type getPayloadType(StompHeaders h) { return String.class; }
 
         @Override
         public void handleFrame(StompHeaders headers, Object payload) {
-            WsMessage<?> raw = (WsMessage<?>) payload;
+            try {
+                String json = (String) payload;
+                JavaType t = mapper.getTypeFactory()
+                        .constructParametricType(WsMessage.class, SessionStateDto.class);
+                WsMessage<SessionStateDto> msg = mapper.readValue(json, t);
 
-            if (raw.getType() != WsEventType.SESSION_STATE) {
-                return;
-            }
+                if (msg.getType() != WsEventType.SESSION_STATE) return;
 
-            SessionStateDto state = mapper.convertValue(raw.getPayload(), SessionStateDto.class);
-            String myPlayerId = state.getMyPlayerId();
+                SessionStateDto state = msg.getPayload();
+                String myPlayerId = state.getMyPlayerId();
 
-            Platform.runLater(() -> {
-                ClientState.getInstance().applyState(state, sessionId, myPlayerId);
-
-                if (completeHandshake) {
-                    subscribePrivateChannel(sessionId, myPlayerId);
-                    if (onConnected != null) {
-                        onConnected.accept(null);
-                        onConnected = null;
+                Platform.runLater(() -> {
+                    ClientState.getInstance().applyState(state, sessionId, myPlayerId);
+                    if (completeHandshake) {
+                        subscribePrivateChannel(sessionId, myPlayerId);
+                        if (onConnected != null) {
+                            onConnected.accept(null);
+                            onConnected = null;
+                        }
                     }
-                }
-            });
+                });
+            } catch (Exception e) {
+                System.err.println("JoinState parse error: " + e.getMessage());
+            }
         }
     }
-
-    // ==================== EVENT DISPATCH ====================
 
     private void handleEvent(WsMessage<?> msg) {
         Platform.runLater(() -> {
             ClientState state = ClientState.getInstance();
             switch (msg.getType()) {
-                case TOKEN_MOVED, TOKEN_ADDED, TOKEN_ASSIGNED -> {
+                case TOKEN_MOVED, TOKEN_ADDED, TOKEN_ASSIGNED, TOKEN_HP -> {
                     TokenDto token = mapper.convertValue(msg.getPayload(), TokenDto.class);
                     state.moveToken(token);
-                }
-                case TOKEN_HP -> {
-                    TokenDto t = mapper.convertValue(msg.getPayload(), TokenDto.class);
-                    state.moveToken(t);
                 }
                 case TOKEN_REMOVED -> {
                     String tokenId = mapper.convertValue(msg.getPayload(), String.class);
@@ -206,19 +195,13 @@ public class ServerConnection {
                     String url = mapper.convertValue(msg.getPayload(), String.class);
                     state.setBackgroundUrl(url);
                 }
-                default -> {
-                    // SESSION_STATE, PLAYER_JOINED — обрабатываются в специализированных хендлерах
-                }
+                default -> {}
             }
         });
     }
 
-    // ==================== HTTP МЕТОДЫ ДЛЯ DM ====================
+    // ================================================================ HTTP
 
-    /**
-     * Создаёт новую сессию на сервере и вызывает callback с ID.
-     * FIX: добавлен Consumer<String> callback вместо простого println.
-     */
     public void createSession(String serverUrl, Consumer<String> onSessionCreated) {
         new Thread(() -> {
             try {
@@ -226,15 +209,11 @@ public class ServerConnection {
                         .url(serverUrl + "/api/session/create")
                         .post(RequestBody.create(new byte[0]))
                         .build();
-
                 try (Response response = httpClient.newCall(request).execute()) {
                     if (response.isSuccessful() && response.body() != null) {
-                        String body = response.body().string();
-                        String sessionId = mapper.readTree(body).get("id").asText();
-                        System.out.println("✅ Сессия создана: " + sessionId);
+                        String sessionId = mapper.readTree(response.body().string()).get("id").asText();
                         Platform.runLater(() -> onSessionCreated.accept(sessionId));
                     } else {
-                        System.err.println("❌ Ошибка создания сессии: " + response.code());
                         Platform.runLater(() -> onSessionCreated.accept(null));
                     }
                 }
@@ -245,15 +224,11 @@ public class ServerConnection {
         }).start();
     }
 
-    /**
-     * Загружает файл карты на сервер и вызывает callback с URL.
-     * FIX: добавлен Consumer<String> callback — URL фона передаётся в UI.
-     */
     public void uploadMap(String serverUrl, String sessionId,
                           java.io.File file, Consumer<String> onUploaded) {
         new Thread(() -> {
             try {
-                RequestBody requestBody = new MultipartBody.Builder()
+                RequestBody body = new MultipartBody.Builder()
                         .setType(MultipartBody.FORM)
                         .addFormDataPart("sessionId", sessionId)
                         .addFormDataPart("file", file.getName(),
@@ -262,18 +237,13 @@ public class ServerConnection {
 
                 Request request = new Request.Builder()
                         .url(serverUrl + "/api/map/upload")
-                        .post(requestBody)
+                        .post(body)
                         .build();
 
                 try (Response response = httpClient.newCall(request).execute()) {
                     if (response.isSuccessful() && response.body() != null) {
                         String url = response.body().string();
-                        System.out.println("✅ Карта загружена: " + url);
-                        Platform.runLater(() -> {
-                            if (onUploaded != null) onUploaded.accept(url);
-                        });
-                    } else {
-                        System.err.println("❌ Ошибка загрузки карты: " + response.code());
+                        Platform.runLater(() -> { if (onUploaded != null) onUploaded.accept(url); });
                     }
                 }
             } catch (Exception e) {
@@ -282,14 +252,25 @@ public class ServerConnection {
         }).start();
     }
 
-    /** Перегрузка без callback для обратной совместимости. */
     public void uploadMap(String serverUrl, String sessionId, java.io.File file) {
         uploadMap(serverUrl, sessionId, file, null);
     }
 
-    public void createToken(String name, int col, int row, int hp, String ownerId) {
-        TokenCreateRequest req = new TokenCreateRequest(name, col, row, ownerId, hp, hp);
+    // ================================================================ Высокоуровневые методы
+
+    /** Создать токен с поддержкой gridSize и imageUrl. */
+    public void createToken(String name, int col, int row,
+                            int hp, int maxHp,
+                            int gridSize, String imageUrl,
+                            String ownerId) {
+        TokenCreateRequest req = new TokenCreateRequest(
+                name, col, row, ownerId, hp, maxHp, gridSize, imageUrl);
         send("/token.create", req);
+    }
+
+    /** Устаревшая перегрузка для обратной совместимости. */
+    public void createToken(String name, int col, int row, int hp, String ownerId) {
+        createToken(name, col, row, hp, hp, 1, null, ownerId);
     }
 
     public void assignToken(String tokenId, String newOwnerId) {
@@ -306,10 +287,4 @@ public class ServerConnection {
         event.setMaxHp(newMaxHp);
         send("/token.hp", event);
     }
-
-    /**
-     * FIX: revealAllFog убран — сервер не поддерживает /map.fog.clear.
-     * Нужно добавить WsEventType.FOG_CLEARED и обработчик на сервере,
-     * только после этого метод имеет смысл.
-     */
 }

@@ -34,29 +34,26 @@ public class TokenWsController {
     public void moveToken(TokenMoveEvent event,
                           @Header("playerId") String playerId,
                           @Header("sessionId") String sessionId) {
-
         Player player = validationService.validate(sessionId, playerId);
         GameSession session = getSession(sessionId);
         Token updated = tokenService.moveToken(event, player);
-        broadcast(sessionId, session, WsEventType.TOKEN_MOVED, toDto(updated));
+        broadcast(sessionId, session, WsEventType.TOKEN_MOVED, TokenService.toDto(updated));
     }
 
     @MessageMapping("/token.create")
     public void createToken(TokenCreateRequest request,
                             @Header("playerId") String playerId,
                             @Header("sessionId") String sessionId) {
-
         Player player = validationService.validate(sessionId, playerId);
         GameSession session = getSession(sessionId);
         Token token = tokenService.createToken(request, player);
-        broadcast(sessionId, session, WsEventType.TOKEN_ADDED, toDto(token));
+        broadcast(sessionId, session, WsEventType.TOKEN_ADDED, TokenService.toDto(token));
     }
 
     @MessageMapping("/token.remove")
     public void removeToken(TokenRemoveEvent event,
                             @Header("playerId") String playerId,
                             @Header("sessionId") String sessionId) {
-
         Player player = validationService.validate(sessionId, playerId);
         GameSession session = getSession(sessionId);
         String removedId = tokenService.removeToken(event, player);
@@ -67,26 +64,21 @@ public class TokenWsController {
     public void assignToken(TokenAssignRequest request,
                             @Header("playerId") String playerId,
                             @Header("sessionId") String sessionId) {
-
         Player player = validationService.validate(sessionId, playerId);
         GameSession session = getSession(sessionId);
         Token updated = tokenService.assignToken(request, player);
-        broadcast(sessionId, session, WsEventType.TOKEN_ASSIGNED, toDto(updated));
+        broadcast(sessionId, session, WsEventType.TOKEN_ASSIGNED, TokenService.toDto(updated));
     }
 
     @MessageMapping("/token.hp")
     public void updateHp(TokenHpUpdateEvent event,
                          @Header("playerId") String playerId,
                          @Header("sessionId") String sessionId) {
-
         Player player = validationService.validate(sessionId, playerId);
         GameSession session = getSession(sessionId);
         Token updated = tokenService.updateHp(event, player);
-        // TOKEN_HP — отдельный тип, не TOKEN_MOVED
-        broadcast(sessionId, session, WsEventType.TOKEN_HP, toDto(updated));
+        broadcast(sessionId, session, WsEventType.TOKEN_HP, TokenService.toDto(updated));
     }
-
-    // --- helpers ---
 
     private GameSession getSession(String sessionId) {
         GameSession s = sessionService.getSession(sessionId);
@@ -100,15 +92,6 @@ public class TokenWsController {
         messaging.convertAndSend(
                 "/topic/session/" + sessionId,
                 new WsMessage<>(type, sessionId, version, payload)
-        );
-    }
-
-    private static TokenDto toDto(Token t) {
-        return new TokenDto(
-                t.getId(), t.getName(),
-                t.getCol(), t.getRow(),
-                t.getOwnerId(),
-                t.getHp(), t.getMaxHp()
         );
     }
 }

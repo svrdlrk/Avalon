@@ -32,27 +32,16 @@ public class MapObjectWsController {
     public void create(MapObjectCreateRequest request,
                        @Header("playerId") String playerId,
                        @Header("sessionId") String sessionId) {
-
         Player player = validationService.validate(sessionId, playerId);
         var session = sessionService.getSession(sessionId);
-        if (session == null) {
-            throw new RuntimeException("Session not found");
-        }
+        if (session == null) throw new RuntimeException("Session not found");
 
         var obj = service.create(request, player);
-
         long version = session.incrementVersion();
         messagingTemplate.convertAndSend(
                 "/topic/session/" + sessionId,
                 new WsMessage<>(WsEventType.MAP_OBJECT_ADDED, sessionId, version,
-                        new MapObjectDto(
-                                obj.getId(),
-                                obj.getType(),
-                                obj.getCol(),
-                                obj.getRow(),
-                                obj.getWidth(),
-                                obj.getHeight()
-                        ))
+                        MapObjectService.toDto(obj))
         );
     }
 
@@ -60,12 +49,9 @@ public class MapObjectWsController {
     public void remove(MapObjectRemoveEvent request,
                        @Header("playerId") String playerId,
                        @Header("sessionId") String sessionId) {
-
         Player player = validationService.validate(sessionId, playerId);
         var session = sessionService.getSession(sessionId);
-        if (session == null) {
-            throw new RuntimeException("Session not found");
-        }
+        if (session == null) throw new RuntimeException("Session not found");
 
         String id = service.remove(request, player);
         long version = session.incrementVersion();

@@ -31,13 +31,14 @@ public class TokenService {
         );
         token.setHp(Math.max(1, request.getHp()));
         token.setMaxHp(Math.max(1, request.getMaxHp()));
+        token.setGridSize(request.getGridSize());
+        token.setImageUrl(request.getImageUrl());
 
         session.getTokens().put(tokenId, token);
         return token;
     }
 
     public Token moveToken(TokenMoveEvent event, Player player) {
-        // FIX: проверяем tokenId до обращения к Map
         if (event.getTokenId() == null || event.getTokenId().isBlank()) {
             throw new RuntimeException("TokenId is required");
         }
@@ -54,8 +55,11 @@ public class TokenService {
         }
 
         var grid = session.getGrid();
-        if (event.getToCol() < 0 || event.getToCol() >= grid.getCols()
-                || event.getToRow() < 0 || event.getToRow() >= grid.getRows()) {
+        // Учитываем gridSize при проверке границ
+        int maxCol = grid.getCols() - token.getGridSize();
+        int maxRow = grid.getRows() - token.getGridSize();
+        if (event.getToCol() < 0 || event.getToCol() > maxCol
+                || event.getToRow() < 0 || event.getToRow() > maxRow) {
             throw new RuntimeException("Out of bounds: ("
                     + event.getToCol() + "," + event.getToRow() + ")");
         }
@@ -115,6 +119,17 @@ public class TokenService {
         token.setMaxHp(maxHp);
         token.setHp(hp);
         return token;
+    }
+
+    // Конвертация модели → DTO
+    public static TokenDto toDto(Token t) {
+        return new TokenDto(
+                t.getId(), t.getName(),
+                t.getCol(), t.getRow(),
+                t.getOwnerId(),
+                t.getHp(), t.getMaxHp(),
+                t.getGridSize(), t.getImageUrl()
+        );
     }
 
     private boolean canMove(Token token, Player player) {
