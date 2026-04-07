@@ -282,15 +282,17 @@ public class MainStage {
         ServerConnection.getInstance().send("/map.object.remove", ev);
     }
 
-    private void addNpcToken(String rawName) {
-        String name = rawName == null || rawName.isBlank() ? "NPC" : rawName.trim();
-        int[] cell = findFirstEmptyCell();
-        TokenCreateRequest req = new TokenCreateRequest();
-        req.setName(name);
-        req.setCol(cell[0]);
-        req.setRow(cell[1]);
-        req.setOwnerId(null);
-        ServerConnection.getInstance().send("/token.create", req);
+    private void addNpcToken(String name) {
+        // Получаем текущую выбранную клетку из ClientState [cite: 123, 124]
+        int col = ClientState.getInstance().getPendingPlaceCol();
+        int row = ClientState.getInstance().getPendingPlaceRow();
+
+        // Проверяем, выбран ли кто-то в playerAssignCombo
+        PlayerDto selectedPlayer = playerAssignCombo.getSelectionModel().getSelectedItem();
+        String ownerId = (selectedPlayer != null) ? selectedPlayer.getId() : null;
+
+        // Вызываем обновленный метод в соединении
+        ServerConnection.getInstance().createToken(name, col, row, 100, ownerId);
     }
 
     private int[] findFirstEmptyCell() {

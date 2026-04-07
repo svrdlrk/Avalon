@@ -23,29 +23,23 @@ public class TokenService {
     }
 
     public Token createToken(TokenCreateRequest request, Player player) {
-
         if (player.getRole() != Role.DM) {
             throw new RuntimeException("Only DM can create tokens");
         }
-
         var session = sessionService.getSession(player.getSessionId());
         if (session == null) {
             throw new RuntimeException("Session not found");
         }
-
         String tokenId = java.util.UUID.randomUUID().toString();
-
         Token token = new Token(
-                tokenId,
-                request.getName(),
-                request.getCol(),
-                request.getRow(),
-                request.getOwnerId(),
-                player.getSessionId()
+                tokenId, request.getName(), request.getCol(),
+                request.getRow(), request.getOwnerId(), player.getSessionId()
         );
+        // Добавляем установку HP из реквеста
+        token.setHp(request.getHp());
+        token.setMaxHp(request.getMaxHp());
 
         session.getTokens().put(tokenId, token);
-
         return token;
     }
 

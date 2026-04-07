@@ -226,9 +226,33 @@ public class ServerConnection {
         // TODO: Отправка файла (base64 или multipart)
     }
 
-    public void addToken(String name, int col, int row, int hp, int maxHp) {
-        System.out.println("DM → Server: addToken '" + name + "' at (" + col + "," + row + ")");
-        // TODO: Отправка TokenCreateRequest
+    public void createToken(String name, int col, int row, int hp, String ownerId) {
+        TokenCreateRequest req = new TokenCreateRequest(
+                name,
+                col,
+                row,
+                ownerId, // Передаем ID игрока или null для NPC
+                hp,
+                hp       // maxHp при создании обычно равен текущему HP
+        );
+
+        send("/token.create", req);
+    }
+
+    public void assignToken(String tokenId, String newOwnerId) {
+        TokenAssignRequest req = new TokenAssignRequest();
+        req.setTokenId(tokenId);
+        req.setOwnerId(newOwnerId); // null сделает токен NPC
+
+        send("/token.assign", req);
+    }
+
+    public void updateTokenHp(String tokenId, int newHp, int newMaxHp) {
+        TokenHpUpdateEvent event = new TokenHpUpdateEvent();
+        event.setTokenId(tokenId);
+        event.setHp(newHp);
+        event.setMaxHp(newMaxHp); // Обязательно передаем maxHp
+        send("/token.hp", event);
     }
 
     public void revealAllFog() {
