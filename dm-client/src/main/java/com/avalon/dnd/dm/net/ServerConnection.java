@@ -13,8 +13,6 @@ import org.springframework.web.socket.messaging.WebSocketStompClient;
 import org.springframework.web.socket.sockjs.client.SockJsClient;
 import org.springframework.web.socket.sockjs.client.WebSocketTransport;
 
-import java.io.File;
-import java.io.IOException;
 import java.lang.reflect.Type;
 import java.util.List;
 import java.util.UUID;
@@ -24,17 +22,23 @@ import java.util.function.Consumer;
 public class ServerConnection {
 
     private static final ServerConnection INSTANCE = new ServerConnection();
-    public static ServerConnection getInstance() { return INSTANCE; }
+
+    public static ServerConnection getInstance() {
+        return INSTANCE;
+    }
 
     private StompSession stompSession;
     private final ObjectMapper mapper = new ObjectMapper();
     private Consumer<Void> onConnected;
+
+    // FIX: убрана зависимость tyrus-standalone-client, используем OkHttp только для HTTP
     private final OkHttpClient httpClient = new OkHttpClient.Builder()
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(10, TimeUnit.SECONDS)
             .build();
 
-    private ServerConnection() {}
+    private ServerConnection() {
+    }
 
     public void connect(String serverUrl, String sessionId,
                         String playerName, boolean isDm,
@@ -54,8 +58,10 @@ public class ServerConnection {
                 stompSession = session;
 
                 stompSession.subscribe("/topic/session/" + sessionId, new BroadcastHandler());
-                stompSession.subscribe("/topic/session/" + sessionId + "/join/" + joinNonce,
-                        new JoinStateHandler(sessionId, true));
+                stompSession.subscribe(
+                        "/topic/session/" + sessionId + "/join/" + joinNonce,
+                        new JoinStateHandler(sessionId, true)
+                );
 
                 JoinSessionRequestDto joinRequest = new JoinSessionRequestDto();
                 joinRequest.setSessionId(sessionId);
@@ -67,8 +73,15 @@ public class ServerConnection {
             }
 
             @Override
-            public void handleException(StompSession s, StompCommand cmd, StompHeaders h, byte[] p, Throwable ex) {
+            public void handleException(StompSession s, StompCommand cmd,
+                                        StompHeaders h, byte[] p, Throwable ex) {
+                System.err.println("STOMP error: " + ex.getMessage());
                 ex.printStackTrace();
+            }
+
+            @Override
+            public void handleTransportError(StompSession session, Throwable exception) {
+                System.err.println("STOMP transport error: " + exception.getMessage());
             }
         });
     }
@@ -89,6 +102,7 @@ public class ServerConnection {
         if (stompSession != null && stompSession.isConnected()) {
             stompSession.disconnect();
         }
+        stompSession = null;
     }
 
     private void subscribePrivateChannel(String sessionId, String playerId) {
@@ -99,34 +113,24 @@ public class ServerConnection {
         );
     }
 
+    // ==================== BROADCAST HANDLER ====================
+
     private class BroadcastHandler extends StompSessionHandlerAdapter {
 
         @Override
         public Type getPayloadType(StompHeaders headers) {
-            return String.class;   // оставляем String, потому что сервер шлёт JSON-строку
+            return WsMessage.class;
         }
 
         @Override
         public void handleFrame(StompHeaders headers, Object payload) {
-            try {
-                String json = (String) payload;
-                // Десериализуем как WsMessage с Object payload
-                JavaType type = mapper.getTypeFactory()
-                        .constructParametricType(WsMessage.class, Object.class);
-                WsMessage<?> msg = mapper.readValue(json, type);
-
-                handleEvent(msg);   // ← твой существующий метод handleEvent
-
-            } catch (Exception e) {
-                System.err.println("Failed to parse broadcast message: " + payload);
-                e.printStackTrace();
-            }
+            WsMessage<?> msg = (WsMessage<?>) payload;
+            handleEvent(msg);
         }
     }
 
-    /**
-     * Первый кадр после join (notify UI) и последующие SESSION_STATE из /session.sync.
-     */
+    // ==================== JOIN / PRIVATE HANDLER ====================
+
     private class JoinStateHandler extends StompSessionHandlerAdapter {
 
         private final String sessionId;
@@ -139,60 +143,54 @@ public class ServerConnection {
 
         @Override
         public Type getPayloadType(StompHeaders headers) {
-            return String.class;
+            return WsMessage.class;
         }
 
         @Override
         public void handleFrame(StompHeaders headers, Object payload) {
-            try {
-                String json = (String) payload;
-                JavaType stateType = mapper.getTypeFactory()
-                        .constructParametricType(WsMessage.class, SessionStateDto.class);
+            WsMessage<?> raw = (WsMessage<?>) payload;
 
-                WsMessage<SessionStateDto> msg = mapper.readValue(json, stateType);
-
-                if (msg.getType() != WsEventType.SESSION_STATE) {
-                    return;
-                }
-
-                SessionStateDto state = msg.getPayload();
-                String myPlayerId = state.getMyPlayerId();
-
-                Platform.runLater(() -> {
-                    ClientState.getInstance().applyState(state, sessionId, myPlayerId);
-
-                    if (completeHandshake) {
-                        subscribePrivateChannel(sessionId, myPlayerId);
-                        if (onConnected != null) {
-                            onConnected.accept(null);
-                            onConnected = null;
-                        }
-                    }
-                });
-
-            } catch (Exception e) {
-                System.err.println("Failed to parse join state: " + payload);
-                e.printStackTrace();
+            if (raw.getType() != WsEventType.SESSION_STATE) {
+                return;
             }
+
+            SessionStateDto state = mapper.convertValue(raw.getPayload(), SessionStateDto.class);
+            String myPlayerId = state.getMyPlayerId();
+
+            Platform.runLater(() -> {
+                ClientState.getInstance().applyState(state, sessionId, myPlayerId);
+
+                if (completeHandshake) {
+                    subscribePrivateChannel(sessionId, myPlayerId);
+                    if (onConnected != null) {
+                        onConnected.accept(null);
+                        onConnected = null;
+                    }
+                }
+            });
         }
     }
+
+    // ==================== EVENT DISPATCH ====================
 
     private void handleEvent(WsMessage<?> msg) {
         Platform.runLater(() -> {
             ClientState state = ClientState.getInstance();
             switch (msg.getType()) {
                 case TOKEN_MOVED, TOKEN_ADDED, TOKEN_ASSIGNED -> {
-                    TokenDto token = mapper.convertValue(
-                            msg.getPayload(), TokenDto.class);
+                    TokenDto token = mapper.convertValue(msg.getPayload(), TokenDto.class);
                     state.moveToken(token);
+                }
+                case TOKEN_HP -> {
+                    TokenDto t = mapper.convertValue(msg.getPayload(), TokenDto.class);
+                    state.moveToken(t);
                 }
                 case TOKEN_REMOVED -> {
                     String tokenId = mapper.convertValue(msg.getPayload(), String.class);
                     state.removeToken(tokenId);
                 }
                 case MAP_OBJECT_ADDED -> {
-                    MapObjectDto obj = mapper.convertValue(
-                            msg.getPayload(), MapObjectDto.class);
+                    MapObjectDto obj = mapper.convertValue(msg.getPayload(), MapObjectDto.class);
                     state.addObject(obj);
                 }
                 case MAP_OBJECT_REMOVED -> {
@@ -204,18 +202,24 @@ public class ServerConnection {
                             msg.getPayload(), MapLayoutUpdateDto.class);
                     state.applyMapLayoutUpdate(layout);
                 }
-                case TOKEN_HP -> {
-                    TokenDto t = mapper.convertValue(msg.getPayload(), TokenDto.class);
-                    state.moveToken(t);
+                case MAP_BACKGROUND_UPDATED -> {
+                    String url = mapper.convertValue(msg.getPayload(), String.class);
+                    state.setBackgroundUrl(url);
                 }
-                default -> {}
+                default -> {
+                    // SESSION_STATE, PLAYER_JOINED — обрабатываются в специализированных хендлерах
+                }
             }
         });
     }
 
-    // ==================== МЕТОДЫ ДЛЯ DM ====================
+    // ==================== HTTP МЕТОДЫ ДЛЯ DM ====================
 
-    public void createSession(String serverUrl) {
+    /**
+     * Создаёт новую сессию на сервере и вызывает callback с ID.
+     * FIX: добавлен Consumer<String> callback вместо простого println.
+     */
+    public void createSession(String serverUrl, Consumer<String> onSessionCreated) {
         new Thread(() -> {
             try {
                 Request request = new Request.Builder()
@@ -228,35 +232,48 @@ public class ServerConnection {
                         String body = response.body().string();
                         String sessionId = mapper.readTree(body).get("id").asText();
                         System.out.println("✅ Сессия создана: " + sessionId);
-                        // Можно добавить callback, если нужно
+                        Platform.runLater(() -> onSessionCreated.accept(sessionId));
+                    } else {
+                        System.err.println("❌ Ошибка создания сессии: " + response.code());
+                        Platform.runLater(() -> onSessionCreated.accept(null));
                     }
                 }
             } catch (Exception e) {
                 e.printStackTrace();
+                Platform.runLater(() -> onSessionCreated.accept(null));
             }
         }).start();
     }
 
-    public void uploadMap(String serverUrl, String sessionId, java.io.File file) {
+    /**
+     * Загружает файл карты на сервер и вызывает callback с URL.
+     * FIX: добавлен Consumer<String> callback — URL фона передаётся в UI.
+     */
+    public void uploadMap(String serverUrl, String sessionId,
+                          java.io.File file, Consumer<String> onUploaded) {
         new Thread(() -> {
             try {
-                okhttp3.RequestBody requestBody = new okhttp3.MultipartBody.Builder()
-                        .setType(okhttp3.MultipartBody.FORM)
+                RequestBody requestBody = new MultipartBody.Builder()
+                        .setType(MultipartBody.FORM)
                         .addFormDataPart("sessionId", sessionId)
                         .addFormDataPart("file", file.getName(),
-                                okhttp3.RequestBody.create(file, okhttp3.MediaType.parse("image/*")))
+                                RequestBody.create(file, MediaType.parse("image/*")))
                         .build();
 
-                okhttp3.Request request = new okhttp3.Request.Builder()
+                Request request = new Request.Builder()
                         .url(serverUrl + "/api/map/upload")
                         .post(requestBody)
                         .build();
 
-                try (okhttp3.Response response = httpClient.newCall(request).execute()) {
+                try (Response response = httpClient.newCall(request).execute()) {
                     if (response.isSuccessful() && response.body() != null) {
                         String url = response.body().string();
                         System.out.println("✅ Карта загружена: " + url);
-                        // Можно сразу обновить локально, если нужно
+                        Platform.runLater(() -> {
+                            if (onUploaded != null) onUploaded.accept(url);
+                        });
+                    } else {
+                        System.err.println("❌ Ошибка загрузки карты: " + response.code());
                     }
                 }
             } catch (Exception e) {
@@ -265,24 +282,20 @@ public class ServerConnection {
         }).start();
     }
 
-    public void createToken(String name, int col, int row, int hp, String ownerId) {
-        TokenCreateRequest req = new TokenCreateRequest(
-                name,
-                col,
-                row,
-                ownerId, // Передаем ID игрока или null для NPC
-                hp,
-                hp       // maxHp при создании обычно равен текущему HP
-        );
+    /** Перегрузка без callback для обратной совместимости. */
+    public void uploadMap(String serverUrl, String sessionId, java.io.File file) {
+        uploadMap(serverUrl, sessionId, file, null);
+    }
 
+    public void createToken(String name, int col, int row, int hp, String ownerId) {
+        TokenCreateRequest req = new TokenCreateRequest(name, col, row, ownerId, hp, hp);
         send("/token.create", req);
     }
 
     public void assignToken(String tokenId, String newOwnerId) {
         TokenAssignRequest req = new TokenAssignRequest();
         req.setTokenId(tokenId);
-        req.setOwnerId(newOwnerId); // null сделает токен NPC
-
+        req.setOwnerId(newOwnerId);
         send("/token.assign", req);
     }
 
@@ -290,13 +303,13 @@ public class ServerConnection {
         TokenHpUpdateEvent event = new TokenHpUpdateEvent();
         event.setTokenId(tokenId);
         event.setHp(newHp);
-        event.setMaxHp(newMaxHp); // Обязательно передаем maxHp
+        event.setMaxHp(newMaxHp);
         send("/token.hp", event);
     }
 
-    public void revealAllFog() {
-        // TODO: добавить на сервере WsEventType.FOG_CLEARED и обработчик
-        System.out.println("🌫️ DM → Server: revealAllFog (отправка события)");
-        send("/map.fog.clear", new Object()); // placeholder payload
-    }
+    /**
+     * FIX: revealAllFog убран — сервер не поддерживает /map.fog.clear.
+     * Нужно добавить WsEventType.FOG_CLEARED и обработчик на сервере,
+     * только после этого метод имеет смысл.
+     */
 }

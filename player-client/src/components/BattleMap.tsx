@@ -1,12 +1,20 @@
 import React, { useRef, useCallback } from 'react';
-import { Stage, Layer, Rect, Line, Circle, Text, Group } from 'react-konva';
+import { Stage, Layer, Rect, Line, Circle, Text, Group, Image as KonvaImage } from 'react-konva';
 import { useGameStore } from '../store/gameStore';
 import type { TokenDto, MapObjectDto } from '../types/types';
 import { wsClient } from '../net/wsClient';
+import useImage from '../hooks/useImage.ts';
 
 const BattleMap: React.FC = () => {
-    const { grid, tokens, objects, myPlayerId } = useGameStore();
+    const { grid, tokens, objects, myPlayerId, backgroundUrl } = useGameStore();
     const stageRef = useRef<any>(null);
+
+    // FIX: загружаем фон через хук (async)
+    const serverBase = 'http://localhost:8080';
+    const fullBgUrl = backgroundUrl
+        ? (backgroundUrl.startsWith('http') ? backgroundUrl : serverBase + backgroundUrl)
+        : null;
+    const [bgImage] = useImage(fullBgUrl);
 
     const hpColor = (hp: number, maxHp: number): string => {
         if (maxHp <= 0) return '#4caf50';
@@ -18,25 +26,17 @@ const BattleMap: React.FC = () => {
 
     const handleDragEnd = useCallback((e: any, token: TokenDto) => {
         if (!grid) return;
-
         const node = e.target;
-
-        // В Group x/y — это центр токена (т.к. Circle рисуется в 0,0 внутри группы)
         const rawX = node.x();
         const rawY = node.y();
-
         const newCol = Math.round((rawX - grid.offsetX - grid.cellSize / 2) / grid.cellSize);
         const newRow = Math.round((rawY - grid.offsetY - grid.cellSize / 2) / grid.cellSize);
-
         const clampedCol = Math.max(0, Math.min(newCol, grid.cols - 1));
         const clampedRow = Math.max(0, Math.min(newRow, grid.rows - 1));
-
-        // Snap к центру клетки сразу, не ждём сервер
         node.position({
             x: grid.offsetX + clampedCol * grid.cellSize + grid.cellSize / 2,
             y: grid.offsetY + clampedRow * grid.cellSize + grid.cellSize / 2,
         });
-
         wsClient.send('/token.move', {
             tokenId: token.id,
             toCol: clampedCol,
@@ -65,7 +65,6 @@ const BattleMap: React.FC = () => {
     const stageW = Math.max(window.innerWidth, grid.offsetX + gridPixelW + 100);
     const stageH = Math.max(window.innerHeight, grid.offsetY + gridPixelH + 100);
 
-    // Линии сетки
     const gridLines: React.ReactNode[] = [];
     for (let c = 0; c <= grid.cols; c++) {
         const x = grid.offsetX + c * grid.cellSize;
@@ -119,13 +118,24 @@ const BattleMap: React.FC = () => {
                 {/* Фон */}
                 <Layer>
                     <Rect x={0} y={0} width={stageW} height={stageH} fill="#0f1117" />
-                    <Rect
-                        x={grid.offsetX}
-                        y={grid.offsetY}
-                        width={gridPixelW}
-                        height={gridPixelH}
-                        fill="#1a2035"
-                    />
+                    {/* FIX: рисуем загруженную картинку карты */}
+                    {bgImage ? (
+                        <KonvaImage
+                            image={bgImage}
+                            x={grid.offsetX}
+                            y={grid.offsetY}
+                            width={gridPixelW}
+                            height={gridPixelH}
+                        />
+                    ) : (
+                        <Rect
+                            x={grid.offsetX}
+                            y={grid.offsetY}
+                            width={gridPixelW}
+                            height={gridPixelH}
+                            fill="#1a2035"
+                        />
+                    )}
                 </Layer>
 
                 {/* Линии сетки */}
@@ -176,7 +186,6 @@ const BattleMap: React.FC = () => {
                                 }}
                                 onDragEnd={(e) => handleDragEnd(e, token)}
                             >
-                                {/* Круг токена */}
                                 <Circle
                                     x={0} y={0}
                                     radius={radius}
@@ -187,8 +196,6 @@ const BattleMap: React.FC = () => {
                                     shadowBlur={isMyToken ? 16 : 8}
                                     shadowOpacity={0.65}
                                 />
-
-                                {/* Имя */}
                                 <Text
                                     x={-radius}
                                     y={-fontSize / 2 - 1}
@@ -203,8 +210,6 @@ const BattleMap: React.FC = () => {
                                     shadowColor="rgba(0,0,0,0.9)"
                                     shadowBlur={3}
                                 />
-
-                                {/* HP-бар */}
                                 {token.maxHp > 0 && (
                                     <>
                                         <Rect

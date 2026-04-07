@@ -5,6 +5,7 @@ import com.avalon.dnd.shared.GridConfig;
 import com.avalon.dnd.shared.TokenDto;
 import javafx.scene.canvas.Canvas;
 import javafx.scene.canvas.GraphicsContext;
+import javafx.scene.image.Image;
 import javafx.scene.input.MouseEvent;
 import javafx.scene.paint.Color;
 import javafx.scene.text.Font;
@@ -13,7 +14,7 @@ public class BattleMapCanvas extends Canvas {
 
     private TokenDto draggingToken = null;
     private double dragOffsetX, dragOffsetY;
-    private javafx.scene.image.Image backgroundImage;
+    private Image backgroundImage;
 
     public BattleMapCanvas() {
         ClientState.getInstance().addChangeListener(this::renderAndResize);
@@ -40,15 +41,15 @@ public class BattleMapCanvas extends Canvas {
         GraphicsContext gc = getGraphicsContext2D();
         GridConfig grid = grid();
 
-        if (backgroundImage != null && backgroundImage.getWidth() > 0) {
+        // Рисуем фон: либо загруженную картинку, либо заливку
+        // FIX: убрана двойная заливка поверх backgroundImage
+        if (backgroundImage != null && backgroundImage.getWidth() > 0
+                && !backgroundImage.isError()) {
             gc.drawImage(backgroundImage, 0, 0, getWidth(), getHeight());
         } else {
             gc.setFill(Color.web("#2b2b2b"));
             gc.fillRect(0, 0, getWidth(), getHeight());
         }
-
-        gc.setFill(Color.web("#2b2b2b"));
-        gc.fillRect(0, 0, getWidth(), getHeight());
 
         drawGrid(gc, grid);
         drawObjects(gc, grid);
@@ -85,9 +86,6 @@ public class BattleMapCanvas extends Canvas {
         for (TokenDto token : ClientState.getInstance().getTokens().values()) {
             double x = ox + token.getCol() * cell;
             double y = oy + token.getRow() * cell;
-            double cx = x + cell / 2.0;
-            double cy = y + cell / 2.0;
-            double r = cell / 2.0 - 4;
 
             boolean mine = myId != null && myId.equals(token.getOwnerId());
             boolean isNpc = token.getOwnerId() == null;
@@ -142,10 +140,6 @@ public class BattleMapCanvas extends Canvas {
         }
     }
 
-    /**
-     * Подсвечиваем выбранную клетку для размещения объекта —
-     * теперь DM видит куда кликнул.
-     */
     private void highlightPendingCell(GraphicsContext gc, GridConfig grid) {
         int cell = grid.getCellSize();
         int ox = grid.getOffsetX();
@@ -170,7 +164,6 @@ public class BattleMapCanvas extends Canvas {
         int col = (int) ((e.getX() - ox) / cell);
         int row = (int) ((e.getY() - oy) / cell);
 
-        // Проверяем клетку за пределами сетки
         if (col < 0 || col >= grid.getCols() || row < 0 || row >= grid.getRows()) {
             return;
         }
@@ -181,8 +174,6 @@ public class BattleMapCanvas extends Canvas {
                 .orElse(null);
 
         if (draggingToken == null) {
-            // Клик по пустому месту — запоминаем клетку И уведомляем UI
-            // MainStage подписан через addChangeListener и обновит спиннеры
             ClientState.getInstance().setPendingPlaceCell(col, row);
         } else {
             dragOffsetX = e.getX() - (ox + col * cell);
@@ -226,9 +217,13 @@ public class BattleMapCanvas extends Canvas {
 
     public void setBackground(String url) {
         if (url != null && !url.isEmpty()) {
-            backgroundImage = new javafx.scene.image.Image(url, true); // async load
-            render();
+            backgroundImage = new Image(url, true); // async load
+            // Перерисовываем когда картинка загрузится
+            backgroundImage.progressProperty().addListener((obs, old, progress) -> {
+                if (progress.doubleValue() >= 1.0 && !backgroundImage.isError()) {
+                    javafx.application.Platform.runLater(this::render);
+                }
+            });
         }
     }
-
 }

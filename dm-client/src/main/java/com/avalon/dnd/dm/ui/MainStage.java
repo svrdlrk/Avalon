@@ -26,6 +26,9 @@ public class MainStage {
     private Spinner<Integer> objectRowSpinner;
     private Runnable dmUiRefreshHandler;
 
+    // Хранит текущий serverUrl для uploadMap
+    private String currentServerUrl = "http://localhost:8080";
+
     public MainStage(Stage stage) {
         this.stage = stage;
     }
@@ -60,22 +63,44 @@ public class MainStage {
         Button connectBtn = new Button("Подключиться");
         Label statusLabel = new Label("");
 
+        // FIX: createSession теперь принимает callback и обновляет sessionField
         createBtn.setOnAction(e -> {
             String serverUrl = serverField.getText().trim();
-            ServerConnection.getInstance().createSession(serverUrl);
-            statusLabel.setText("Сессия создаётся...");
+            createBtn.setDisable(true);
+            statusLabel.setText("Создание сессии...");
+            ServerConnection.getInstance().createSession(serverUrl, sessionId -> {
+                createBtn.setDisable(false);
+                if (sessionId != null) {
+                    sessionField.setText(sessionId);
+                    statusLabel.setText("✅ Сессия создана: " + sessionId);
+                } else {
+                    statusLabel.setText("❌ Не удалось создать сессию");
+                }
+            });
         });
+
         connectBtn.setOnAction(e -> {
+            String serverUrl = serverField.getText().trim();
+            String sessionId = sessionField.getText().trim();
+            String name = nameField.getText().trim();
+
+            if (serverUrl.isEmpty() || sessionId.isEmpty() || name.isEmpty()) {
+                statusLabel.setText("Заполните все поля");
+                return;
+            }
+
             statusLabel.setText("Подключение...");
+            currentServerUrl = serverUrl;
+
             ServerConnection.getInstance().connect(
-                    serverField.getText(),
-                    sessionField.getText(),
-                    nameField.getText(),
+                    serverUrl,
+                    sessionId,
+                    name,
                     true,
                     v -> javafx.application.Platform.runLater(
                             () -> switchToBattleMap(
                                     playerClientUrlField.getText().trim(),
-                                    sessionField.getText())
+                                    sessionId)
                     )
             );
         });
@@ -92,31 +117,16 @@ public class MainStage {
         return form;
     }
 
-    private void createSession(String serverUrl, TextField sessionField) {
-        new Thread(() -> {
-            try {
-                var client = new okhttp3.OkHttpClient();
-                var request = new okhttp3.Request.Builder()
-                        .url(serverUrl + "/api/session/create")
-                        .post(okhttp3.RequestBody.create(new byte[0]))
-                        .build();
-                try (var response = client.newCall(request).execute()) {
-                    var body = response.body().string();
-                    var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-                    String sessionId = mapper.readTree(body).get("id").asText();
-                    javafx.application.Platform.runLater(
-                            () -> sessionField.setText(sessionId));
-                }
-            } catch (Exception ex) {
-                ex.printStackTrace();
-            }
-        }).start();
-    }
-
     // ------------------------------------------------------------------ battle map
 
     private void switchToBattleMap(String playerClientBase, String sessionId) {
         mapCanvas = new BattleMapCanvas();
+
+        // Применяем фон если уже есть
+        String bgUrl = ClientState.getInstance().getBackgroundUrl();
+        if (bgUrl != null && !bgUrl.isEmpty()) {
+            mapCanvas.setBackground(currentServerUrl + bgUrl);
+        }
 
         // --- Toolbar 1: токены ---
         TextField tokenNameField = new TextField("Гоблин");
@@ -180,7 +190,7 @@ public class MainStage {
                 objectRemoveCombo, removeObjectBtn
         );
 
-        // --- Toolbar 3: изменение размера сетки + загрузка фона карты ---
+        // --- Toolbar 3: сетка + загрузка фона ---
         Spinner<Integer> colsSpinner = makeSpinner(4, 60, g0.getCols());
         Spinner<Integer> rowsSpinner = makeSpinner(4, 60, g0.getRows());
         Spinner<Integer> cellSpinner = makeSpinner(24, 128, g0.getCellSize());
@@ -196,10 +206,19 @@ public class MainStage {
                     new javafx.stage.FileChooser.ExtensionFilter("Images", "*.png", "*.jpg", "*.jpeg", "*.webp"));
             java.io.File file = fc.showOpenDialog(stage);
             if (file != null) {
+                // FIX: используем callback — получаем URL и сразу применяем фон
                 ServerConnection.getInstance().uploadMap(
-                        "http://localhost:8080",
+                        currentServerUrl,
                         ClientState.getInstance().getSessionId(),
-                        file);
+                        file,
+                        url -> {
+                            if (url != null) {
+                                String fullUrl = currentServerUrl + url;
+                                ClientState.getInstance().setBackgroundUrl(url);
+                                mapCanvas.setBackground(fullUrl);
+                            }
+                        }
+                );
             }
         });
 
@@ -213,13 +232,11 @@ public class MainStage {
                 uploadMapBtn
         );
 
-        // --- Ссылка на player-client ---
         String linkHint = (playerClientBase.isEmpty() ? "http://localhost:5173" : playerClientBase)
                 + "  →  сессия: " + sessionId;
         Label sessionLinkLabel = new Label(linkHint);
         sessionLinkLabel.setStyle("-fx-font-family: monospace; -fx-font-size: 11px;");
 
-        // Собираем все тулбары
         VBox top = new VBox(6);
         top.setPadding(new Insets(8));
         top.getChildren().addAll(bar1, bar2, bar3, sessionLinkLabel);
@@ -264,7 +281,6 @@ public class MainStage {
         int maxC = Math.max(0, g.getCols() - 1);
         int maxR = Math.max(0, g.getRows() - 1);
 
-        // Синхронизируем спиннеры с последней выбранной клеткой на канвасе
         int pendingCol = Math.min(ClientState.getInstance().getPendingPlaceCol(), maxC);
         int pendingRow = Math.min(ClientState.getInstance().getPendingPlaceRow(), maxR);
 
@@ -322,30 +338,24 @@ public class MainStage {
     }
 
     private void addNpcToken(String name) {
-        // Получаем текущую выбранную клетку из ClientState [cite: 123, 124]
         int col = ClientState.getInstance().getPendingPlaceCol();
         int row = ClientState.getInstance().getPendingPlaceRow();
 
-        // Проверяем, выбран ли кто-то в playerAssignCombo
         PlayerDto selectedPlayer = playerAssignCombo.getSelectionModel().getSelectedItem();
         String ownerId = (selectedPlayer != null) ? selectedPlayer.getId() : null;
 
-        // Вызываем обновленный метод в соединении
         ServerConnection.getInstance().createToken(name, col, row, 100, ownerId);
     }
 
-    private int[] findFirstEmptyCell() {
-        var g = ClientState.getInstance().getGrid();
-        Set<String> occupied = new HashSet<>();
-        for (TokenDto t : ClientState.getInstance().getTokens().values()) {
-            occupied.add(t.getCol() + "," + t.getRow());
-        }
-        for (int row = 0; row < g.getRows(); row++) {
-            for (int col = 0; col < g.getCols(); col++) {
-                if (!occupied.contains(col + "," + row)) return new int[]{col, row};
-            }
-        }
-        return new int[]{0, 0};
+    private void applyGridResize(int cols, int rows, int cellSize) {
+        GridConfig newGrid = new GridConfig();
+        newGrid.setCols(cols);
+        newGrid.setRows(rows);
+        newGrid.setCellSize(cellSize);
+        newGrid.setOffsetX(0);
+        newGrid.setOffsetY(0);
+        ServerConnection.getInstance().send("/map.grid.update", newGrid);
+        System.out.println("DM → Server: обновление сетки " + cols + "×" + rows + " cell=" + cellSize);
     }
 
     // ------------------------------------------------------------------ utils
@@ -375,8 +385,15 @@ public class MainStage {
         ComboBox<T> combo = new ComboBox<>();
         combo.setPrefWidth(prefWidth);
         combo.setConverter(new StringConverter<>() {
-            @Override public String toString(T o) { return toString.apply(o); }
-            @Override public T fromString(String s) { return null; }
+            @Override
+            public String toString(T o) {
+                return toString.apply(o);
+            }
+
+            @Override
+            public T fromString(String s) {
+                return null;
+            }
         });
         return combo;
     }
@@ -386,17 +403,5 @@ public class MainStage {
         s.setEditable(true);
         s.setPrefWidth(70);
         return s;
-    }
-
-    private void applyGridResize(int cols, int rows, int cellSize) {
-        com.avalon.dnd.shared.GridConfig newGrid = new com.avalon.dnd.shared.GridConfig();
-        newGrid.setCols(cols);
-        newGrid.setRows(rows);
-        newGrid.setCellSize(cellSize);
-        newGrid.setOffsetX(0);
-        newGrid.setOffsetY(0);
-
-        ServerConnection.getInstance().send("/map.grid.update", newGrid);
-        System.out.println("DM → Server: обновление сетки " + cols + "×" + rows + " cell=" + cellSize);
     }
 }
