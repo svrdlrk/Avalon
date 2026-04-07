@@ -3,7 +3,7 @@ import { Stage, Layer, Rect, Line, Circle, Text, Group, Image as KonvaImage } fr
 import { useGameStore } from '../store/gameStore';
 import type { TokenDto, MapObjectDto } from '../types/types';
 import { wsClient } from '../net/wsClient';
-import useImage from '../hooks/useImage.ts';
+import useImage from '../hooks/useImage';
 
 const BattleMap: React.FC = () => {
     const { grid, tokens, objects, myPlayerId, backgroundUrl } = useGameStore();
