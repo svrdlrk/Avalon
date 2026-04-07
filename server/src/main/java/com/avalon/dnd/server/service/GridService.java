@@ -73,7 +73,13 @@ public class GridService {
                     o.getWidth(), o.getHeight()));
         }
 
-        return new MapLayoutUpdateDto(g, tokenDtos, objectDtos);
+        // ИСПРАВЛЕНО: теперь передаём 4 аргумента (backgroundUrl сохраняется)
+        return new MapLayoutUpdateDto(
+                g,
+                tokenDtos,
+                objectDtos,
+                session.getBackgroundUrl()   // ← вот что не хватало
+        );
     }
 
     private static TokenDto toDto(Token t) {

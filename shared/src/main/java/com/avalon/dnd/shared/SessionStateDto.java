@@ -9,6 +9,7 @@ public class SessionStateDto {
     private List<TokenDto> tokens;
     private List<PlayerDto> players;
     private List<MapObjectDto> objects;
+    private String backgroundUrl;
 
     public SessionStateDto() {}
 
@@ -16,12 +17,14 @@ public class SessionStateDto {
                            GridConfig grid,
                            List<TokenDto> tokens,
                            List<PlayerDto> players,
-                           List<MapObjectDto> objects) {
+                           List<MapObjectDto> objects,
+                           String backgroundUrl) {
         this.myPlayerId = myPlayerId;
         this.grid = grid;
         this.tokens = tokens;
         this.players = players;
         this.objects = objects;
+        this.backgroundUrl = backgroundUrl;
     }
 
     public String getMyPlayerId() { return myPlayerId; }
@@ -55,4 +58,8 @@ public class SessionStateDto {
     public List<MapObjectDto> getObjects() { return objects; }
 
     public void setObjects(List<MapObjectDto> objects) { this.objects = objects; }
+
+    public String getBackgroundUrl() { return backgroundUrl; }
+
+    public void setBackgroundUrl(String backgroundUrl) { this.backgroundUrl = backgroundUrl; }
 }

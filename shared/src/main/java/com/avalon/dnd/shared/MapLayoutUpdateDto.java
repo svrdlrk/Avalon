@@ -10,13 +10,15 @@ public class MapLayoutUpdateDto {
     private GridConfig grid;
     private List<TokenDto> tokens;
     private List<MapObjectDto> objects;
+    private String backgroundUrl;
 
     public MapLayoutUpdateDto() {}
 
-    public MapLayoutUpdateDto(GridConfig grid, List<TokenDto> tokens, List<MapObjectDto> objects) {
+    public MapLayoutUpdateDto(GridConfig grid, List<TokenDto> tokens, List<MapObjectDto> objects, String backgroundUrl) {
         this.grid = grid;
         this.tokens = tokens;
         this.objects = objects;
+        this.backgroundUrl = backgroundUrl;
     }
 
     public GridConfig getGrid() {
@@ -42,4 +44,8 @@ public class MapLayoutUpdateDto {
     public void setObjects(List<MapObjectDto> objects) {
         this.objects = objects;
     }
+
+    public String getBackgroundUrl() { return backgroundUrl; }
+
+    public void setBackgroundUrl(String backgroundUrl) { this.backgroundUrl = backgroundUrl; }
 }

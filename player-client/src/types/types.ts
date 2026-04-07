@@ -39,12 +39,14 @@ export interface SessionStateDto {
     tokens: TokenDto[];
     players: PlayerDto[];
     objects: MapObjectDto[];
+    backgroundUrl?: string;
 }
 
 export interface MapLayoutUpdateDto {
     grid: GridConfig;
     tokens: TokenDto[];
     objects: MapObjectDto[];
+    backgroundUrl?: string;
 }
 
 export type WsEventType =
@@ -58,7 +60,8 @@ export type WsEventType =
     | 'MAP_OBJECT_REMOVED'
     | 'PLAYER_JOINED'
     | 'PLAYER_LEFT'
-    | 'SESSION_STATE';
+    | 'SESSION_STATE'
+    | 'MAP_BACKGROUND_UPDATED';
 
 export interface WsMessage<T> {
     type: WsEventType;

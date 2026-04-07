@@ -143,6 +143,9 @@ class WsClient {
                 // TODO: removePlayer когда добавим
                 break;
 
+            case 'MAP_BACKGROUND_UPDATED':
+                store.setBackground(msg.payload as string);
+                break;
             default:
                 console.warn('Unknown WS event:', msg.type);
                 break;

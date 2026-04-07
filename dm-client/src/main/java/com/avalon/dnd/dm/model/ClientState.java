@@ -11,11 +11,14 @@ public class ClientState {
 
     private static final ClientState INSTANCE = new ClientState();
 
-    public static ClientState getInstance() { return INSTANCE; }
+    public static ClientState getInstance() {
+        return INSTANCE;
+    }
 
     private String sessionId;
     private String playerId;
     private GridConfig grid = new GridConfig(64, 20, 20);
+    private String backgroundUrl;
 
     private final Map<String, TokenDto> tokens = new ConcurrentHashMap<>();
     private final Map<String, MapObjectDto> objects = new ConcurrentHashMap<>();
@@ -23,16 +26,20 @@ public class ClientState {
 
     private final List<Runnable> changeListeners = new CopyOnWriteArrayList<>();
 
-    /** Клетка для стены: выбирается кликом по пустому месту на карте. */
+    /**
+     * Клетка для стены: выбирается кликом по пустому месту на карте.
+     */
     private int pendingPlaceCol;
     private int pendingPlaceRow;
 
-    private ClientState() {}
+    private ClientState() {
+    }
 
     public void applyState(SessionStateDto state, String sessionId, String playerId) {
         this.sessionId = sessionId;
         this.playerId = playerId;
         this.grid = state.getGrid();
+        this.backgroundUrl = state.getBackgroundUrl();
 
         tokens.clear();
         state.getTokens().forEach(t -> tokens.put(t.getId(), t));
@@ -47,6 +54,7 @@ public class ClientState {
 
     public void applyMapLayoutUpdate(MapLayoutUpdateDto dto) {
         this.grid = dto.getGrid();
+        this.backgroundUrl = dto.getBackgroundUrl();
         tokens.clear();
         dto.getTokens().forEach(t -> tokens.put(t.getId(), t));
         objects.clear();
@@ -72,7 +80,9 @@ public class ClientState {
         return pendingPlaceRow;
     }
 
-    /** Подписка на любые изменения токенов/объектов/сетки (UI). */
+    /**
+     * Подписка на любые изменения токенов/объектов/сетки (UI).
+     */
     public void addChangeListener(Runnable listener) {
         changeListeners.add(listener);
     }
@@ -112,10 +122,36 @@ public class ClientState {
         notifyMapChanged();
     }
 
-    public String getSessionId() { return sessionId; }
-    public String getPlayerId() { return playerId; }
-    public GridConfig getGrid() { return grid; }
-    public Map<String, TokenDto> getTokens() { return tokens; }
-    public Map<String, MapObjectDto> getObjects() { return objects; }
-    public Map<String, PlayerDto> getPlayers() { return players; }
+    public String getSessionId() {
+        return sessionId;
+    }
+
+    public String getPlayerId() {
+        return playerId;
+    }
+
+    public GridConfig getGrid() {
+        return grid;
+    }
+
+    public Map<String, TokenDto> getTokens() {
+        return tokens;
+    }
+
+    public Map<String, MapObjectDto> getObjects() {
+        return objects;
+    }
+
+    public Map<String, PlayerDto> getPlayers() {
+        return players;
+    }
+
+    public String getBackgroundUrl() {
+        return backgroundUrl;
+    }
+
+    public void setBackgroundUrl(String backgroundUrl) {
+        this.backgroundUrl = backgroundUrl;
+        notifyMapChanged();
+    }
 }

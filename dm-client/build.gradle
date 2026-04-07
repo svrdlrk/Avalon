@@ -26,3 +26,10 @@ dependencies {
     // JSON
     implementation 'com.fasterxml.jackson.core:jackson-databind:2.17.0'
 }
+
+tasks.withType(JavaCompile) {
+    options.encoding = 'UTF-8'
+}
+
+compileJava.options.encoding = 'UTF-8'
+compileTestJava.options.encoding = 'UTF-8'

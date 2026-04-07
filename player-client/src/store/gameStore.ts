@@ -15,6 +15,7 @@ interface GameState {
     tokens: Record<string, TokenDto>;
     objects: Record<string, MapObjectDto>;
     players: Record<string, PlayerDto>;
+    backgroundUrl: string | null;
 
     applyState: (state: SessionStateDto, sessionId: string) => void;
     applyMapLayoutUpdate: (dto: MapLayoutUpdateDto) => void;
@@ -23,6 +24,7 @@ interface GameState {
     addObject: (obj: MapObjectDto) => void;
     removeObject: (objId: string) => void;
     addPlayer: (player: PlayerDto) => void;
+    setBackground: (url: string | null) => void;   // ← правильная сигнатура
 }
 
 export const useGameStore = create<GameState>((set) => ({
@@ -32,6 +34,7 @@ export const useGameStore = create<GameState>((set) => ({
     tokens: {},
     objects: {},
     players: {},
+    backgroundUrl: null,
 
     applyState: (state, sessionId) =>
         set({
@@ -41,17 +44,17 @@ export const useGameStore = create<GameState>((set) => ({
             tokens: Object.fromEntries(state.tokens.map((t) => [t.id, t])),
             objects: Object.fromEntries(state.objects.map((o) => [o.id, o])),
             players: Object.fromEntries(state.players.map((p) => [p.id, p])),
+            backgroundUrl: state.backgroundUrl ?? null,
         }),
 
-    // Применяется при MAP_UPDATED от DM — сетка, токены и объекты обновляются вместе
     applyMapLayoutUpdate: (dto) =>
         set((state) => ({
             grid: dto.grid,
             tokens: Object.fromEntries(dto.tokens.map((t) => [t.id, t])),
-            // объекты могут отсутствовать в старых сообщениях
             objects: dto.objects
                 ? Object.fromEntries(dto.objects.map((o) => [o.id, o]))
                 : state.objects,
+            backgroundUrl: dto.backgroundUrl ?? state.backgroundUrl,
         })),
 
     moveToken: (token) =>
@@ -82,4 +85,7 @@ export const useGameStore = create<GameState>((set) => ({
         set((state) => ({
             players: { ...state.players, [player.id]: player },
         })),
+
+    setBackground: (url) =>
+        set({ backgroundUrl: url }),
 }));

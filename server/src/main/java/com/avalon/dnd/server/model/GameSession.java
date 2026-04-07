@@ -10,6 +10,7 @@ public class GameSession {
 
     private String id;
     private GridConfig grid = new GridConfig(64,20,20);
+    private String backgroundUrl;
     private final AtomicLong version = new AtomicLong(0);
 
 
@@ -44,6 +45,10 @@ public class GameSession {
     public void setGrid(GridConfig grid) {
         this.grid = grid;
     }
+
+    public String getBackgroundUrl() { return backgroundUrl; }
+
+    public void setBackgroundUrl(String backgroundUrl) { this.backgroundUrl = backgroundUrl; }
 
     public long getVersion() { return version.get(); }
     public long incrementVersion() { return version.incrementAndGet(); }

@@ -5,6 +5,7 @@ import com.avalon.dnd.shared.*;
 import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import javafx.application.Platform;
+import okhttp3.*;
 import org.springframework.messaging.converter.MappingJackson2MessageConverter;
 import org.springframework.messaging.simp.stomp.*;
 import org.springframework.web.socket.client.standard.StandardWebSocketClient;
@@ -13,9 +14,11 @@ import org.springframework.web.socket.sockjs.client.SockJsClient;
 import org.springframework.web.socket.sockjs.client.WebSocketTransport;
 
 import java.io.File;
+import java.io.IOException;
 import java.lang.reflect.Type;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 public class ServerConnection {
@@ -26,6 +29,10 @@ public class ServerConnection {
     private StompSession stompSession;
     private final ObjectMapper mapper = new ObjectMapper();
     private Consumer<Void> onConnected;
+    private final OkHttpClient httpClient = new OkHttpClient.Builder()
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(10, TimeUnit.SECONDS)
+            .build();
 
     private ServerConnection() {}
 
@@ -37,53 +44,40 @@ public class ServerConnection {
         this.onConnected = onConnected;
         String joinNonce = UUID.randomUUID().toString();
 
-        var wsClient = new SockJsClient(
-                List.of(new WebSocketTransport(new StandardWebSocketClient()))
-        );
-
+        var wsClient = new SockJsClient(List.of(new WebSocketTransport(new StandardWebSocketClient())));
         var stompClient = new WebSocketStompClient(wsClient);
         stompClient.setMessageConverter(new MappingJackson2MessageConverter());
 
-        stompClient.connectAsync(
-                serverUrl + "/ws",
-                new StompSessionHandlerAdapter() {
+        stompClient.connectAsync(serverUrl + "/ws", new StompSessionHandlerAdapter() {
+            @Override
+            public void afterConnected(StompSession session, StompHeaders connectedHeaders) {
+                stompSession = session;
 
-                    @Override
-                    public void afterConnected(StompSession session,
-                                               StompHeaders connectedHeaders) {
-                        stompSession = session;
+                stompSession.subscribe("/topic/session/" + sessionId, new BroadcastHandler());
+                stompSession.subscribe("/topic/session/" + sessionId + "/join/" + joinNonce,
+                        new JoinStateHandler(sessionId, true));
 
-                        stompSession.subscribe(
-                                "/topic/session/" + sessionId,
-                                new BroadcastHandler()
-                        );
+                JoinSessionRequestDto joinRequest = new JoinSessionRequestDto();
+                joinRequest.setSessionId(sessionId);
+                joinRequest.setPlayerName(playerName);
+                joinRequest.setDm(isDm);
+                joinRequest.setJoinNonce(joinNonce);
 
-                        stompSession.subscribe(
-                                "/topic/session/" + sessionId + "/join/" + joinNonce,
-                                new JoinStateHandler(sessionId, true)
-                        );
+                stompSession.send("/app/session.join", joinRequest);
+            }
 
-                        JoinSessionRequestDto joinRequest = new JoinSessionRequestDto();
-                        joinRequest.setSessionId(sessionId);
-                        joinRequest.setPlayerName(playerName);
-                        joinRequest.setDm(isDm);
-                        joinRequest.setJoinNonce(joinNonce);
-
-                        stompSession.send("/app/session.join", joinRequest);
-                    }
-
-                    @Override
-                    public void handleException(StompSession s, StompCommand cmd,
-                                                StompHeaders h, byte[] p, Throwable ex) {
-                        ex.printStackTrace();
-                    }
-                }
-        );
+            @Override
+            public void handleException(StompSession s, StompCommand cmd, StompHeaders h, byte[] p, Throwable ex) {
+                ex.printStackTrace();
+            }
+        });
     }
 
     public void send(String destination, Object payload) {
-        if (stompSession == null || !stompSession.isConnected()) return;
-
+        if (stompSession == null || !stompSession.isConnected()) {
+            System.err.println("STOMP not connected, cannot send to " + destination);
+            return;
+        }
         StompHeaders headers = new StompHeaders();
         headers.setDestination("/app" + destination);
         headers.set("sessionId", ClientState.getInstance().getSessionId());
@@ -109,17 +103,22 @@ public class ServerConnection {
 
         @Override
         public Type getPayloadType(StompHeaders headers) {
-            return String.class;
+            return String.class;   // оставляем String, потому что сервер шлёт JSON-строку
         }
 
         @Override
         public void handleFrame(StompHeaders headers, Object payload) {
             try {
+                String json = (String) payload;
+                // Десериализуем как WsMessage с Object payload
                 JavaType type = mapper.getTypeFactory()
                         .constructParametricType(WsMessage.class, Object.class);
-                WsMessage<?> msg = mapper.readValue((String) payload, type);
-                handleEvent(msg);
+                WsMessage<?> msg = mapper.readValue(json, type);
+
+                handleEvent(msg);   // ← твой существующий метод handleEvent
+
             } catch (Exception e) {
+                System.err.println("Failed to parse broadcast message: " + payload);
                 e.printStackTrace();
             }
         }
@@ -146,10 +145,11 @@ public class ServerConnection {
         @Override
         public void handleFrame(StompHeaders headers, Object payload) {
             try {
+                String json = (String) payload;
                 JavaType stateType = mapper.getTypeFactory()
                         .constructParametricType(WsMessage.class, SessionStateDto.class);
-                WsMessage<SessionStateDto> msg =
-                        mapper.readValue((String) payload, stateType);
+
+                WsMessage<SessionStateDto> msg = mapper.readValue(json, stateType);
 
                 if (msg.getType() != WsEventType.SESSION_STATE) {
                     return;
@@ -159,8 +159,7 @@ public class ServerConnection {
                 String myPlayerId = state.getMyPlayerId();
 
                 Platform.runLater(() -> {
-                    ClientState.getInstance()
-                            .applyState(state, sessionId, myPlayerId);
+                    ClientState.getInstance().applyState(state, sessionId, myPlayerId);
 
                     if (completeHandshake) {
                         subscribePrivateChannel(sessionId, myPlayerId);
@@ -172,6 +171,7 @@ public class ServerConnection {
                 });
 
             } catch (Exception e) {
+                System.err.println("Failed to parse join state: " + payload);
                 e.printStackTrace();
             }
         }
@@ -215,15 +215,54 @@ public class ServerConnection {
 
     // ==================== МЕТОДЫ ДЛЯ DM ====================
 
-    public void createSession(String sessionName, GridConfig grid) {
-        System.out.println("DM → Server: createSession '" + sessionName + "' " + grid.getCols() + "x" + grid.getRows());
-        // TODO: Реальная отправка через STOMP
-        // sessionTemplate.convertAndSend("/app/session.create", new CreateSessionRequest(sessionName, grid));
+    public void createSession(String serverUrl) {
+        new Thread(() -> {
+            try {
+                Request request = new Request.Builder()
+                        .url(serverUrl + "/api/session/create")
+                        .post(RequestBody.create(new byte[0]))
+                        .build();
+
+                try (Response response = httpClient.newCall(request).execute()) {
+                    if (response.isSuccessful() && response.body() != null) {
+                        String body = response.body().string();
+                        String sessionId = mapper.readTree(body).get("id").asText();
+                        System.out.println("✅ Сессия создана: " + sessionId);
+                        // Можно добавить callback, если нужно
+                    }
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }).start();
     }
 
-    public void uploadMap(File file) {
-        System.out.println("DM → Server: uploadMap " + file.getName());
-        // TODO: Отправка файла (base64 или multipart)
+    public void uploadMap(String serverUrl, String sessionId, java.io.File file) {
+        new Thread(() -> {
+            try {
+                okhttp3.RequestBody requestBody = new okhttp3.MultipartBody.Builder()
+                        .setType(okhttp3.MultipartBody.FORM)
+                        .addFormDataPart("sessionId", sessionId)
+                        .addFormDataPart("file", file.getName(),
+                                okhttp3.RequestBody.create(file, okhttp3.MediaType.parse("image/*")))
+                        .build();
+
+                okhttp3.Request request = new okhttp3.Request.Builder()
+                        .url(serverUrl + "/api/map/upload")
+                        .post(requestBody)
+                        .build();
+
+                try (okhttp3.Response response = httpClient.newCall(request).execute()) {
+                    if (response.isSuccessful() && response.body() != null) {
+                        String url = response.body().string();
+                        System.out.println("✅ Карта загружена: " + url);
+                        // Можно сразу обновить локально, если нужно
+                    }
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }).start();
     }
 
     public void createToken(String name, int col, int row, int hp, String ownerId) {
@@ -256,7 +295,8 @@ public class ServerConnection {
     }
 
     public void revealAllFog() {
-        System.out.println("DM → Server: revealAllFog");
-        // TODO: Отправка события очистки тумана
+        // TODO: добавить на сервере WsEventType.FOG_CLEARED и обработчик
+        System.out.println("🌫️ DM → Server: revealAllFog (отправка события)");
+        send("/map.fog.clear", new Object()); // placeholder payload
     }
 }

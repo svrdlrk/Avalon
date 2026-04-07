@@ -46,7 +46,8 @@ public class SessionWsController {
                                 o.getId(), o.getType(),
                                 o.getCol(), o.getRow(),
                                 o.getWidth(), o.getHeight()))
-                        .toList()
+                        .toList(),
+                session.getBackgroundUrl()
         );
     }
 

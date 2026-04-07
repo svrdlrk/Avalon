@@ -60,7 +60,11 @@ public class MainStage {
         Button connectBtn = new Button("Подключиться");
         Label statusLabel = new Label("");
 
-        createBtn.setOnAction(e -> createSession(serverField.getText(), sessionField));
+        createBtn.setOnAction(e -> {
+            String serverUrl = serverField.getText().trim();
+            ServerConnection.getInstance().createSession(serverUrl);
+            statusLabel.setText("Сессия создаётся...");
+        });
         connectBtn.setOnAction(e -> {
             statusLabel.setText("Подключение...");
             ServerConnection.getInstance().connect(
@@ -147,6 +151,12 @@ public class MainStage {
             cb.setContent(content);
         });
 
+        ToolBar bar1 = new ToolBar(
+                new Label("Токены:"), tokenNameField, addTokenBtn, new Separator(),
+                tokenActionsCombo, playerAssignCombo, assignBtn, unassignBtn, removeTokenBtn,
+                new Separator(), copyIdBtn
+        );
+
         // --- Toolbar 2: карта/объекты ---
         var g0 = ClientState.getInstance().getGrid();
         objectColSpinner = makeSpinner(0, Math.max(0, g0.getCols() - 1), 0);
@@ -162,17 +172,6 @@ public class MainStage {
         Button removeObjectBtn = new Button("Удалить объект");
         removeObjectBtn.setOnAction(e -> removeSelectedObject());
 
-        String linkHint = (playerClientBase.isEmpty() ? "http://localhost:5173" : playerClientBase)
-                + "  →  сессия: " + sessionId;
-        Label sessionLinkLabel = new Label(linkHint);
-        sessionLinkLabel.setStyle("-fx-font-family: monospace; -fx-font-size: 11px;");
-
-        ToolBar bar1 = new ToolBar(
-                new Label("Токены:"), tokenNameField, addTokenBtn, new Separator(),
-                tokenActionsCombo, playerAssignCombo, assignBtn, unassignBtn, removeTokenBtn,
-                new Separator(), copyIdBtn
-        );
-
         ToolBar bar2 = new ToolBar(
                 new Label("Карта:"),
                 new Label("col"), objectColSpinner,
@@ -181,9 +180,49 @@ public class MainStage {
                 objectRemoveCombo, removeObjectBtn
         );
 
+        // --- Toolbar 3: изменение размера сетки + загрузка фона карты ---
+        Spinner<Integer> colsSpinner = makeSpinner(4, 60, g0.getCols());
+        Spinner<Integer> rowsSpinner = makeSpinner(4, 60, g0.getRows());
+        Spinner<Integer> cellSpinner = makeSpinner(24, 128, g0.getCellSize());
+
+        Button applyGridBtn = new Button("Применить размер сетки");
+        applyGridBtn.setOnAction(e -> applyGridResize(
+                colsSpinner.getValue(), rowsSpinner.getValue(), cellSpinner.getValue()));
+
+        Button uploadMapBtn = new Button("Загрузить карту (фон)");
+        uploadMapBtn.setOnAction(e -> {
+            javafx.stage.FileChooser fc = new javafx.stage.FileChooser();
+            fc.getExtensionFilters().add(
+                    new javafx.stage.FileChooser.ExtensionFilter("Images", "*.png", "*.jpg", "*.jpeg", "*.webp"));
+            java.io.File file = fc.showOpenDialog(stage);
+            if (file != null) {
+                ServerConnection.getInstance().uploadMap(
+                        "http://localhost:8080",
+                        ClientState.getInstance().getSessionId(),
+                        file);
+            }
+        });
+
+        ToolBar bar3 = new ToolBar(
+                new Label("Сетка:"),
+                new Label("cols"), colsSpinner,
+                new Label("rows"), rowsSpinner,
+                new Label("cell"), cellSpinner,
+                applyGridBtn,
+                new Separator(),
+                uploadMapBtn
+        );
+
+        // --- Ссылка на player-client ---
+        String linkHint = (playerClientBase.isEmpty() ? "http://localhost:5173" : playerClientBase)
+                + "  →  сессия: " + sessionId;
+        Label sessionLinkLabel = new Label(linkHint);
+        sessionLinkLabel.setStyle("-fx-font-family: monospace; -fx-font-size: 11px;");
+
+        // Собираем все тулбары
         VBox top = new VBox(6);
         top.setPadding(new Insets(8));
-        top.getChildren().addAll(bar1, bar2, sessionLinkLabel);
+        top.getChildren().addAll(bar1, bar2, bar3, sessionLinkLabel);
 
         ScrollPane scroll = new ScrollPane(mapCanvas);
         scroll.setFitToWidth(false);
@@ -347,5 +386,17 @@ public class MainStage {
         s.setEditable(true);
         s.setPrefWidth(70);
         return s;
+    }
+
+    private void applyGridResize(int cols, int rows, int cellSize) {
+        com.avalon.dnd.shared.GridConfig newGrid = new com.avalon.dnd.shared.GridConfig();
+        newGrid.setCols(cols);
+        newGrid.setRows(rows);
+        newGrid.setCellSize(cellSize);
+        newGrid.setOffsetX(0);
+        newGrid.setOffsetY(0);
+
+        ServerConnection.getInstance().send("/map.grid.update", newGrid);
+        System.out.println("DM → Server: обновление сетки " + cols + "×" + rows + " cell=" + cellSize);
     }
 }

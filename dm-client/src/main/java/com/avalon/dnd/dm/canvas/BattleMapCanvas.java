@@ -13,6 +13,7 @@ public class BattleMapCanvas extends Canvas {
 
     private TokenDto draggingToken = null;
     private double dragOffsetX, dragOffsetY;
+    private javafx.scene.image.Image backgroundImage;
 
     public BattleMapCanvas() {
         ClientState.getInstance().addChangeListener(this::renderAndResize);
@@ -38,6 +39,13 @@ public class BattleMapCanvas extends Canvas {
     public void render() {
         GraphicsContext gc = getGraphicsContext2D();
         GridConfig grid = grid();
+
+        if (backgroundImage != null && backgroundImage.getWidth() > 0) {
+            gc.drawImage(backgroundImage, 0, 0, getWidth(), getHeight());
+        } else {
+            gc.setFill(Color.web("#2b2b2b"));
+            gc.fillRect(0, 0, getWidth(), getHeight());
+        }
 
         gc.setFill(Color.web("#2b2b2b"));
         gc.fillRect(0, 0, getWidth(), getHeight());
@@ -215,4 +223,12 @@ public class BattleMapCanvas extends Canvas {
         draggingToken = null;
         render();
     }
+
+    public void setBackground(String url) {
+        if (url != null && !url.isEmpty()) {
+            backgroundImage = new javafx.scene.image.Image(url, true); // async load
+            render();
+        }
+    }
+
 }
