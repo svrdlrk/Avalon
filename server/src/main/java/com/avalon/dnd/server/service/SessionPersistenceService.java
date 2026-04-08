@@ -94,12 +94,12 @@ public class SessionPersistenceService {
 
     private GameSession restoreFromSnapshot(SessionSnapshot snap) {
         // Создаём новую GameSession или получаем существующую
-        GameSession session = sessionService.getSession(snap.id);
-        if (session == null) {
+        GameSession sessionTmp = sessionService.getSession(snap.id);
+        if (sessionTmp == null) {
             // Регистрируем через внутренний механизм
-            session = sessionService.createSessionWithId(snap.id);
+            sessionTmp = sessionService.createSessionWithId(snap.id);
         }
-
+        final GameSession session = sessionTmp;
         // Восстанавливаем состояние
         if (snap.grid != null) session.setGrid(snap.grid);
         session.setBackgroundUrl(snap.backgroundUrl);
