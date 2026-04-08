@@ -40,6 +40,7 @@ public class ServerConnection {
     public void connect(String serverUrl, String sessionId,
                         String playerName, boolean isDm,
                         Consumer<Void> onConnected) {
+        System.out.println("CONNECT START");
         disconnect();
         this.onConnected = onConnected;
         String joinNonce = UUID.randomUUID().toString();
@@ -51,8 +52,11 @@ public class ServerConnection {
         stompClient.connectAsync(serverUrl + "/ws", new StompSessionHandlerAdapter() {
             @Override
             public void afterConnected(StompSession session, StompHeaders connectedHeaders) {
+                System.out.println("CONNECTED TO WS");
                 stompSession = session;
+                System.out.println("SUBSCRIBE PUBLIC: " + sessionId);
                 stompSession.subscribe("/topic/session/" + sessionId, new BroadcastHandler());
+                System.out.println("SUBSCRIBE JOIN: " + joinNonce);
                 stompSession.subscribe(
                         "/topic/session/" + sessionId + "/join/" + joinNonce,
                         new JoinStateHandler(sessionId, true)
@@ -63,6 +67,7 @@ public class ServerConnection {
                 req.setPlayerName(playerName);
                 req.setDm(isDm);
                 req.setJoinNonce(joinNonce);
+                System.out.println("SEND JOIN");
                 stompSession.send("/app/session.join", req);
             }
 
@@ -110,18 +115,35 @@ public class ServerConnection {
     // ================================================================ Handlers
 
     private class BroadcastHandler extends StompSessionHandlerAdapter {
-        @Override public Type getPayloadType(StompHeaders h) { return String.class; }
+        @Override public Type getPayloadType(StompHeaders h) { return Object.class; }
 
         @Override
         public void handleFrame(StompHeaders headers, Object payload) {
+            System.out.println("BROADCAST RECEIVED: " + payload.getClass());
             try {
-                String json = (String) payload;
-                JavaType type = mapper.getTypeFactory()
-                        .constructParametricType(WsMessage.class, Object.class);
-                WsMessage<?> msg = mapper.readValue(json, type);
+                WsMessage<?> msg;
+
+                if (payload instanceof byte[] bytes) {
+                    JavaType type = mapper.getTypeFactory()
+                            .constructParametricType(WsMessage.class, Object.class);
+                    msg = mapper.readValue(bytes, type);
+
+                } else if (payload instanceof String str) {
+                    JavaType type = mapper.getTypeFactory()
+                            .constructParametricType(WsMessage.class, Object.class);
+                    msg = mapper.readValue(str, type);
+
+                } else {
+                    JavaType type = mapper.getTypeFactory()
+                            .constructParametricType(WsMessage.class, Object.class);
+                    msg = mapper.convertValue(payload, type);
+                }
+
                 handleEvent(msg);
+
             } catch (Exception e) {
-                System.err.println("Broadcast parse error: " + e.getMessage());
+                System.err.println("Broadcast parse error:");
+                e.printStackTrace(); // ❗ обязательно
             }
         }
     }
@@ -135,33 +157,46 @@ public class ServerConnection {
             this.completeHandshake = completeHandshake;
         }
 
-        @Override public Type getPayloadType(StompHeaders h) { return String.class; }
+        @Override public Type getPayloadType(StompHeaders h) { return Object.class; }
 
         @Override
         public void handleFrame(StompHeaders headers, Object payload) {
+            System.out.println("JOIN STATE RECEIVED: " + payload.getClass());
             try {
-                String json = (String) payload;
-                JavaType t = mapper.getTypeFactory()
-                        .constructParametricType(WsMessage.class, SessionStateDto.class);
-                WsMessage<SessionStateDto> msg = mapper.readValue(json, t);
+                WsMessage<SessionStateDto> msg;
 
-                if (msg.getType() != WsEventType.SESSION_STATE) return;
+                JavaType type = mapper.getTypeFactory()
+                        .constructParametricType(WsMessage.class, SessionStateDto.class);
+
+                if (payload instanceof byte[] bytes) {
+                    msg = mapper.readValue(bytes, type);
+
+                } else if (payload instanceof String str) {
+                    msg = mapper.readValue(str, type);
+
+                } else {
+                    msg = mapper.convertValue(payload, type);
+                }
 
                 SessionStateDto state = msg.getPayload();
-                String myPlayerId = state.getMyPlayerId();
 
                 Platform.runLater(() -> {
-                    ClientState.getInstance().applyState(state, sessionId, myPlayerId);
+                    ClientState.getInstance()
+                            .applyState(state, sessionId, state.getMyPlayerId());
+
                     if (completeHandshake) {
-                        subscribePrivateChannel(sessionId, myPlayerId);
+                        subscribePrivateChannel(sessionId, state.getMyPlayerId());
+
                         if (onConnected != null) {
                             onConnected.accept(null);
                             onConnected = null;
                         }
                     }
                 });
+
             } catch (Exception e) {
-                System.err.println("JoinState parse error: " + e.getMessage());
+                System.err.println("JoinState parse error:");
+                e.printStackTrace(); // ❗ обязательно
             }
         }
     }
