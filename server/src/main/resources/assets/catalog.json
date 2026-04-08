@@ -65,20 +65,68 @@
       "imagePath": "assets/tokens/large/ogre.png"
     },
     {
-      "id": "player_warrior",
-      "name": "Воин",
+      "id": "sifon",
+      "name": "Сифон",
       "category": "player",
       "size": "medium",
       "gridSize": 1,
-      "imagePath": "assets/tokens/medium/warrior.png"
+      "imagePath": "assets/tokens/players/Sifon.png"
     },
     {
-      "id": "player_mage",
-      "name": "Маг",
+      "id": "druid",
+      "name": "Пиздодрев",
       "category": "player",
       "size": "medium",
       "gridSize": 1,
-      "imagePath": "assets/tokens/medium/mage.png"
+      "imagePath": "assets/tokens/players/Druid.png"
+    },
+    {
+      "id": "half-elf",
+      "name": "Элария",
+      "category": "player",
+      "size": "medium",
+      "gridSize": 1,
+      "imagePath": "assets/tokens/players/Elaria.png"
+    },
+    {
+      "id": "hobbit",
+      "name": "Ли Хван",
+      "category": "player",
+      "size": "medium",
+      "gridSize": 1,
+      "imagePath": "assets/tokens/players/LeeHvan.png"
+    },
+    {
+      "id": "human",
+      "name": "Синбад",
+      "category": "player",
+      "size": "medium",
+      "gridSize": 1,
+      "imagePath": "assets/tokens/players/Sinbad.png"
+    },
+    {
+      "id": "druid-bear",
+      "name": "Пиздодрев",
+      "category": "player",
+      "size": "medium",
+      "gridSize": 2,
+      "imagePath": "assets/tokens/players/Druid_bear.png"
+    },
+    {
+      "id": "druid-tiger",
+      "name": "Пиздодрев",
+      "category": "player",
+      "size": "medium",
+      "gridSize": 2,
+      "imagePath": "assets/tokens/players/Druid_tiger.png"
+    },
+    {
+      "id": "human-giant",
+      "name": "Синбад",
+      "category": "player",
+      "size": "medium",
+      "gridSize": 2,
+      "imagePath": "assets/tokens/players/Sinbad_giant.png"
     },
     {
       "id": "custom",

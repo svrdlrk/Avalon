@@ -17,18 +17,24 @@ public class SessionService {
 
     public GameSession createSession() {
         String id = UUID.randomUUID().toString();
-        GameSession session = new GameSession(id);
-        sessions.put(id, session);
-        return session;
+        return createSessionWithId(id);
+    }
+
+    /**
+     * Создаёт сессию с конкретным ID (используется при восстановлении из БД).
+     * Если сессия с таким ID уже существует — возвращает её, НЕ перезаписывает.
+     * (Перезапись состояния делает SessionPersistenceService.)
+     */
+    public GameSession createSessionWithId(String id) {
+        return sessions.computeIfAbsent(id, GameSession::new);
     }
 
     /**
      * Подключение к сессии.
      * Если игрок с таким именем и ролью уже есть (переподключение) — возвращаем
-     * существующего игрока вместо создания нового мёртвого дубликата.
+     * существующего игрока вместо создания нового.
      */
     public Player joinSession(String sessionId, String playerName, boolean isDm) {
-
         GameSession session = sessions.get(sessionId);
         if (session == null) {
             throw new RuntimeException("Session not found: " + sessionId);
@@ -36,13 +42,11 @@ public class SessionService {
 
         Role desiredRole = isDm ? Role.DM : Role.PLAYER;
 
-        // Защита от двух DM
         if (isDm) {
             Optional<Player> existingDm = session.getPlayers().values().stream()
                     .filter(p -> p.getRole() == Role.DM)
                     .findFirst();
             if (existingDm.isPresent()) {
-                // DM переподключается — возвращаем того же
                 if (existingDm.get().getName().equals(playerName)) {
                     return existingDm.get();
                 }
@@ -50,7 +54,6 @@ public class SessionService {
             }
         }
 
-        // Если игрок с таким именем уже есть — это переподключение, возвращаем его
         Optional<Player> reconnecting = session.getPlayers().values().stream()
                 .filter(p -> p.getName().equals(playerName) && p.getRole() == desiredRole)
                 .findFirst();
@@ -59,7 +62,6 @@ public class SessionService {
             return reconnecting.get();
         }
 
-        // Новый игрок
         String playerId = UUID.randomUUID().toString();
         Player player = new Player(playerId, playerName, sessionId, desiredRole);
         session.getPlayers().put(playerId, player);

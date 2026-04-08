@@ -17,13 +17,14 @@ import java.util.Map;
 public class BattleMapCanvas extends Canvas {
 
     private TokenDto draggingToken = null;
+    // Pixel position of token top-left when drag started
+    private double dragStartPixelX, dragStartPixelY;
+    // Mouse position relative to token top-left when drag started
     private double dragOffsetX, dragOffsetY;
     private Image backgroundImage;
 
-    // Кеш изображений токенов и объектов
     private final Map<String, Image> imageCache = new HashMap<>();
 
-    // Tooltip
     private TokenDto hoveredToken = null;
 
     public BattleMapCanvas() {
@@ -52,7 +53,7 @@ public class BattleMapCanvas extends Canvas {
         GraphicsContext gc = getGraphicsContext2D();
         GridConfig grid = grid();
 
-        // Фон
+        // Background
         if (backgroundImage != null && backgroundImage.getWidth() > 0 && !backgroundImage.isError()) {
             gc.drawImage(backgroundImage, 0, 0, getWidth(), getHeight());
         } else {
@@ -67,7 +68,7 @@ public class BattleMapCanvas extends Canvas {
         if (hoveredToken != null) drawTooltip(gc, grid, hoveredToken);
     }
 
-    // ---------------------------------------------------------------- grid
+    // ---- grid ----
 
     private void drawGrid(GraphicsContext gc, GridConfig grid) {
         int cell = grid.getCellSize();
@@ -87,7 +88,7 @@ public class BattleMapCanvas extends Canvas {
         }
     }
 
-    // ---------------------------------------------------------------- tokens
+    // ---- tokens ----
 
     private void drawTokens(GraphicsContext gc, GridConfig grid) {
         int cell = grid.getCellSize();
@@ -105,7 +106,6 @@ public class BattleMapCanvas extends Canvas {
             boolean mine = myId != null && myId.equals(token.getOwnerId());
             boolean isNpc = token.getOwnerId() == null;
 
-            // Тень / контур
             Color borderColor = mine ? Color.web("#c9a227")
                     : isNpc ? Color.web("#e74c3c")
                     : Color.web("#4a90d9");
@@ -114,18 +114,15 @@ public class BattleMapCanvas extends Canvas {
             gc.setLineWidth(gs > 1 ? 2.5 : 1.5);
             gc.strokeOval(x + 2, y + 2, w - 4, h - 4);
 
-            // Изображение или заливка
             Image img = getTokenImage(token);
             if (img != null && !img.isError()) {
                 gc.save();
-                // Clip к кругу
                 gc.beginPath();
                 gc.arc(x + w / 2, y + h / 2, w / 2 - 3, h / 2 - 3, 0, 360);
                 gc.clip();
                 gc.drawImage(img, x + 3, y + 3, w - 6, h - 6);
                 gc.restore();
             } else {
-                // Цветная заливка-заглушка
                 Color fillColor = mine ? Color.web("#c9a227")
                         : isNpc ? Color.web("#c0392b")
                         : Color.web("#4a90d9");
@@ -133,7 +130,7 @@ public class BattleMapCanvas extends Canvas {
                 gc.fillOval(x + 3, y + 3, w - 6, h - 6);
             }
 
-            // Имя
+            // Name
             gc.setFill(Color.WHITE);
             double fontSize = Math.max(9, Math.min(14, cell * gs / 6.0));
             gc.setFont(Font.font("Arial", javafx.scene.text.FontWeight.BOLD, fontSize));
@@ -143,8 +140,10 @@ public class BattleMapCanvas extends Canvas {
                     : token.getName();
             gc.fillText(label, x + w / 2, y + h / 2 + fontSize / 3);
 
-            // HP-бар
-            if (token.getMaxHp() > 0) {
+            // HP bar — DM видит всегда, игрок только свои токены
+            boolean showHp = token.getMaxHp() > 0 &&
+                    (token.getOwnerId() == null || token.getOwnerId().equals(myId) || isMyDm(myId));
+            if (showHp) {
                 double barW = w - 6;
                 double barH = Math.max(4, cell / 12.0);
                 double barX = x + 3;
@@ -161,7 +160,6 @@ public class BattleMapCanvas extends Canvas {
                 gc.fillRoundRect(barX, barY, barW * ratio, barH, 3, 3);
             }
 
-            // Размерная метка для больших токенов
             if (gs > 1) {
                 gc.setFill(Color.web("#ecf0f1", 0.8));
                 gc.setFont(Font.font("Arial", 9));
@@ -170,7 +168,16 @@ public class BattleMapCanvas extends Canvas {
         }
     }
 
-    // ---------------------------------------------------------------- objects
+    /**
+     * DM-клиент всегда подключается как DM, поэтому playerId совпадает с DM-игроком.
+     * Показываем HP всем токенам в DM-клиенте всегда.
+     */
+    private boolean isMyDm(String myId) {
+        // В DM-клиенте мы всегда DM
+        return true;
+    }
+
+    // ---- objects ----
 
     private void drawObjects(GraphicsContext gc, GridConfig grid) {
         int cell = grid.getCellSize();
@@ -186,7 +193,6 @@ public class BattleMapCanvas extends Canvas {
             Image img = getObjectImage(obj.getImageUrl());
             if (img != null && !img.isError()) {
                 gc.drawImage(img, x, y, w, h);
-                // Лёгкое затемнение поверх
                 gc.setFill(Color.web("#000000", 0.15));
                 gc.fillRect(x, y, w, h);
             } else {
@@ -199,7 +205,7 @@ public class BattleMapCanvas extends Canvas {
         }
     }
 
-    // ---------------------------------------------------------------- highlight
+    // ---- highlight ----
 
     private void highlightPendingCell(GraphicsContext gc, GridConfig grid) {
         int cell = grid.getCellSize();
@@ -213,7 +219,7 @@ public class BattleMapCanvas extends Canvas {
         gc.strokeRect(ox + col * cell + 1, oy + row * cell + 1, cell - 2, cell - 2);
     }
 
-    // ---------------------------------------------------------------- tooltip
+    // ---- tooltip ----
 
     private void drawTooltip(GraphicsContext gc, GridConfig grid, TokenDto t) {
         int cell = grid.getCellSize();
@@ -234,7 +240,6 @@ public class BattleMapCanvas extends Canvas {
         double boxW = 130;
         double boxH = lines.length * 16 + 10;
 
-        // Не выходим за правый край
         if (tx + boxW > getWidth()) tx = ox + t.getCol() * cell - boxW - 4;
         if (ty + boxH > getHeight()) ty = getHeight() - boxH - 4;
 
@@ -252,7 +257,7 @@ public class BattleMapCanvas extends Canvas {
         }
     }
 
-    // ---------------------------------------------------------------- mouse
+    // ---- mouse ----
 
     private void onMouseMoved(MouseEvent e) {
         GridConfig grid = grid();
@@ -289,7 +294,6 @@ public class BattleMapCanvas extends Canvas {
 
         if (col < 0 || col >= grid.getCols() || row < 0 || row >= grid.getRows()) return;
 
-        // Ищем токен в клетке с учётом gridSize
         draggingToken = ClientState.getInstance().getTokens().values().stream()
                 .filter(t -> {
                     int gs = Math.max(1, t.getGridSize());
@@ -302,8 +306,13 @@ public class BattleMapCanvas extends Canvas {
         if (draggingToken == null) {
             ClientState.getInstance().setPendingPlaceCell(col, row);
         } else {
-            dragOffsetX = e.getX() - (ox + draggingToken.getCol() * cell);
-            dragOffsetY = e.getY() - (oy + draggingToken.getRow() * cell);
+            // Сохраняем пиксельную позицию верхнего-левого угла токена
+            int gs = Math.max(1, draggingToken.getGridSize());
+            dragStartPixelX = ox + draggingToken.getCol() * cell;
+            dragStartPixelY = oy + draggingToken.getRow() * cell;
+            // Смещение мыши относительно верхнего-левого угла токена
+            dragOffsetX = e.getX() - dragStartPixelX;
+            dragOffsetY = e.getY() - dragStartPixelY;
         }
     }
 
@@ -313,6 +322,7 @@ public class BattleMapCanvas extends Canvas {
             GraphicsContext gc = getGraphicsContext2D();
             int cell = grid().getCellSize();
             int gs = Math.max(1, draggingToken.getGridSize());
+            // Рисуем токен там, где его тащат (выровнено по смещению мыши)
             double x = e.getX() - dragOffsetX;
             double y = e.getY() - dragOffsetY;
             double w = gs * cell;
@@ -334,8 +344,12 @@ public class BattleMapCanvas extends Canvas {
         int oy = grid.getOffsetY();
         int gs = Math.max(1, draggingToken.getGridSize());
 
-        int newCol = (int) ((e.getX() - ox) / cell);
-        int newRow = (int) ((e.getY() - oy) / cell);
+        // Вычисляем новую позицию верхнего-левого угла токена (с учётом смещения мыши)
+        double tokenTopLeftX = e.getX() - dragOffsetX;
+        double tokenTopLeftY = e.getY() - dragOffsetY;
+
+        int newCol = (int) Math.round((tokenTopLeftX - ox) / cell);
+        int newRow = (int) Math.round((tokenTopLeftY - oy) / cell);
         newCol = Math.max(0, Math.min(newCol, grid.getCols() - gs));
         newRow = Math.max(0, Math.min(newRow, grid.getRows() - gs));
 
@@ -347,16 +361,14 @@ public class BattleMapCanvas extends Canvas {
         render();
     }
 
-    // ---------------------------------------------------------------- images
+    // ---- images ----
 
     private Image getTokenImage(TokenDto token) {
         String url = token.getImageUrl();
         if (url == null || url.isBlank()) return null;
         return imageCache.computeIfAbsent(url, u -> {
-            // Если путь относительный — добавляем serverUrl. Здесь используем
-            // простую эвристику: если не начинается с http — это ассет из jar/resources.
             String fullUrl = u.startsWith("http") ? u
-                    : "file:src/main/resources" + u; // для dev-режима
+                    : "file:src/main/resources" + u;
             Image img = new Image(fullUrl, true);
             img.progressProperty().addListener((obs, old, progress) -> {
                 if (progress.doubleValue() >= 1.0) javafx.application.Platform.runLater(this::render);

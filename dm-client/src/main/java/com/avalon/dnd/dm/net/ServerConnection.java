@@ -3,6 +3,7 @@ package com.avalon.dnd.dm.net;
 import com.avalon.dnd.dm.model.ClientState;
 import com.avalon.dnd.shared.*;
 import com.fasterxml.jackson.databind.JavaType;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import javafx.application.Platform;
 import okhttp3.*;
@@ -30,7 +31,7 @@ public class ServerConnection {
 
     private final OkHttpClient httpClient = new OkHttpClient.Builder()
             .connectTimeout(10, TimeUnit.SECONDS)
-            .readTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
             .build();
 
     private ServerConnection() {}
@@ -54,9 +55,7 @@ public class ServerConnection {
             public void afterConnected(StompSession session, StompHeaders connectedHeaders) {
                 System.out.println("CONNECTED TO WS");
                 stompSession = session;
-                System.out.println("SUBSCRIBE PUBLIC: " + sessionId);
                 stompSession.subscribe("/topic/session/" + sessionId, new BroadcastHandler());
-                System.out.println("SUBSCRIBE JOIN: " + joinNonce);
                 stompSession.subscribe(
                         "/topic/session/" + sessionId + "/join/" + joinNonce,
                         new JoinStateHandler(sessionId, true)
@@ -67,7 +66,6 @@ public class ServerConnection {
                 req.setPlayerName(playerName);
                 req.setDm(isDm);
                 req.setJoinNonce(joinNonce);
-                System.out.println("SEND JOIN");
                 stompSession.send("/app/session.join", req);
             }
 
@@ -119,31 +117,25 @@ public class ServerConnection {
 
         @Override
         public void handleFrame(StompHeaders headers, Object payload) {
-            System.out.println("BROADCAST RECEIVED: " + payload.getClass());
             try {
                 WsMessage<?> msg;
-
                 if (payload instanceof byte[] bytes) {
                     JavaType type = mapper.getTypeFactory()
                             .constructParametricType(WsMessage.class, Object.class);
                     msg = mapper.readValue(bytes, type);
-
                 } else if (payload instanceof String str) {
                     JavaType type = mapper.getTypeFactory()
                             .constructParametricType(WsMessage.class, Object.class);
                     msg = mapper.readValue(str, type);
-
                 } else {
                     JavaType type = mapper.getTypeFactory()
                             .constructParametricType(WsMessage.class, Object.class);
                     msg = mapper.convertValue(payload, type);
                 }
-
                 handleEvent(msg);
-
             } catch (Exception e) {
                 System.err.println("Broadcast parse error:");
-                e.printStackTrace(); // ❗ обязательно
+                e.printStackTrace();
             }
         }
     }
@@ -161,19 +153,15 @@ public class ServerConnection {
 
         @Override
         public void handleFrame(StompHeaders headers, Object payload) {
-            System.out.println("JOIN STATE RECEIVED: " + payload.getClass());
             try {
                 WsMessage<SessionStateDto> msg;
-
                 JavaType type = mapper.getTypeFactory()
                         .constructParametricType(WsMessage.class, SessionStateDto.class);
 
                 if (payload instanceof byte[] bytes) {
                     msg = mapper.readValue(bytes, type);
-
                 } else if (payload instanceof String str) {
                     msg = mapper.readValue(str, type);
-
                 } else {
                     msg = mapper.convertValue(payload, type);
                 }
@@ -186,17 +174,15 @@ public class ServerConnection {
 
                     if (completeHandshake) {
                         subscribePrivateChannel(sessionId, state.getMyPlayerId());
-
                         if (onConnected != null) {
                             onConnected.accept(null);
                             onConnected = null;
                         }
                     }
                 });
-
             } catch (Exception e) {
                 System.err.println("JoinState parse error:");
-                e.printStackTrace(); // ❗ обязательно
+                e.printStackTrace();
             }
         }
     }
@@ -259,6 +245,83 @@ public class ServerConnection {
         }).start();
     }
 
+    /**
+     * Сохранить сессию на сервере.
+     */
+    public void saveSession(String serverUrl, String sessionId, String name,
+                            Consumer<Boolean> onDone) {
+        new Thread(() -> {
+            try {
+                HttpUrl url = HttpUrl.parse(serverUrl + "/api/session/" + sessionId + "/save")
+                        .newBuilder()
+                        .addQueryParameter("name", name)
+                        .build();
+                Request request = new Request.Builder()
+                        .url(url)
+                        .post(RequestBody.create(new byte[0]))
+                        .build();
+                try (Response response = httpClient.newCall(request).execute()) {
+                    Platform.runLater(() -> onDone.accept(response.isSuccessful()));
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+                Platform.runLater(() -> onDone.accept(false));
+            }
+        }).start();
+    }
+
+    /**
+     * Загрузить сохранённую сессию (она становится активной на сервере).
+     */
+    public void loadSession(String serverUrl, String sessionId,
+                            Consumer<String> onLoaded) {
+        new Thread(() -> {
+            try {
+                Request request = new Request.Builder()
+                        .url(serverUrl + "/api/session/" + sessionId + "/load")
+                        .post(RequestBody.create(new byte[0]))
+                        .build();
+                try (Response response = httpClient.newCall(request).execute()) {
+                    if (response.isSuccessful() && response.body() != null) {
+                        String id = mapper.readTree(response.body().string()).get("id").asText();
+                        Platform.runLater(() -> onLoaded.accept(id));
+                    } else {
+                        Platform.runLater(() -> onLoaded.accept(null));
+                    }
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+                Platform.runLater(() -> onLoaded.accept(null));
+            }
+        }).start();
+    }
+
+    /**
+     * Список сохранённых сессий.
+     */
+    public void listSavedSessions(String serverUrl, Consumer<java.util.List<JsonNode>> onResult) {
+        new Thread(() -> {
+            try {
+                Request request = new Request.Builder()
+                        .url(serverUrl + "/api/session/saved")
+                        .build();
+                try (Response response = httpClient.newCall(request).execute()) {
+                    if (response.isSuccessful() && response.body() != null) {
+                        JsonNode arr = mapper.readTree(response.body().string());
+                        java.util.List<JsonNode> list = new java.util.ArrayList<>();
+                        arr.forEach(list::add);
+                        Platform.runLater(() -> onResult.accept(list));
+                    } else {
+                        Platform.runLater(() -> onResult.accept(java.util.List.of()));
+                    }
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+                Platform.runLater(() -> onResult.accept(java.util.List.of()));
+            }
+        }).start();
+    }
+
     public void uploadMap(String serverUrl, String sessionId,
                           java.io.File file, Consumer<String> onUploaded) {
         new Thread(() -> {
@@ -277,12 +340,17 @@ public class ServerConnection {
 
                 try (Response response = httpClient.newCall(request).execute()) {
                     if (response.isSuccessful() && response.body() != null) {
-                        String url = response.body().string();
+                        String url = response.body().string().trim();
+                        System.out.println("Upload response URL: " + url);
                         Platform.runLater(() -> { if (onUploaded != null) onUploaded.accept(url); });
+                    } else {
+                        System.err.println("Upload failed: " + response.code() + " " + response.message());
+                        Platform.runLater(() -> { if (onUploaded != null) onUploaded.accept(null); });
                     }
                 }
             } catch (Exception e) {
                 e.printStackTrace();
+                Platform.runLater(() -> { if (onUploaded != null) onUploaded.accept(null); });
             }
         }).start();
     }
@@ -291,9 +359,8 @@ public class ServerConnection {
         uploadMap(serverUrl, sessionId, file, null);
     }
 
-    // ================================================================ Высокоуровневые методы
+    // ================================================================ High-level
 
-    /** Создать токен с поддержкой gridSize и imageUrl. */
     public void createToken(String name, int col, int row,
                             int hp, int maxHp,
                             int gridSize, String imageUrl,
@@ -303,7 +370,6 @@ public class ServerConnection {
         send("/token.create", req);
     }
 
-    /** Устаревшая перегрузка для обратной совместимости. */
     public void createToken(String name, int col, int row, int hp, String ownerId) {
         createToken(name, col, row, hp, hp, 1, null, ownerId);
     }

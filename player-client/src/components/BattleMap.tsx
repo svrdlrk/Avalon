@@ -4,10 +4,10 @@ import { useGameStore } from '../store/gameStore';
 import type { TokenDto, MapObjectDto } from '../types/types';
 import { wsClient } from '../net/wsClient';
 import useImage from '../hooks/useImage';
+import type Konva from 'konva';
 
 const SERVER_BASE = 'http://localhost:8080';
 
-// Хук для изображения с кешем
 function useTokenImage(imageUrl: string | null) {
     const fullUrl = imageUrl
         ? (imageUrl.startsWith('http') ? imageUrl : SERVER_BASE + imageUrl)
@@ -15,7 +15,6 @@ function useTokenImage(imageUrl: string | null) {
     return useImage(fullUrl);
 }
 
-// HP-цвет
 function hpColor(hp: number, maxHp: number): string {
     if (maxHp <= 0) return '#2ecc71';
     const ratio = hp / maxHp;
@@ -24,53 +23,73 @@ function hpColor(hp: number, maxHp: number): string {
     return '#e74c3c';
 }
 
-// Компонент одного токена (вынесен для memo)
+// ================================================================ TokenShape
+
 const TokenShape: React.FC<{
     token: TokenDto;
     isMyToken: boolean;
+    isDm: boolean;
     cellSize: number;
     offsetX: number;
     offsetY: number;
+    onDragStart: () => void;
     onDragEnd: (e: any, token: TokenDto) => void;
-}> = React.memo(({ token, isMyToken, cellSize, offsetX, offsetY, onDragEnd }) => {
+}> = React.memo(({ token, isMyToken, isDm, cellSize, offsetX, offsetY, onDragStart, onDragEnd }) => {
     const gs = Math.max(1, token.gridSize ?? 1);
-    const cx = offsetX + token.col * cellSize + (gs * cellSize) / 2;
-    const cy = offsetY + token.row * cellSize + (gs * cellSize) / 2;
-    const radius = (gs * cellSize) / 2 - 4;
+
+    // Позиция левого верхнего угла токена (Group позиционируется по top-left)
+    const x = offsetX + token.col * cellSize;
+    const y = offsetY + token.row * cellSize;
+    const size = gs * cellSize;
+    const cx = size / 2;
+    const cy = size / 2;
+    const radius = size / 2 - 4;
+
     const isNpc = token.ownerId === null;
+    const canDrag = isMyToken || isDm;
 
     const [tokenImage] = useTokenImage(token.imageUrl);
+    const [hovered, setHovered] = useState(false);
 
     const borderColor = isMyToken ? '#f1c40f' : isNpc ? '#e74c3c' : '#4a90d9';
     const fillColor = isMyToken ? '#c9a227' : isNpc ? '#c0392b' : '#2980b9';
-    const fontSize = Math.max(9, Math.floor((gs * cellSize) / 7));
+    const fontSize = Math.max(9, Math.floor(size / 7));
     const hpRatio = token.maxHp > 0 ? Math.max(0, Math.min(1, token.hp / token.maxHp)) : 1;
-    const barW = gs * cellSize - 10;
+    const barW = size - 10;
 
-    const [hovered, setHovered] = useState(false);
+    // HP показываем только: игрокам для своих токенов, или DM для всех
+    const showHp = token.maxHp > 0 && (isDm || isMyToken);
 
     return (
         <Group
-            x={cx}
-            y={cy}
-            draggable={isMyToken}
-            onDragStart={(e) => { if (!isMyToken) e.target.stopDrag(); }}
-            onDragEnd={(e) => onDragEnd(e, token)}
+            x={x}
+            y={y}
+            draggable={canDrag}
+            onDragStart={(e) => {
+                if (!canDrag) {
+                    e.target.stopDrag();
+                    return;
+                }
+                onDragStart();
+            }}
+            onDragEnd={(e) => {
+                onDragEnd(e, token);
+            }}
             onMouseEnter={() => setHovered(true)}
             onMouseLeave={() => setHovered(false)}
         >
-            {/* Shadow для выделения */}
+            {/* Highlight for own token */}
             {isMyToken && (
                 <Circle
-                    x={0} y={0}
+                    x={cx} y={cy}
                     radius={radius + 3}
                     fill="rgba(241,196,15,0.25)"
                 />
             )}
 
-            {/* Основной круг */}
+            {/* Main circle */}
             <Circle
-                x={0} y={0}
+                x={cx} y={cy}
                 radius={radius}
                 fill={fillColor}
                 stroke={borderColor}
@@ -80,24 +99,25 @@ const TokenShape: React.FC<{
                 shadowOpacity={0.7}
             />
 
-            {/* Изображение существа */}
+            {/* Token image */}
             {tokenImage && (
                 <KonvaImage
                     image={tokenImage}
-                    x={-radius}
-                    y={-radius}
+                    x={cx - radius}
+                    y={cy - radius}
                     width={radius * 2}
                     height={radius * 2}
                     cornerRadius={radius}
                     opacity={0.95}
+                    listening={false}
                 />
             )}
 
-            {/* Имя */}
+            {/* Name label */}
             <Text
-                x={-radius}
-                y={tokenImage ? radius - fontSize - 4 : -fontSize / 2}
-                width={radius * 2}
+                x={0}
+                y={tokenImage ? cy + radius - fontSize - 4 : cy - fontSize / 2}
+                width={size}
                 align="center"
                 text={token.name.length > 9 ? token.name.slice(0, 8) + '…' : token.name}
                 fontSize={fontSize}
@@ -105,51 +125,56 @@ const TokenShape: React.FC<{
                 fill="#fff"
                 shadowColor="rgba(0,0,0,0.95)"
                 shadowBlur={4}
+                listening={false}
             />
 
-            {/* Метка размера для больших токенов */}
+            {/* Size label for big tokens */}
             {gs > 1 && (
                 <Text
-                    x={radius - 20}
-                    y={-radius + 2}
+                    x={size - 22}
+                    y={4}
                     text={`${gs}×${gs}`}
                     fontSize={9}
                     fill="rgba(255,255,255,0.7)"
+                    listening={false}
                 />
             )}
 
-            {/* HP-бар */}
-            {token.maxHp > 0 && (
+            {/* HP bar */}
+            {showHp && (
                 <>
                     <Rect
-                        x={-barW / 2} y={radius + 4}
+                        x={5} y={size + 4}
                         width={barW} height={5}
                         fill="#1a1a1a" cornerRadius={2}
+                        listening={false}
                     />
                     <Rect
-                        x={-barW / 2} y={radius + 4}
+                        x={5} y={size + 4}
                         width={barW * hpRatio} height={5}
                         fill={hpColor(token.hp, token.maxHp)}
                         cornerRadius={2}
+                        listening={false}
                     />
                 </>
             )}
 
-            {/* Tooltip при наведении */}
+            {/* Tooltip on hover */}
             {hovered && (
-                <Group x={radius + 4} y={-radius}>
+                <Group x={size + 4} y={0}>
                     <Rect
                         x={0} y={0}
-                        width={130} height={68}
-                        fill="rgba(20,20,40,0.92)"
+                        width={140} height={72}
+                        fill="rgba(20,20,40,0.95)"
                         stroke="#7f8c8d"
                         strokeWidth={1}
                         cornerRadius={5}
+                        listening={false}
                     />
-                    <Text x={6} y={6}   text={token.name} fontSize={12} fontStyle="bold" fill="#ecf0f1" width={118} />
-                    <Text x={6} y={22}  text={`HP: ${token.hp} / ${token.maxHp}`} fontSize={11} fill="#2ecc71" />
-                    <Text x={6} y={38}  text={`Размер: ${gs}×${gs}`} fontSize={11} fill="#bdc3c7" />
-                    <Text x={6} y={52}  text={token.ownerId ? 'Игрок' : 'NPC'} fontSize={11} fill="#bdc3c7" />
+                    <Text x={6} y={8}   text={token.name} fontSize={12} fontStyle="bold" fill="#ecf0f1" width={128} listening={false} />
+                    <Text x={6} y={24}  text={`HP: ${token.hp} / ${token.maxHp}`} fontSize={11} fill="#2ecc71" listening={false} />
+                    <Text x={6} y={40}  text={`Размер: ${gs}×${gs}`} fontSize={11} fill="#bdc3c7" listening={false} />
+                    <Text x={6} y={56}  text={token.ownerId ? 'Игрок' : 'NPC'} fontSize={11} fill="#bdc3c7" listening={false} />
                 </Group>
             )}
         </Group>
@@ -158,88 +183,125 @@ const TokenShape: React.FC<{
 
 TokenShape.displayName = 'TokenShape';
 
-// Компонент объекта карты
+// ================================================================ ObjectShape
+
 const ObjectShape: React.FC<{
     obj: MapObjectDto;
     cellSize: number;
     offsetX: number;
     offsetY: number;
 }> = React.memo(({ obj, cellSize, offsetX, offsetY }) => {
-    const gs = Math.max(1, obj.gridSize ?? 1);
+    const w = Math.max(1, obj.width ?? 1);
+    const h = Math.max(1, obj.height ?? 1);
+
     const fullUrl = obj.imageUrl
         ? (obj.imageUrl.startsWith('http') ? obj.imageUrl : SERVER_BASE + obj.imageUrl)
         : null;
     const [objImage] = useImage(fullUrl);
 
-    const cx = offsetX + obj.col * cellSize + (gs * cellSize) / 2;
-    const cy = offsetY + obj.row * cellSize + (gs * cellSize) / 2;
-    const radius = (gs * cellSize) / 2 - 4;
+    const px = offsetX + obj.col * cellSize;
+    const py = offsetY + obj.row * cellSize;
+    const pw = w * cellSize;
+    const ph = h * cellSize;
 
     return (
-        <Group
-            x={cx}
-            y={cy}
-        >
-            {/* Основной круг */}
-            <Circle
+        <Group x={px} y={py} listening={false}>
+            {objImage ? (
+                <>
+                    <KonvaImage
+                        image={objImage}
+                        x={0} y={0}
+                        width={pw} height={ph}
+                        opacity={0.95}
+                    />
+                    {/* Subtle dark overlay */}
+                    <Rect
+                        x={0} y={0}
+                        width={pw} height={ph}
+                        fill="rgba(0,0,0,0.15)"
+                    />
+                </>
+            ) : (
+                /* Fallback colored rect */
+                <Rect
+                    x={0} y={0}
+                    width={pw} height={ph}
+                    fill="#5d4037"
+                    stroke="#4e342e"
+                    strokeWidth={1}
+                />
+            )}
+            {/* Border */}
+            <Rect
                 x={0} y={0}
-                radius={radius}
-                shadowOpacity={0.7}
+                width={pw} height={ph}
+                fill="transparent"
+                stroke="#5a2d0c"
+                strokeWidth={1}
             />
-
-            {/* Изображение существа */}
-            {objImage && (
-                <KonvaImage
-                    image={objImage}
-                    x={-radius}
-                    y={-radius}
-                    width={radius * 2}
-                    height={radius * 2}
-                    cornerRadius={radius}
-                    opacity={0.95}
-                />
-            )}
-            {/* Метка размера для больших токенов */}
-            {gs > 1 && (
-                <Text
-                    x={radius - 20}
-                    y={-radius + 2}
-                    text={`${gs}×${gs}`}
-                    fontSize={9}
-                    fill="rgba(255,255,255,0.7)"
-                />
-            )}
+            {/* Type label */}
+            <Text
+                x={2} y={2}
+                text={obj.type}
+                fontSize={9}
+                fill="rgba(255,255,255,0.6)"
+            />
         </Group>
     );
 });
 
 ObjectShape.displayName = 'ObjectShape';
 
-// ================================================================ Main component
+// ================================================================ BattleMap
 
 const BattleMap: React.FC = () => {
     const { grid, tokens, objects, myPlayerId, backgroundUrl } = useGameStore();
-    const stageRef = useRef<any>(null);
+    const stageRef = useRef<Konva.Stage>(null);
+    const isDraggingToken = useRef(false);
+
+    // Determine if current player is DM
+    const { players } = useGameStore();
+    const myPlayer = myPlayerId ? players[myPlayerId] : null;
+    const isDm = myPlayer?.role === 'DM';
 
     const fullBgUrl = backgroundUrl
         ? (backgroundUrl.startsWith('http') ? backgroundUrl : SERVER_BASE + backgroundUrl)
         : null;
     const [bgImage] = useImage(fullBgUrl);
 
+    const handleTokenDragStart = useCallback(() => {
+        isDraggingToken.current = true;
+        // Disable stage dragging while dragging a token
+        if (stageRef.current) {
+            stageRef.current.draggable(false);
+        }
+    }, []);
+
     const handleDragEnd = useCallback((e: any, token: TokenDto) => {
+        isDraggingToken.current = false;
+        // Re-enable stage dragging
+        if (stageRef.current) {
+            stageRef.current.draggable(true);
+        }
+
         if (!grid) return;
         const node = e.target;
         const gs = Math.max(1, token.gridSize ?? 1);
+
+        // node.x() / node.y() is the top-left corner of the Group
         const rawX = node.x();
         const rawY = node.y();
-        const newCol = Math.round((rawX - grid.offsetX - (gs * grid.cellSize) / 2) / grid.cellSize);
-        const newRow = Math.round((rawY - grid.offsetY - (gs * grid.cellSize) / 2) / grid.cellSize);
+
+        // Convert pixel position back to grid cell (top-left of token)
+        const newCol = Math.round((rawX - grid.offsetX) / grid.cellSize);
+        const newRow = Math.round((rawY - grid.offsetY) / grid.cellSize);
         const clampedCol = Math.max(0, Math.min(newCol, grid.cols - gs));
         const clampedRow = Math.max(0, Math.min(newRow, grid.rows - gs));
 
+        // Snap to grid
         node.position({
-            x: grid.offsetX + clampedCol * grid.cellSize + (gs * grid.cellSize) / 2,
-            y: grid.offsetY + clampedRow * grid.cellSize + (gs * grid.cellSize) / 2,
+            x: grid.offsetX + clampedCol * grid.cellSize,
+            y: grid.offsetY + clampedRow * grid.cellSize,
         });
 
         wsClient.send('/token.move', {
@@ -265,22 +327,22 @@ const BattleMap: React.FC = () => {
     const stageW = Math.max(window.innerWidth, grid.offsetX + gridPixelW + 100);
     const stageH = Math.max(window.innerHeight, grid.offsetY + gridPixelH + 100);
 
-    // Линии сетки
+    // Grid lines
     const gridLines: React.ReactNode[] = [];
     for (let c = 0; c <= grid.cols; c++) {
-        const x = grid.offsetX + c * grid.cellSize;
+        const lx = grid.offsetX + c * grid.cellSize;
         gridLines.push(
             <Line key={`v-${c}`}
-                  points={[x, grid.offsetY, x, grid.offsetY + gridPixelH]}
+                  points={[lx, grid.offsetY, lx, grid.offsetY + gridPixelH]}
                   stroke="rgba(255,255,255,0.12)" strokeWidth={0.5}
             />
         );
     }
     for (let r = 0; r <= grid.rows; r++) {
-        const y = grid.offsetY + r * grid.cellSize;
+        const ly = grid.offsetY + r * grid.cellSize;
         gridLines.push(
             <Line key={`h-${r}`}
-                  points={[grid.offsetX, y, grid.offsetX + gridPixelW, y]}
+                  points={[grid.offsetX, ly, grid.offsetX + gridPixelW, ly]}
                   stroke="rgba(255,255,255,0.12)" strokeWidth={0.5}
             />
         );
@@ -292,7 +354,7 @@ const BattleMap: React.FC = () => {
                 ref={stageRef}
                 width={stageW}
                 height={stageH}
-                draggable
+                draggable={true}
                 onWheel={(e) => {
                     e.evt.preventDefault();
                     const stage = stageRef.current;
@@ -314,7 +376,7 @@ const BattleMap: React.FC = () => {
                     stage.batchDraw();
                 }}
             >
-                {/* Фон */}
+                {/* Background */}
                 <Layer>
                     <Rect x={0} y={0} width={stageW} height={stageH} fill="#0f1117" />
                     {bgImage ? (
@@ -332,10 +394,10 @@ const BattleMap: React.FC = () => {
                     )}
                 </Layer>
 
-                {/* Сетка */}
+                {/* Grid lines */}
                 <Layer listening={false}>{gridLines}</Layer>
 
-                {/* Объекты */}
+                {/* Objects */}
                 <Layer>
                     {Object.values(objects).map((obj: MapObjectDto) => (
                         <ObjectShape
@@ -348,16 +410,18 @@ const BattleMap: React.FC = () => {
                     ))}
                 </Layer>
 
-                {/* Токены */}
+                {/* Tokens */}
                 <Layer>
                     {Object.values(tokens).map((token: TokenDto) => (
                         <TokenShape
                             key={token.id}
                             token={token}
                             isMyToken={token.ownerId === myPlayerId}
+                            isDm={isDm}
                             cellSize={grid.cellSize}
                             offsetX={grid.offsetX}
                             offsetY={grid.offsetY}
+                            onDragStart={handleTokenDragStart}
                             onDragEnd={handleDragEnd}
                         />
                     ))}

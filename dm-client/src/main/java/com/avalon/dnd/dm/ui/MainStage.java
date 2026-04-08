@@ -31,12 +31,11 @@ public class MainStage {
 
     private String currentServerUrl = "http://localhost:8080";
 
-    // Каталог существ и объектов (загружается с сервера)
     private final List<JsonNode> tokenCatalog = new ArrayList<>();
     private final List<JsonNode> objectCatalog = new ArrayList<>();
 
-    // Инициатива
-    private final List<String> initiativeOrder = new ArrayList<>(); // tokenId
+    // Initiative
+    private final List<InitiativeEntry> initiativeQueue = new ArrayList<>();
     private int currentInitiativeIndex = 0;
 
     public MainStage(Stage stage) {
@@ -94,7 +93,6 @@ public class MainStage {
             }
             statusLabel.setText("Подключение...");
             currentServerUrl = url;
-            // Загружаем каталог ассетов перед подключением
             loadAssetCatalog(url, () ->
                     ServerConnection.getInstance().connect(url, sid, name, true,
                             v -> Platform.runLater(() ->
@@ -152,7 +150,8 @@ public class MainStage {
         if (bgUrl != null && !bgUrl.isEmpty()) {
             mapCanvas.setBackground(currentServerUrl + bgUrl);
         }
-        // Обновляем фон при получении MAP_BACKGROUND_UPDATED
+
+        // Listen for background changes
         ClientState.getInstance().addChangeListener(() -> {
             String url = ClientState.getInstance().getBackgroundUrl();
             if (url != null && mapCanvas != null) {
@@ -160,7 +159,6 @@ public class MainStage {
             }
         });
 
-        // ---- TAB PANE вместо плоских тулбаров ----
         TabPane tabs = new TabPane();
         tabs.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
 
@@ -172,7 +170,6 @@ public class MainStage {
                 buildInitiativeTab()
         );
 
-        // Строка статуса сессии
         String linkHint = (playerClientBase.isEmpty() ? "http://localhost:5173" : playerClientBase)
                 + "  →  сессия: " + sessionId;
         Label sessionLinkLabel = new Label(linkHint);
@@ -214,7 +211,6 @@ public class MainStage {
     private Tab buildTokenTab() {
         Tab tab = new Tab("🗡 Токены");
 
-        // --- Каталог существ ---
         ComboBox<JsonNode> creatureCatalogCombo = new ComboBox<>();
         creatureCatalogCombo.setPrefWidth(180);
         creatureCatalogCombo.setConverter(new StringConverter<>() {
@@ -232,7 +228,6 @@ public class MainStage {
         Spinner<Integer> hpSpinner = makeSpinner(1, 999, 20);
         Label gridSizeLabel = new Label("1×1");
 
-        // При выборе существа из каталога — заполняем поля
         creatureCatalogCombo.setOnAction(e -> {
             JsonNode sel = creatureCatalogCombo.getSelectionModel().getSelectedItem();
             if (sel != null) {
@@ -254,7 +249,6 @@ public class MainStage {
         addTokenBtn.setOnAction(e -> addToken(tokenNameField.getText(),
                 creatureCatalogCombo.getSelectionModel().getSelectedItem(), hpSpinner.getValue()));
 
-        // --- Управление существующими ---
         tokenActionsCombo = makeCombo(200, t -> {
             if (t == null) return "";
             String own = t.getOwnerId() == null ? "NPC" : "игрок…" + shortId(t.getOwnerId());
@@ -317,7 +311,6 @@ public class MainStage {
         Spinner<Integer> objHSpinner = makeSpinner(1, 10, 1);
         Label objPreviewLabel = new Label("1×1, без текстуры");
 
-        // При выборе объекта из каталога — ставим размер по умолчанию
         objectCatalogCombo.setOnAction(e -> {
             JsonNode sel = objectCatalogCombo.getSelectionModel().getSelectedItem();
             if (sel != null) {
@@ -379,20 +372,33 @@ public class MainStage {
                 colsSpinner.getValue(), rowsSpinner.getValue(), cellSpinner.getValue()));
 
         Button uploadMapBtn = new Button("🖼 Загрузить фон");
+        Label uploadStatusLabel = new Label("");
+        uploadStatusLabel.setStyle("-fx-text-fill: #888;");
+
         uploadMapBtn.setOnAction(e -> {
             javafx.stage.FileChooser fc = new javafx.stage.FileChooser();
+            fc.setTitle("Выберите изображение карты");
             fc.getExtensionFilters().add(
                     new javafx.stage.FileChooser.ExtensionFilter("Images",
-                            "*.png", "*.jpg", "*.jpeg", "*.webp"));
+                            "*.png", "*.jpg", "*.jpeg", "*.webp", "*.gif"));
             java.io.File file = fc.showOpenDialog(stage);
             if (file != null) {
+                uploadStatusLabel.setText("Загрузка...");
+                uploadMapBtn.setDisable(true);
                 ServerConnection.getInstance().uploadMap(
                         currentServerUrl,
                         ClientState.getInstance().getSessionId(),
                         file,
                         url -> {
+                            uploadMapBtn.setDisable(false);
                             if (url != null && mapCanvas != null) {
-                                mapCanvas.setBackground(currentServerUrl + url);
+                                // url от сервера — относительный путь (/uploads/...)
+                                String fullUrl = currentServerUrl + url.trim();
+                                mapCanvas.setBackground(fullUrl);
+                                uploadStatusLabel.setText("✅ Загружено");
+                                System.out.println("Background set to: " + fullUrl);
+                            } else {
+                                uploadStatusLabel.setText("❌ Ошибка загрузки");
                             }
                         }
                 );
@@ -405,7 +411,8 @@ public class MainStage {
                 new Label("cell px:"), cellSpinner,
                 applyGridBtn,
                 new Separator(),
-                uploadMapBtn
+                uploadMapBtn,
+                uploadStatusLabel
         );
         row.setAlignment(Pos.CENTER_LEFT);
         row.setPadding(new Insets(8));
@@ -419,7 +426,6 @@ public class MainStage {
     private Tab buildHpTab() {
         Tab tab = new Tab("❤ HP");
 
-        // Выбираем токен
         ComboBox<TokenDto> hpTokenCombo = makeCombo(220, t -> {
             if (t == null) return "";
             return t.getName() + " [" + t.getHp() + "/" + t.getMaxHp() + "]";
@@ -429,7 +435,6 @@ public class MainStage {
         Spinner<Integer> newMaxHpSpinner = makeSpinner(1, 9999, 20);
         Label currentHpLabel = new Label("HP: —/—");
 
-        // При выборе токена — обновляем поля
         hpTokenCombo.setOnAction(e -> {
             TokenDto t = hpTokenCombo.getSelectionModel().getSelectedItem();
             if (t != null) {
@@ -439,7 +444,6 @@ public class MainStage {
             }
         });
 
-        // Кнопки быстрого урона/лечения
         Button dmgBtn = new Button("⚔ -");
         Spinner<Integer> deltaSpinner = makeSpinner(1, 999, 5);
         Button healBtn = new Button("💚 +");
@@ -477,7 +481,6 @@ public class MainStage {
             ServerConnection.getInstance().updateTokenHp(t.getId(), 0, t.getMaxHp());
         });
 
-        // При изменении состояния — обновляем комбо и label
         ClientState.getInstance().addChangeListener(() -> {
             String keepId = selectedId(hpTokenCombo, TokenDto::getId);
             hpTokenCombo.getItems().setAll(ClientState.getInstance().getTokens().values());
@@ -527,27 +530,24 @@ public class MainStage {
         Label currentTurnLabel = new Label("Текущий ход: —");
         currentTurnLabel.setStyle("-fx-font-weight: bold; -fx-font-size: 13px;");
 
-        // Очередь хода: список пар (tokenId, initiative)
-        List<InitiativeEntry> queue = new ArrayList<>();
-
         addBtn.setOnAction(e -> {
             TokenDto t = addToInitiativeCombo.getSelectionModel().getSelectedItem();
             if (t == null) return;
             int ini = initiativeSpinner.getValue();
-            queue.add(new InitiativeEntry(t.getId(), t.getName(), ini));
-            queue.sort(Comparator.comparingInt(InitiativeEntry::initiative).reversed());
-            refreshInitiativeList(initiativeList, queue, 0);
+            initiativeQueue.add(new InitiativeEntry(t.getId(), t.getName(), ini));
+            initiativeQueue.sort(Comparator.comparingInt(InitiativeEntry::initiative).reversed());
+            refreshInitiativeList(initiativeList, initiativeQueue, 0);
         });
 
         nextBtn.setOnAction(e -> {
-            if (queue.isEmpty()) return;
-            currentInitiativeIndex = (currentInitiativeIndex + 1) % queue.size();
-            refreshInitiativeList(initiativeList, queue, currentInitiativeIndex);
-            currentTurnLabel.setText("Текущий ход: " + queue.get(currentInitiativeIndex).name());
+            if (initiativeQueue.isEmpty()) return;
+            currentInitiativeIndex = (currentInitiativeIndex + 1) % initiativeQueue.size();
+            refreshInitiativeList(initiativeList, initiativeQueue, currentInitiativeIndex);
+            currentTurnLabel.setText("Текущий ход: " + initiativeQueue.get(currentInitiativeIndex).name());
         });
 
         clearBtn.setOnAction(e -> {
-            queue.clear();
+            initiativeQueue.clear();
             currentInitiativeIndex = 0;
             initiativeList.getItems().clear();
             currentTurnLabel.setText("Текущий ход: —");
@@ -556,14 +556,13 @@ public class MainStage {
         Button removeFromIniBtn = new Button("🗑");
         removeFromIniBtn.setOnAction(e -> {
             int sel = initiativeList.getSelectionModel().getSelectedIndex();
-            if (sel >= 0 && sel < queue.size()) {
-                queue.remove(sel);
-                if (currentInitiativeIndex >= queue.size()) currentInitiativeIndex = 0;
-                refreshInitiativeList(initiativeList, queue, currentInitiativeIndex);
+            if (sel >= 0 && sel < initiativeQueue.size()) {
+                initiativeQueue.remove(sel);
+                if (currentInitiativeIndex >= initiativeQueue.size()) currentInitiativeIndex = 0;
+                refreshInitiativeList(initiativeList, initiativeQueue, currentInitiativeIndex);
             }
         });
 
-        // Обновляем комбо при изменении токенов
         ClientState.getInstance().addChangeListener(() -> {
             String keepId = selectedId(addToInitiativeCombo, TokenDto::getId);
             addToInitiativeCombo.getItems().setAll(ClientState.getInstance().getTokens().values());
@@ -609,11 +608,14 @@ public class MainStage {
         String keepObjId = selectedId(objectRemoveCombo, MapObjectDto::getId);
 
         tokenActionsCombo.getItems().setAll(ClientState.getInstance().getTokens().values());
+
+        // FIX: фильтруем игроков правильно — роль хранится как строка "PLAYER"
         playerAssignCombo.getItems().setAll(
                 ClientState.getInstance().getPlayers().values().stream()
-                        .filter(p -> "PLAYER".equals(p.getRole()))
+                        .filter(p -> "PLAYER".equalsIgnoreCase(p.getRole()))
                         .toList()
         );
+
         objectRemoveCombo.getItems().setAll(ClientState.getInstance().getObjects().values());
 
         selectById(tokenActionsCombo, keepTokenId, TokenDto::getId);

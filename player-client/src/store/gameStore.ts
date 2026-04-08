@@ -24,7 +24,7 @@ interface GameState {
     addObject: (obj: MapObjectDto) => void;
     removeObject: (objId: string) => void;
     addPlayer: (player: PlayerDto) => void;
-    setBackground: (url: string | null) => void;   // ← правильная сигнатура
+    setBackground: (url: string | null) => void;
 }
 
 export const useGameStore = create<GameState>((set) => ({
