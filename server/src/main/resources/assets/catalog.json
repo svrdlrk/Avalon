@@ -118,7 +118,7 @@
       "category": "player",
       "size": "medium",
       "gridSize": 2,
-      "imagePath": "assets/tokens/players/Druid_tiger.png"
+      "imagePath": "assets/tokens/players/Druid_hyena.png"
     },
     {
       "id": "human-giant",

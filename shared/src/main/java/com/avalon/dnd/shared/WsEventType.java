@@ -12,5 +12,6 @@ public enum WsEventType {
     PLAYER_JOINED,
     PLAYER_LEFT,
     SESSION_STATE,
-    MAP_BACKGROUND_UPDATED
+    MAP_BACKGROUND_UPDATED,
+    INITIATIVE_UPDATED    // <-- новый: рассылка порядка инициативы всем клиентам
 }

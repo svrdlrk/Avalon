@@ -2,60 +2,72 @@ export type Role = 'DM' | 'PLAYER';
 
 export interface GridConfig {
     cellSize: number;
-    cols: number;
-    rows: number;
-    offsetX: number;
-    offsetY: number;
+    cols:     number;
+    rows:     number;
+    offsetX:  number;
+    offsetY:  number;
 }
 
 export interface TokenDto {
-    id: string;
-    name: string;
-    col: number;
-    row: number;
-    ownerId: string | null;
-    hp: number;
-    maxHp: number;
-    /** Размер токена в клетках (1..4). */
+    id:       string;
+    name:     string;
+    col:      number;
+    row:      number;
+    ownerId:  string | null;
+    hp:       number;
+    maxHp:    number;
     gridSize: number;
-    /** Относительный URL изображения или null. */
     imageUrl: string | null;
 }
 
 export interface PlayerDto {
-    id: string;
+    id:   string;
     name: string;
     role: Role;
 }
 
 export interface MapObjectDto {
-    id: string;
-    type: string;
-    col: number;
-    row: number;
-    width: number;
-    height: number;
-    /** Размер объекта в клетках (1..4). */
+    id:       string;
+    type:     string;
+    col:      number;
+    row:      number;
+    width:    number;
+    height:   number;
     gridSize: number;
-    /** Относительный URL текстуры или null. */
     imageUrl: string | null;
 }
 
 export interface SessionStateDto {
-    myPlayerId: string;
-    grid: GridConfig;
-    tokens: TokenDto[];
-    players: PlayerDto[];
-    objects: MapObjectDto[];
+    myPlayerId:    string;
+    grid:          GridConfig;
+    tokens:        TokenDto[];
+    players:       PlayerDto[];
+    objects:       MapObjectDto[];
     backgroundUrl?: string;
+    initiative?:   InitiativeStateDto;
 }
 
 export interface MapLayoutUpdateDto {
-    grid: GridConfig;
-    tokens: TokenDto[];
-    objects: MapObjectDto[];
+    grid:           GridConfig;
+    tokens:         TokenDto[];
+    objects:        MapObjectDto[];
     backgroundUrl?: string;
 }
+
+// ---- Initiative ----
+
+export interface InitiativeEntry {
+    tokenId:    string;
+    name:       string;
+    initiative: number;
+}
+
+export interface InitiativeStateDto {
+    entries:      InitiativeEntry[];
+    currentIndex: number;
+}
+
+// ---- WS event types ----
 
 export type WsEventType =
     | 'TOKEN_MOVED'
@@ -69,11 +81,12 @@ export type WsEventType =
     | 'PLAYER_JOINED'
     | 'PLAYER_LEFT'
     | 'SESSION_STATE'
-    | 'MAP_BACKGROUND_UPDATED';
+    | 'MAP_BACKGROUND_UPDATED'
+    | 'INITIATIVE_UPDATED';
 
 export interface WsMessage<T> {
-    type: WsEventType;
+    type:      WsEventType;
     sessionId: string;
-    version: number;
-    payload: T;
+    version:   number;
+    payload:   T;
 }

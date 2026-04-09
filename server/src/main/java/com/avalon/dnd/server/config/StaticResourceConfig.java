@@ -9,8 +9,9 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 
 /**
- * Раздаёт загруженные карты по пути /uploads/**
- * Клиенты получают URL вида http://localhost:8080/uploads/uuid_filename.png
+ * Раздаёт статические ресурсы:
+ *  /uploads/**  — загруженные пользователем карты (файловая система)
+ *  /assets/**   — встроенные токены и объекты  (classpath:assets/)
  */
 @Configuration
 public class StaticResourceConfig implements WebMvcConfigurer {
@@ -20,8 +21,16 @@ public class StaticResourceConfig implements WebMvcConfigurer {
 
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
+        // Загруженные карты из файловой системы
         Path uploadDir = Paths.get(uploadPath).toAbsolutePath();
         registry.addResourceHandler("/uploads/**")
-                .addResourceLocations("file:" + uploadDir + "/");
+                .addResourceLocations("file:" + uploadDir + "/")
+                .setCachePeriod(3600);
+
+        // Встроенные ассеты токенов и объектов из classpath
+        // Файлы лежат в server/src/main/resources/assets/
+        registry.addResourceHandler("/assets/**")
+                .addResourceLocations("classpath:/assets/")
+                .setCachePeriod(86400); // 24h — они не меняются
     }
 }

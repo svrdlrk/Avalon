@@ -1,4 +1,4 @@
-/* Сброс дефолтных стилей Vite-шаблона */
+/* Reset */
 *, *::before, *::after {
     box-sizing: border-box;
 }
@@ -12,8 +12,42 @@ body {
     -webkit-font-smoothing: antialiased;
 }
 
-/* #root должен занимать всё окно, без ограничений */
 #root {
     width: 100%;
     min-height: 100svh;
+}
+
+/* Hide scrollbar for initiative bar scroll container */
+.initiative-scroll::-webkit-scrollbar {
+    display: none;
+}
+
+/* General thin scrollbar for other elements */
+::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+}
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.25);
+}
+
+/* Pulse animation for active token ring in initiative bar */
+@keyframes initiativePulse {
+    0%   { opacity: 1;   transform: scale(1);    }
+    50%  { opacity: 0.4; transform: scale(1.12); }
+    100% { opacity: 1;   transform: scale(1);    }
+}
+
+/* Legacy pulse name (keep for backward compat) */
+@keyframes pulse {
+    0%   { opacity: 1;   transform: scale(1);    }
+    50%  { opacity: 0.4; transform: scale(1.12); }
+    100% { opacity: 1;   transform: scale(1);    }
 }

@@ -1,14 +1,16 @@
 import React, { useRef, useCallback, useState } from 'react';
-import { Stage, Layer, Rect, Line, Circle, Text, Group, Image as KonvaImage } from 'react-konva';
+import {
+    Stage, Layer, Rect, Line, Circle, Text, Group, Image as KonvaImage,
+} from 'react-konva';
 import { useGameStore } from '../store/gameStore';
 import type { TokenDto, MapObjectDto } from '../types/types';
 import { wsClient } from '../net/wsClient';
 import useImage from '../hooks/useImage';
 import type Konva from 'konva';
 
-const SERVER_BASE = 'http://localhost:8080';
+export const SERVER_BASE = 'http://localhost:8080';
 
-function useTokenImage(imageUrl: string | null) {
+function useRemoteImage(imageUrl: string | null) {
     const fullUrl = imageUrl
         ? (imageUrl.startsWith('http') ? imageUrl : SERVER_BASE + imageUrl)
         : null;
@@ -37,7 +39,7 @@ const TokenShape: React.FC<{
 }> = React.memo(({ token, isMyToken, isDm, cellSize, offsetX, offsetY, onDragStart, onDragEnd }) => {
     const gs = Math.max(1, token.gridSize ?? 1);
 
-    // Позиция левого верхнего угла токена (Group позиционируется по top-left)
+    // Group positioned at top-left of the token cell(s)
     const x = offsetX + token.col * cellSize;
     const y = offsetY + token.row * cellSize;
     const size = gs * cellSize;
@@ -48,16 +50,16 @@ const TokenShape: React.FC<{
     const isNpc = token.ownerId === null;
     const canDrag = isMyToken || isDm;
 
-    const [tokenImage] = useTokenImage(token.imageUrl);
+    const [tokenImage] = useRemoteImage(token.imageUrl);
     const [hovered, setHovered] = useState(false);
 
     const borderColor = isMyToken ? '#f1c40f' : isNpc ? '#e74c3c' : '#4a90d9';
-    const fillColor = isMyToken ? '#c9a227' : isNpc ? '#c0392b' : '#2980b9';
-    const fontSize = Math.max(9, Math.floor(size / 7));
-    const hpRatio = token.maxHp > 0 ? Math.max(0, Math.min(1, token.hp / token.maxHp)) : 1;
-    const barW = size - 10;
+    const fillColor   = isMyToken ? '#c9a227' : isNpc ? '#c0392b' : '#2980b9';
+    const fontSize    = Math.max(9, Math.floor(size / 7));
+    const hpRatio     = token.maxHp > 0 ? Math.max(0, Math.min(1, token.hp / token.maxHp)) : 1;
+    const barW        = size - 10;
 
-    // HP показываем только: игрокам для своих токенов, или DM для всех
+    // HP visible only to owner of this token or DM
     const showHp = token.maxHp > 0 && (isDm || isMyToken);
 
     return (
@@ -66,28 +68,19 @@ const TokenShape: React.FC<{
             y={y}
             draggable={canDrag}
             onDragStart={(e) => {
-                if (!canDrag) {
-                    e.target.stopDrag();
-                    return;
-                }
+                if (!canDrag) { e.target.stopDrag(); return; }
                 onDragStart();
             }}
-            onDragEnd={(e) => {
-                onDragEnd(e, token);
-            }}
+            onDragEnd={(e) => onDragEnd(e, token)}
             onMouseEnter={() => setHovered(true)}
             onMouseLeave={() => setHovered(false)}
         >
-            {/* Highlight for own token */}
+            {/* Glow ring for own token */}
             {isMyToken && (
-                <Circle
-                    x={cx} y={cy}
-                    radius={radius + 3}
-                    fill="rgba(241,196,15,0.25)"
-                />
+                <Circle x={cx} y={cy} radius={radius + 3} fill="rgba(241,196,15,0.25)" />
             )}
 
-            {/* Main circle */}
+            {/* Base circle */}
             <Circle
                 x={cx} y={cy}
                 radius={radius}
@@ -99,21 +92,19 @@ const TokenShape: React.FC<{
                 shadowOpacity={0.7}
             />
 
-            {/* Token image */}
+            {/* Token image clipped to circle */}
             {tokenImage && (
                 <KonvaImage
                     image={tokenImage}
-                    x={cx - radius}
-                    y={cy - radius}
-                    width={radius * 2}
-                    height={radius * 2}
+                    x={cx - radius} y={cy - radius}
+                    width={radius * 2} height={radius * 2}
                     cornerRadius={radius}
                     opacity={0.95}
                     listening={false}
                 />
             )}
 
-            {/* Name label */}
+            {/* Name */}
             <Text
                 x={0}
                 y={tokenImage ? cy + radius - fontSize - 4 : cy - fontSize / 2}
@@ -128,59 +119,44 @@ const TokenShape: React.FC<{
                 listening={false}
             />
 
-            {/* Size label for big tokens */}
+            {/* Size badge */}
             {gs > 1 && (
-                <Text
-                    x={size - 22}
-                    y={4}
-                    text={`${gs}×${gs}`}
-                    fontSize={9}
-                    fill="rgba(255,255,255,0.7)"
-                    listening={false}
-                />
+                <Text x={size - 22} y={4} text={`${gs}×${gs}`}
+                      fontSize={9} fill="rgba(255,255,255,0.7)" listening={false} />
             )}
 
-            {/* HP bar */}
+            {/* HP bar — only for owner / DM */}
             {showHp && (
                 <>
-                    <Rect
-                        x={5} y={size + 4}
-                        width={barW} height={5}
-                        fill="#1a1a1a" cornerRadius={2}
-                        listening={false}
-                    />
-                    <Rect
-                        x={5} y={size + 4}
-                        width={barW * hpRatio} height={5}
-                        fill={hpColor(token.hp, token.maxHp)}
-                        cornerRadius={2}
-                        listening={false}
-                    />
+                    <Rect x={5} y={size + 4} width={barW} height={5}
+                          fill="#1a1a1a" cornerRadius={2} listening={false} />
+                    <Rect x={5} y={size + 4} width={barW * hpRatio} height={5}
+                          fill={hpColor(token.hp, token.maxHp)} cornerRadius={2} listening={false} />
                 </>
             )}
 
-            {/* Tooltip on hover */}
+            {/* Tooltip — HP shown only to owner / DM */}
             {hovered && (
                 <Group x={size + 4} y={0}>
-                    <Rect
-                        x={0} y={0}
-                        width={140} height={72}
-                        fill="rgba(20,20,40,0.95)"
-                        stroke="#7f8c8d"
-                        strokeWidth={1}
-                        cornerRadius={5}
-                        listening={false}
-                    />
-                    <Text x={6} y={8}   text={token.name} fontSize={12} fontStyle="bold" fill="#ecf0f1" width={128} listening={false} />
-                    <Text x={6} y={24}  text={`HP: ${token.hp} / ${token.maxHp}`} fontSize={11} fill="#2ecc71" listening={false} />
-                    <Text x={6} y={40}  text={`Размер: ${gs}×${gs}`} fontSize={11} fill="#bdc3c7" listening={false} />
-                    <Text x={6} y={56}  text={token.ownerId ? 'Игрок' : 'NPC'} fontSize={11} fill="#bdc3c7" listening={false} />
+                    <Rect x={0} y={0} width={140} height={showHp ? 72 : 56}
+                          fill="rgba(20,20,40,0.95)" stroke="#7f8c8d" strokeWidth={1}
+                          cornerRadius={5} listening={false} />
+                    <Text x={6} y={8} text={token.name}
+                          fontSize={12} fontStyle="bold" fill="#ecf0f1" width={128} listening={false} />
+                    {showHp && (
+                        <Text x={6} y={24}
+                              text={`HP: ${token.hp} / ${token.maxHp}`}
+                              fontSize={11} fill="#2ecc71" listening={false} />
+                    )}
+                    <Text x={6} y={showHp ? 40 : 24}
+                          text={`Размер: ${gs}×${gs}`} fontSize={11} fill="#bdc3c7" listening={false} />
+                    <Text x={6} y={showHp ? 56 : 40}
+                          text={token.ownerId ? 'Игрок' : 'NPC'} fontSize={11} fill="#bdc3c7" listening={false} />
                 </Group>
             )}
         </Group>
     );
 });
-
 TokenShape.displayName = 'TokenShape';
 
 // ================================================================ ObjectShape
@@ -206,93 +182,70 @@ const ObjectShape: React.FC<{
 
     return (
         <Group x={px} y={py} listening={false}>
-            {objImage ? (
-                <>
+            {/* Background fill always present */}
+            <Rect x={0} y={0} width={pw} height={ph} fill="#4a3728" />
+
+            {/* Object image — centered, preserving aspect ratio via object-fit simulation */}
+            {objImage && (() => {
+                // Fit image inside cell while preserving aspect ratio (cover = fill cell)
+                const imgW = objImage.width;
+                const imgH = objImage.height;
+                const scale = Math.max(pw / imgW, ph / imgH);
+                const drawW = imgW * scale;
+                const drawH = imgH * scale;
+                const drawX = (pw - drawW) / 2;
+                const drawY = (ph - drawH) / 2;
+                return (
                     <KonvaImage
                         image={objImage}
-                        x={0} y={0}
-                        width={pw} height={ph}
-                        opacity={0.95}
+                        x={drawX} y={drawY}
+                        width={drawW} height={drawH}
+                        opacity={0.92}
                     />
-                    {/* Subtle dark overlay */}
-                    <Rect
-                        x={0} y={0}
-                        width={pw} height={ph}
-                        fill="rgba(0,0,0,0.15)"
-                    />
-                </>
-            ) : (
-                /* Fallback colored rect */
-                <Rect
-                    x={0} y={0}
-                    width={pw} height={ph}
-                    fill="#5d4037"
-                    stroke="#4e342e"
-                    strokeWidth={1}
-                />
-            )}
+                );
+            })()}
+
             {/* Border */}
-            <Rect
-                x={0} y={0}
-                width={pw} height={ph}
-                fill="transparent"
-                stroke="#5a2d0c"
-                strokeWidth={1}
-            />
-            {/* Type label */}
-            <Text
-                x={2} y={2}
-                text={obj.type}
-                fontSize={9}
-                fill="rgba(255,255,255,0.6)"
-            />
+            <Rect x={0} y={0} width={pw} height={ph}
+                  fill="transparent" stroke="rgba(90,45,12,0.8)" strokeWidth={1} />
         </Group>
     );
 });
-
 ObjectShape.displayName = 'ObjectShape';
 
 // ================================================================ BattleMap
 
 const BattleMap: React.FC = () => {
-    const { grid, tokens, objects, myPlayerId, backgroundUrl } = useGameStore();
+    const { grid, tokens, objects, myPlayerId, backgroundUrl, players } = useGameStore();
     const stageRef = useRef<Konva.Stage>(null);
-    const isDraggingToken = useRef(false);
 
-    // Determine if current player is DM
-    const { players } = useGameStore();
+    // FIX: use a React state for stageDraggable so JSX prop stays in sync
+    const [stageDraggable, setStageDraggable] = useState(true);
+
     const myPlayer = myPlayerId ? players[myPlayerId] : null;
-    const isDm = myPlayer?.role === 'DM';
+    const isDm     = myPlayer?.role === 'DM';
 
     const fullBgUrl = backgroundUrl
         ? (backgroundUrl.startsWith('http') ? backgroundUrl : SERVER_BASE + backgroundUrl)
         : null;
     const [bgImage] = useImage(fullBgUrl);
 
+    // FIX: set React state, not imperative Konva call, so re-renders respect it
     const handleTokenDragStart = useCallback(() => {
-        isDraggingToken.current = true;
-        // Disable stage dragging while dragging a token
-        if (stageRef.current) {
-            stageRef.current.draggable(false);
-        }
+        setStageDraggable(false);
     }, []);
 
     const handleDragEnd = useCallback((e: any, token: TokenDto) => {
-        isDraggingToken.current = false;
-        // Re-enable stage dragging
-        if (stageRef.current) {
-            stageRef.current.draggable(true);
-        }
+        setStageDraggable(true);
 
         if (!grid) return;
         const node = e.target;
-        const gs = Math.max(1, token.gridSize ?? 1);
+        const gs   = Math.max(1, token.gridSize ?? 1);
 
-        // node.x() / node.y() is the top-left corner of the Group
+        // node.x() / node.y() = top-left of the group after drag
         const rawX = node.x();
         const rawY = node.y();
 
-        // Convert pixel position back to grid cell (top-left of token)
         const newCol = Math.round((rawX - grid.offsetX) / grid.cellSize);
         const newRow = Math.round((rawY - grid.offsetY) / grid.cellSize);
         const clampedCol = Math.max(0, Math.min(newCol, grid.cols - gs));
@@ -324,18 +277,16 @@ const BattleMap: React.FC = () => {
 
     const gridPixelW = grid.cols * grid.cellSize;
     const gridPixelH = grid.rows * grid.cellSize;
-    const stageW = Math.max(window.innerWidth, grid.offsetX + gridPixelW + 100);
-    const stageH = Math.max(window.innerHeight, grid.offsetY + gridPixelH + 100);
+    const stageW     = Math.max(window.innerWidth,  grid.offsetX + gridPixelW + 100);
+    const stageH     = Math.max(window.innerHeight, grid.offsetY + gridPixelH + 100);
 
-    // Grid lines
     const gridLines: React.ReactNode[] = [];
     for (let c = 0; c <= grid.cols; c++) {
         const lx = grid.offsetX + c * grid.cellSize;
         gridLines.push(
             <Line key={`v-${c}`}
                   points={[lx, grid.offsetY, lx, grid.offsetY + gridPixelH]}
-                  stroke="rgba(255,255,255,0.12)" strokeWidth={0.5}
-            />
+                  stroke="rgba(255,255,255,0.12)" strokeWidth={0.5} />,
         );
     }
     for (let r = 0; r <= grid.rows; r++) {
@@ -343,8 +294,7 @@ const BattleMap: React.FC = () => {
         gridLines.push(
             <Line key={`h-${r}`}
                   points={[grid.offsetX, ly, grid.offsetX + gridPixelW, ly]}
-                  stroke="rgba(255,255,255,0.12)" strokeWidth={0.5}
-            />
+                  stroke="rgba(255,255,255,0.12)" strokeWidth={0.5} />,
         );
     }
 
@@ -354,20 +304,21 @@ const BattleMap: React.FC = () => {
                 ref={stageRef}
                 width={stageW}
                 height={stageH}
-                draggable={true}
+                // FIX: controlled via React state — not overwritten on re-render
+                draggable={stageDraggable}
                 onWheel={(e) => {
                     e.evt.preventDefault();
                     const stage = stageRef.current;
                     if (!stage) return;
                     const oldScale = stage.scaleX() || 1;
-                    const pointer = stage.getPointerPosition();
+                    const pointer  = stage.getPointerPosition();
                     if (!pointer) return;
                     const mousePointTo = {
                         x: (pointer.x - stage.x()) / oldScale,
                         y: (pointer.y - stage.y()) / oldScale,
                     };
                     const direction = e.evt.deltaY > 0 ? -1 : 1;
-                    const newScale = Math.max(0.2, Math.min(4, oldScale * (1 + direction * 0.1)));
+                    const newScale  = Math.max(0.2, Math.min(4, oldScale * (1 + direction * 0.1)));
                     stage.scale({ x: newScale, y: newScale });
                     stage.position({
                         x: pointer.x - mousePointTo.x * newScale,
@@ -394,7 +345,7 @@ const BattleMap: React.FC = () => {
                     )}
                 </Layer>
 
-                {/* Grid lines */}
+                {/* Grid */}
                 <Layer listening={false}>{gridLines}</Layer>
 
                 {/* Objects */}

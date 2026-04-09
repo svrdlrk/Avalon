@@ -5,74 +5,117 @@ import com.avalon.dnd.server.persistence.SavedSessionEntity;
 import com.avalon.dnd.server.persistence.SavedSessionRepository;
 import com.avalon.dnd.server.persistence.SessionSnapshot;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
 
 /**
- * Сохраняет и восстанавливает сессии через БД.
+ * Сохранение и загрузка сессий через файловую H2 БД.
+ *
+ * Жизненный цикл данных:
+ *  - БД переживает рестарты сервера (jdbc:h2:file:./data/avalondb)
+ *  - SessionRestoreRunner при старте подгружает все записи обратно в память
+ *  - DM может сохранять вручную через REST API
+ *  - Автосохранение можно включить через UI (каждые 5 минут)
  */
 @Service
 public class SessionPersistenceService {
 
+    private static final Logger log = LoggerFactory.getLogger(SessionPersistenceService.class);
+
     private final SavedSessionRepository repository;
-    private final SessionService sessionService;
-    private final ObjectMapper objectMapper;
+    private final SessionService         sessionService;
+    private final ObjectMapper           objectMapper;
 
     public SessionPersistenceService(SavedSessionRepository repository,
                                      SessionService sessionService,
                                      ObjectMapper objectMapper) {
-        this.repository = repository;
+        this.repository     = repository;
         this.sessionService = sessionService;
-        this.objectMapper = objectMapper;
+        this.objectMapper   = objectMapper;
     }
 
+    // ================================================================ Save
+
     /**
-     * Сохраняет текущее состояние сессии под именем displayName.
-     * Если запись уже есть — обновляет.
+     * Сохраняет сессию под именем displayName.
+     * Если запись уже существует — обновляет её.
      */
+    @Transactional
     public void saveSession(String sessionId, String displayName) {
         GameSession session = sessionService.getSession(sessionId);
         if (session == null) throw new RuntimeException("Session not found: " + sessionId);
 
         try {
-            SessionSnapshot snap = SessionSnapshot.from(session);
-            String json = objectMapper.writeValueAsString(snap);
+            String json = objectMapper.writeValueAsString(SessionSnapshot.from(session));
 
             SavedSessionEntity entity = repository.findById(sessionId)
-                    .orElse(new SavedSessionEntity(sessionId, displayName, json, session.getVersion()));
+                    .orElseGet(() -> new SavedSessionEntity(sessionId, displayName, json, 0));
 
             entity.setDisplayName(displayName);
             entity.setSnapshotJson(json);
             entity.setVersion(session.getVersion());
             entity.setSavedAt(LocalDateTime.now());
-
             repository.save(entity);
+
+            log.debug("[persist] Saved session '{}' ({})", displayName, sessionId);
         } catch (Exception e) {
             throw new RuntimeException("Failed to save session: " + e.getMessage(), e);
         }
     }
 
     /**
-     * Восстанавливает сессию из БД и регистрирует её в SessionService под исходным ID.
-     * Если сессия с таким ID уже активна — перезаписывает её состояние.
+     * Тихое автосохранение — не бросает исключение при ошибке, только логирует.
+     * Используется для автоматических сохранений по таймеру.
      */
+    @Transactional
+    public void autoSave(String sessionId) {
+        try {
+            GameSession session = sessionService.getSession(sessionId);
+            if (session == null) return;
+
+            // Use existing display name if already saved, otherwise generic name
+            String displayName = repository.findById(sessionId)
+                    .map(SavedSessionEntity::getDisplayName)
+                    .orElse("Сессия " + sessionId.substring(0, 8));
+
+            saveSession(sessionId, displayName);
+        } catch (Exception e) {
+            log.warn("[persist] Auto-save failed for {}: {}", sessionId, e.getMessage());
+        }
+    }
+
+    // ================================================================ Load
+
+    /**
+     * Загружает сессию из БД и регистрирует её в SessionService.
+     * Перезаписывает состояние если сессия уже активна.
+     *
+     * @return восстановленная GameSession
+     */
+    @Transactional(readOnly = true)
     public GameSession loadSession(String sessionId) {
         SavedSessionEntity entity = repository.findById(sessionId)
                 .orElseThrow(() -> new RuntimeException("Saved session not found: " + sessionId));
 
         try {
-            SessionSnapshot snap = objectMapper.readValue(entity.getSnapshotJson(), SessionSnapshot.class);
-            return restoreFromSnapshot(snap);
+            SessionSnapshot snap = objectMapper.readValue(
+                    entity.getSnapshotJson(), SessionSnapshot.class);
+            GameSession session = restoreFromSnapshot(snap);
+            log.debug("[persist] Loaded session '{}' ({})",
+                    entity.getDisplayName(), sessionId);
+            return session;
         } catch (Exception e) {
             throw new RuntimeException("Failed to load session: " + e.getMessage(), e);
         }
     }
 
-    /**
-     * Список всех сохранённых сессий (мета-данные, без снапшота).
-     */
+    // ================================================================ List / Delete
+
     public List<SavedSessionMeta> listSavedSessions() {
         return repository.findAllByOrderBySavedAtDesc().stream()
                 .map(e -> new SavedSessionMeta(
@@ -83,34 +126,19 @@ public class SessionPersistenceService {
                 .toList();
     }
 
-    /**
-     * Удаляет сохранённую сессию.
-     */
+    @Transactional
     public void deleteSavedSession(String sessionId) {
         repository.deleteById(sessionId);
     }
 
-    // ---- private ----
+    // ================================================================ Private
 
     private GameSession restoreFromSnapshot(SessionSnapshot snap) {
-        // Создаём новую GameSession или получаем существующую
-        GameSession sessionTmp = sessionService.getSession(snap.id);
-        if (sessionTmp == null) {
-            // Регистрируем через внутренний механизм
-            sessionTmp = sessionService.createSessionWithId(snap.id);
-        }
-        final GameSession session = sessionTmp;
-        // Восстанавливаем состояние
+        // createSessionWithId returns existing OR creates new
+        GameSession session = sessionService.createSessionWithId(snap.id);
+
         if (snap.grid != null) session.setGrid(snap.grid);
         session.setBackgroundUrl(snap.backgroundUrl);
-
-        session.getPlayers().clear();
-        if (snap.players != null) {
-            snap.players.forEach(ps -> {
-                var p = ps.toModel();
-                session.getPlayers().put(p.getId(), p);
-            });
-        }
 
         session.getTokens().clear();
         if (snap.tokens != null) {
@@ -128,15 +156,27 @@ public class SessionPersistenceService {
             });
         }
 
+        // Restore players — but clear existing first to avoid duplicates
+        session.getPlayers().clear();
+        if (snap.players != null) {
+            snap.players.forEach(ps -> {
+                var p = ps.toModel();
+                session.getPlayers().put(p.getId(), p);
+            });
+        }
+
+        // Restore initiative state if present
+        session.setInitiativeState(snap.initiative);
+
         return session;
     }
 
-    // ---- DTO ----
+    // ================================================================ DTO
 
     public record SavedSessionMeta(
             String sessionId,
             String displayName,
             String savedAt,
-            long version
+            long   version
     ) {}
 }

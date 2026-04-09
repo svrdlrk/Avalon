@@ -2,6 +2,7 @@ package com.avalon.dnd.server.persistence;
 
 import com.avalon.dnd.server.model.*;
 import com.avalon.dnd.shared.GridConfig;
+import com.avalon.dnd.shared.InitiativeStateDto;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
 import java.util.List;
@@ -13,13 +14,14 @@ import java.util.List;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class SessionSnapshot {
 
-    public String id;
-    public GridConfig grid;
-    public String backgroundUrl;
-    public long version;
-    public List<PlayerSnapshot> players;
-    public List<TokenSnapshot> tokens;
-    public List<MapObjectSnapshot> objects;
+    public String             id;
+    public GridConfig         grid;
+    public String             backgroundUrl;
+    public long               version;
+    public List<PlayerSnapshot>     players;
+    public List<TokenSnapshot>      tokens;
+    public List<MapObjectSnapshot>  objects;
+    public InitiativeStateDto initiative;   // nullable — may be null if not active
 
     public SessionSnapshot() {}
 
@@ -125,10 +127,11 @@ public class SessionSnapshot {
 
     public static SessionSnapshot from(com.avalon.dnd.server.model.GameSession session) {
         SessionSnapshot snap = new SessionSnapshot();
-        snap.id = session.getId();
-        snap.grid = session.getGrid();
+        snap.id            = session.getId();
+        snap.grid          = session.getGrid();
         snap.backgroundUrl = session.getBackgroundUrl();
-        snap.version = session.getVersion();
+        snap.version       = session.getVersion();
+        snap.initiative    = session.getInitiativeState();
         snap.players = session.getPlayers().values().stream()
                 .map(PlayerSnapshot::from).toList();
         snap.tokens = session.getTokens().values().stream()

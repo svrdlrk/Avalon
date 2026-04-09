@@ -3,22 +3,31 @@ server:
 
 spring:
   datasource:
-    url: jdbc:h2:mem:avalondb
-    driver-class-name: org.h2.Driver
+    # File-based H2 — данные сохраняются между перезапусками сервера
+    # Файл БД создаётся в ./data/avalondb.mv.db
+    url: jdbc:h2:file:./data/avalondb;DB_CLOSE_ON_EXIT=FALSE
     username: sa
     password:
   jpa:
     hibernate:
-      ddl-auto: create-drop
-    show-sql: true
+      # update — не удаляет данные при рестарте (в отличие от create-drop)
+      ddl-auto: update
+    show-sql: false
+    database-platform: org.hibernate.dialect.H2Dialect
   h2:
     console:
       enabled: true   # http://localhost:8080/h2-console для отладки
 
   servlet:
     multipart:
-      max-file-size: 50MB     # загрузка карт
+      max-file-size: 50MB
       max-request-size: 50MB
 
 upload:
-  path: ./uploads             # куда сохраняем загруженные карты
+  path: ./uploads
+
+# Уровень логирования (убрать лишний шум)
+logging:
+  level:
+    org.springframework.web.socket: WARN
+    org.springframework.messaging: WARN

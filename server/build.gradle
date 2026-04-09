@@ -23,7 +23,7 @@ dependencies {
     implementation 'com.fasterxml.jackson.core:jackson-databind'
 
     runtimeOnly 'com.h2database:h2'          // H2 для разработки
-    runtimeOnly 'org.postgresql:postgresql'   // PostgreSQL для прода
+//    runtimeOnly 'org.postgresql:postgresql'   // PostgreSQL для прода
 
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
 }

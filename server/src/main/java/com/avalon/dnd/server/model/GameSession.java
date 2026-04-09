@@ -1,6 +1,7 @@
 package com.avalon.dnd.server.model;
 
 import com.avalon.dnd.shared.GridConfig;
+import com.avalon.dnd.shared.InitiativeStateDto;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -9,47 +10,36 @@ import java.util.concurrent.atomic.AtomicLong;
 public class GameSession {
 
     private String id;
-    private GridConfig grid = new GridConfig(64,20,20);
+    private GridConfig grid = new GridConfig(64, 20, 20);
     private String backgroundUrl;
     private final AtomicLong version = new AtomicLong(0);
 
+    /** Текущее состояние инициативы (null = не активна). */
+    private InitiativeStateDto initiativeState;
 
-    private Map<String, Player> players = new ConcurrentHashMap<>();
-    private Map<String, Token> tokens = new ConcurrentHashMap<>();
+    private Map<String, Player>    players = new ConcurrentHashMap<>();
+    private Map<String, Token>     tokens  = new ConcurrentHashMap<>();
     private Map<String, MapObject> objects = new ConcurrentHashMap<>();
 
     public GameSession(String id) {
         this.id = id;
     }
 
-    public String getId() {
-        return id;
-    }
+    public String getId() { return id; }
 
-    public Map<String, Player> getPlayers() {
-        return players;
-    }
+    public Map<String, Player>    getPlayers() { return players; }
+    public Map<String, Token>     getTokens()  { return tokens; }
+    public Map<String, MapObject> getObjects() { return objects; }
 
-    public Map<String, Token> getTokens() {
-        return tokens;
-    }
+    public GridConfig getGrid()              { return grid; }
+    public void       setGrid(GridConfig g)  { this.grid = g; }
 
-    public Map<String, MapObject> getObjects() {
-        return objects;
-    }
+    public String getBackgroundUrl()                    { return backgroundUrl; }
+    public void   setBackgroundUrl(String url)          { this.backgroundUrl = url; }
 
-    public GridConfig getGrid() {
-        return grid;
-    }
+    public InitiativeStateDto getInitiativeState()             { return initiativeState; }
+    public void               setInitiativeState(InitiativeStateDto s) { this.initiativeState = s; }
 
-    public void setGrid(GridConfig grid) {
-        this.grid = grid;
-    }
-
-    public String getBackgroundUrl() { return backgroundUrl; }
-
-    public void setBackgroundUrl(String backgroundUrl) { this.backgroundUrl = backgroundUrl; }
-
-    public long getVersion() { return version.get(); }
-    public long incrementVersion() { return version.incrementAndGet(); }
+    public long getVersion()           { return version.get(); }
+    public long incrementVersion()     { return version.incrementAndGet(); }
 }

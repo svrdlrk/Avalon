@@ -31,7 +31,8 @@ public class ServerConnection {
 
     private final OkHttpClient httpClient = new OkHttpClient.Builder()
             .connectTimeout(10, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
             .build();
 
     private ServerConnection() {}
@@ -41,25 +42,22 @@ public class ServerConnection {
     public void connect(String serverUrl, String sessionId,
                         String playerName, boolean isDm,
                         Consumer<Void> onConnected) {
-        System.out.println("CONNECT START");
         disconnect();
         this.onConnected = onConnected;
         String joinNonce = UUID.randomUUID().toString();
 
-        var wsClient = new SockJsClient(List.of(new WebSocketTransport(new StandardWebSocketClient())));
+        var wsClient    = new SockJsClient(List.of(new WebSocketTransport(new StandardWebSocketClient())));
         var stompClient = new WebSocketStompClient(wsClient);
         stompClient.setMessageConverter(new MappingJackson2MessageConverter());
 
         stompClient.connectAsync(serverUrl + "/ws", new StompSessionHandlerAdapter() {
             @Override
-            public void afterConnected(StompSession session, StompHeaders connectedHeaders) {
-                System.out.println("CONNECTED TO WS");
+            public void afterConnected(StompSession session, StompHeaders headers) {
                 stompSession = session;
                 stompSession.subscribe("/topic/session/" + sessionId, new BroadcastHandler());
                 stompSession.subscribe(
                         "/topic/session/" + sessionId + "/join/" + joinNonce,
-                        new JoinStateHandler(sessionId, true)
-                );
+                        new JoinStateHandler(sessionId, true));
 
                 JoinSessionRequestDto req = new JoinSessionRequestDto();
                 req.setSessionId(sessionId);
@@ -73,32 +71,29 @@ public class ServerConnection {
             public void handleException(StompSession s, StompCommand cmd,
                                         StompHeaders h, byte[] p, Throwable ex) {
                 System.err.println("STOMP error: " + ex.getMessage());
-                ex.printStackTrace();
             }
 
             @Override
-            public void handleTransportError(StompSession session, Throwable exception) {
-                System.err.println("STOMP transport error: " + exception.getMessage());
+            public void handleTransportError(StompSession s, Throwable ex) {
+                System.err.println("STOMP transport error: " + ex.getMessage());
             }
         });
     }
 
     public void send(String destination, Object payload) {
         if (stompSession == null || !stompSession.isConnected()) {
-            System.err.println("STOMP not connected, cannot send to " + destination);
+            System.err.println("Not connected, dropping: " + destination);
             return;
         }
         StompHeaders headers = new StompHeaders();
         headers.setDestination("/app" + destination);
         headers.set("sessionId", ClientState.getInstance().getSessionId());
-        headers.set("playerId", ClientState.getInstance().getPlayerId());
+        headers.set("playerId",  ClientState.getInstance().getPlayerId());
         stompSession.send(headers, payload);
     }
 
     public void disconnect() {
-        if (stompSession != null && stompSession.isConnected()) {
-            stompSession.disconnect();
-        }
+        if (stompSession != null && stompSession.isConnected()) stompSession.disconnect();
         stompSession = null;
     }
 
@@ -106,8 +101,7 @@ public class ServerConnection {
         if (stompSession == null || !stompSession.isConnected()) return;
         stompSession.subscribe(
                 "/topic/session/" + sessionId + "/private/" + playerId,
-                new JoinStateHandler(sessionId, false)
-        );
+                new JoinStateHandler(sessionId, false));
     }
 
     // ================================================================ Handlers
@@ -118,30 +112,22 @@ public class ServerConnection {
         @Override
         public void handleFrame(StompHeaders headers, Object payload) {
             try {
+                JavaType type = mapper.getTypeFactory()
+                        .constructParametricType(WsMessage.class, Object.class);
                 WsMessage<?> msg;
-                if (payload instanceof byte[] bytes) {
-                    JavaType type = mapper.getTypeFactory()
-                            .constructParametricType(WsMessage.class, Object.class);
-                    msg = mapper.readValue(bytes, type);
-                } else if (payload instanceof String str) {
-                    JavaType type = mapper.getTypeFactory()
-                            .constructParametricType(WsMessage.class, Object.class);
-                    msg = mapper.readValue(str, type);
-                } else {
-                    JavaType type = mapper.getTypeFactory()
-                            .constructParametricType(WsMessage.class, Object.class);
-                    msg = mapper.convertValue(payload, type);
-                }
+                if (payload instanceof byte[] b) msg = mapper.readValue(b, type);
+                else if (payload instanceof String s) msg = mapper.readValue(s, type);
+                else msg = mapper.convertValue(payload, type);
                 handleEvent(msg);
             } catch (Exception e) {
-                System.err.println("Broadcast parse error:");
+                System.err.println("Broadcast parse error: " + e.getMessage());
                 e.printStackTrace();
             }
         }
     }
 
     private class JoinStateHandler extends StompSessionHandlerAdapter {
-        private final String sessionId;
+        private final String  sessionId;
         private final boolean completeHandshake;
 
         JoinStateHandler(String sessionId, boolean completeHandshake) {
@@ -154,34 +140,23 @@ public class ServerConnection {
         @Override
         public void handleFrame(StompHeaders headers, Object payload) {
             try {
-                WsMessage<SessionStateDto> msg;
                 JavaType type = mapper.getTypeFactory()
                         .constructParametricType(WsMessage.class, SessionStateDto.class);
-
-                if (payload instanceof byte[] bytes) {
-                    msg = mapper.readValue(bytes, type);
-                } else if (payload instanceof String str) {
-                    msg = mapper.readValue(str, type);
-                } else {
-                    msg = mapper.convertValue(payload, type);
-                }
+                WsMessage<SessionStateDto> msg;
+                if (payload instanceof byte[] b) msg = mapper.readValue(b, type);
+                else if (payload instanceof String s) msg = mapper.readValue(s, type);
+                else msg = mapper.convertValue(payload, type);
 
                 SessionStateDto state = msg.getPayload();
-
                 Platform.runLater(() -> {
-                    ClientState.getInstance()
-                            .applyState(state, sessionId, state.getMyPlayerId());
-
+                    ClientState.getInstance().applyState(state, sessionId, state.getMyPlayerId());
                     if (completeHandshake) {
                         subscribePrivateChannel(sessionId, state.getMyPlayerId());
-                        if (onConnected != null) {
-                            onConnected.accept(null);
-                            onConnected = null;
-                        }
+                        if (onConnected != null) { onConnected.accept(null); onConnected = null; }
                     }
                 });
             } catch (Exception e) {
-                System.err.println("JoinState parse error:");
+                System.err.println("JoinState parse error: " + e.getMessage());
                 e.printStackTrace();
             }
         }
@@ -192,76 +167,53 @@ public class ServerConnection {
             ClientState state = ClientState.getInstance();
             switch (msg.getType()) {
                 case TOKEN_MOVED, TOKEN_ADDED, TOKEN_ASSIGNED, TOKEN_HP -> {
-                    TokenDto token = mapper.convertValue(msg.getPayload(), TokenDto.class);
-                    state.moveToken(token);
+                    TokenDto t = mapper.convertValue(msg.getPayload(), TokenDto.class);
+                    state.moveToken(t);
                 }
-                case TOKEN_REMOVED -> {
-                    String tokenId = mapper.convertValue(msg.getPayload(), String.class);
-                    state.removeToken(tokenId);
-                }
-                case MAP_OBJECT_ADDED -> {
-                    MapObjectDto obj = mapper.convertValue(msg.getPayload(), MapObjectDto.class);
-                    state.addObject(obj);
-                }
-                case MAP_OBJECT_REMOVED -> {
-                    String objId = mapper.convertValue(msg.getPayload(), String.class);
-                    state.removeObject(objId);
-                }
-                case MAP_UPDATED -> {
-                    MapLayoutUpdateDto layout = mapper.convertValue(
-                            msg.getPayload(), MapLayoutUpdateDto.class);
-                    state.applyMapLayoutUpdate(layout);
-                }
-                case MAP_BACKGROUND_UPDATED -> {
-                    String url = mapper.convertValue(msg.getPayload(), String.class);
-                    state.setBackgroundUrl(url);
-                }
+                case TOKEN_REMOVED -> state.removeToken(
+                        mapper.convertValue(msg.getPayload(), String.class));
+                case MAP_OBJECT_ADDED -> state.addObject(
+                        mapper.convertValue(msg.getPayload(), MapObjectDto.class));
+                case MAP_OBJECT_REMOVED -> state.removeObject(
+                        mapper.convertValue(msg.getPayload(), String.class));
+                case MAP_UPDATED -> state.applyMapLayoutUpdate(
+                        mapper.convertValue(msg.getPayload(), MapLayoutUpdateDto.class));
+                case MAP_BACKGROUND_UPDATED -> state.setBackgroundUrl(
+                        mapper.convertValue(msg.getPayload(), String.class));
+                case PLAYER_JOINED -> state.addPlayer(
+                        mapper.convertValue(msg.getPayload(), PlayerDto.class));
+                case PLAYER_LEFT -> state.removePlayer(
+                        mapper.convertValue(msg.getPayload(), String.class));
                 default -> {}
             }
         });
     }
 
-    // ================================================================ HTTP
+    // ================================================================ HTTP helpers
 
-    public void createSession(String serverUrl, Consumer<String> onSessionCreated) {
-        new Thread(() -> {
-            try {
-                Request request = new Request.Builder()
-                        .url(serverUrl + "/api/session/create")
-                        .post(RequestBody.create(new byte[0]))
-                        .build();
-                try (Response response = httpClient.newCall(request).execute()) {
-                    if (response.isSuccessful() && response.body() != null) {
-                        String sessionId = mapper.readTree(response.body().string()).get("id").asText();
-                        Platform.runLater(() -> onSessionCreated.accept(sessionId));
-                    } else {
-                        Platform.runLater(() -> onSessionCreated.accept(null));
-                    }
-                }
-            } catch (Exception e) {
-                e.printStackTrace();
-                Platform.runLater(() -> onSessionCreated.accept(null));
+    public void createSession(String serverUrl, Consumer<String> onDone) {
+        httpAsync(() -> {
+            Request req = new Request.Builder()
+                    .url(serverUrl + "/api/session/create")
+                    .post(RequestBody.create(new byte[0])).build();
+            try (Response resp = httpClient.newCall(req).execute()) {
+                if (resp.isSuccessful() && resp.body() != null)
+                    return mapper.readTree(resp.body().string()).get("id").asText();
             }
-        }).start();
+            return null;
+        }, onDone);
     }
 
-    /**
-     * Сохранить сессию на сервере.
-     */
-    public void saveSession(String serverUrl, String sessionId, String name,
-                            Consumer<Boolean> onDone) {
+    public void saveSession(String serverUrl, String sessionId,
+                            String name, Consumer<Boolean> onDone) {
         new Thread(() -> {
             try {
                 HttpUrl url = HttpUrl.parse(serverUrl + "/api/session/" + sessionId + "/save")
-                        .newBuilder()
-                        .addQueryParameter("name", name)
-                        .build();
-                Request request = new Request.Builder()
-                        .url(url)
-                        .post(RequestBody.create(new byte[0]))
-                        .build();
-                try (Response response = httpClient.newCall(request).execute()) {
-                    Platform.runLater(() -> onDone.accept(response.isSuccessful()));
+                        .newBuilder().addQueryParameter("name", name).build();
+                try (Response r = httpClient.newCall(
+                        new Request.Builder().url(url)
+                                .post(RequestBody.create(new byte[0])).build()).execute()) {
+                    Platform.runLater(() -> onDone.accept(r.isSuccessful()));
                 }
             } catch (Exception e) {
                 e.printStackTrace();
@@ -270,60 +222,39 @@ public class ServerConnection {
         }).start();
     }
 
-    /**
-     * Загрузить сохранённую сессию (она становится активной на сервере).
-     */
-    public void loadSession(String serverUrl, String sessionId,
-                            Consumer<String> onLoaded) {
-        new Thread(() -> {
-            try {
-                Request request = new Request.Builder()
-                        .url(serverUrl + "/api/session/" + sessionId + "/load")
-                        .post(RequestBody.create(new byte[0]))
-                        .build();
-                try (Response response = httpClient.newCall(request).execute()) {
-                    if (response.isSuccessful() && response.body() != null) {
-                        String id = mapper.readTree(response.body().string()).get("id").asText();
-                        Platform.runLater(() -> onLoaded.accept(id));
-                    } else {
-                        Platform.runLater(() -> onLoaded.accept(null));
-                    }
-                }
-            } catch (Exception e) {
-                e.printStackTrace();
-                Platform.runLater(() -> onLoaded.accept(null));
+    public void loadSession(String serverUrl, String sessionId, Consumer<String> onDone) {
+        httpAsync(() -> {
+            Request req = new Request.Builder()
+                    .url(serverUrl + "/api/session/" + sessionId + "/load")
+                    .post(RequestBody.create(new byte[0])).build();
+            try (Response r = httpClient.newCall(req).execute()) {
+                if (r.isSuccessful() && r.body() != null)
+                    return mapper.readTree(r.body().string()).get("id").asText();
             }
-        }).start();
+            return null;
+        }, onDone);
     }
 
-    /**
-     * Список сохранённых сессий.
-     */
-    public void listSavedSessions(String serverUrl, Consumer<java.util.List<JsonNode>> onResult) {
+    public void listSavedSessions(String serverUrl, Consumer<List<JsonNode>> onDone) {
         new Thread(() -> {
             try {
-                Request request = new Request.Builder()
-                        .url(serverUrl + "/api/session/saved")
-                        .build();
-                try (Response response = httpClient.newCall(request).execute()) {
-                    if (response.isSuccessful() && response.body() != null) {
-                        JsonNode arr = mapper.readTree(response.body().string());
-                        java.util.List<JsonNode> list = new java.util.ArrayList<>();
-                        arr.forEach(list::add);
-                        Platform.runLater(() -> onResult.accept(list));
-                    } else {
-                        Platform.runLater(() -> onResult.accept(java.util.List.of()));
+                Request req = new Request.Builder()
+                        .url(serverUrl + "/api/session/saved").build();
+                try (Response r = httpClient.newCall(req).execute()) {
+                    if (r.isSuccessful() && r.body() != null) {
+                        List<JsonNode> list = new java.util.ArrayList<>();
+                        mapper.readTree(r.body().string()).forEach(list::add);
+                        Platform.runLater(() -> onDone.accept(list));
+                        return;
                     }
                 }
-            } catch (Exception e) {
-                e.printStackTrace();
-                Platform.runLater(() -> onResult.accept(java.util.List.of()));
-            }
+            } catch (Exception e) { e.printStackTrace(); }
+            Platform.runLater(() -> onDone.accept(List.of()));
         }).start();
     }
 
     public void uploadMap(String serverUrl, String sessionId,
-                          java.io.File file, Consumer<String> onUploaded) {
+                          java.io.File file, Consumer<String> onDone) {
         new Thread(() -> {
             try {
                 RequestBody body = new MultipartBody.Builder()
@@ -332,60 +263,59 @@ public class ServerConnection {
                         .addFormDataPart("file", file.getName(),
                                 RequestBody.create(file, MediaType.parse("image/*")))
                         .build();
-
-                Request request = new Request.Builder()
-                        .url(serverUrl + "/api/map/upload")
-                        .post(body)
-                        .build();
-
-                try (Response response = httpClient.newCall(request).execute()) {
-                    if (response.isSuccessful() && response.body() != null) {
-                        String url = response.body().string().trim();
-                        System.out.println("Upload response URL: " + url);
-                        Platform.runLater(() -> { if (onUploaded != null) onUploaded.accept(url); });
-                    } else {
-                        System.err.println("Upload failed: " + response.code() + " " + response.message());
-                        Platform.runLater(() -> { if (onUploaded != null) onUploaded.accept(null); });
+                try (Response r = httpClient.newCall(
+                        new Request.Builder().url(serverUrl + "/api/map/upload")
+                                .post(body).build()).execute()) {
+                    if (r.isSuccessful() && r.body() != null) {
+                        String url = r.body().string().trim();
+                        System.out.println("[upload] url: " + url);
+                        Platform.runLater(() -> { if (onDone != null) onDone.accept(url); });
+                        return;
                     }
+                    System.err.println("[upload] failed: " + r.code());
                 }
-            } catch (Exception e) {
-                e.printStackTrace();
-                Platform.runLater(() -> { if (onUploaded != null) onUploaded.accept(null); });
-            }
+            } catch (Exception e) { e.printStackTrace(); }
+            Platform.runLater(() -> { if (onDone != null) onDone.accept(null); });
         }).start();
     }
 
-    public void uploadMap(String serverUrl, String sessionId, java.io.File file) {
-        uploadMap(serverUrl, sessionId, file, null);
+    // ================================================================ Initiative
+
+    public void publishInitiative(List<InitiativeStateDto.InitiativeEntry> entries, int idx) {
+        InitiativeUpdateRequest req = new InitiativeUpdateRequest();
+        req.setEntries(entries);
+        req.setCurrentIndex(idx);
+        send("/initiative.update", req);
     }
 
-    // ================================================================ High-level
+    public void clearInitiative() {
+        send("/initiative.clear", new java.util.HashMap<>());
+    }
+
+    // ================================================================ Token helpers
 
     public void createToken(String name, int col, int row,
-                            int hp, int maxHp,
-                            int gridSize, String imageUrl,
-                            String ownerId) {
-        TokenCreateRequest req = new TokenCreateRequest(
-                name, col, row, ownerId, hp, maxHp, gridSize, imageUrl);
-        send("/token.create", req);
+                            int hp, int maxHp, int gridSize,
+                            String imageUrl, String ownerId) {
+        send("/token.create",
+                new TokenCreateRequest(name, col, row, ownerId, hp, maxHp, gridSize, imageUrl));
     }
 
-    public void createToken(String name, int col, int row, int hp, String ownerId) {
-        createToken(name, col, row, hp, hp, 1, null, ownerId);
+    public void updateTokenHp(String tokenId, int hp, int maxHp) {
+        TokenHpUpdateEvent ev = new TokenHpUpdateEvent();
+        ev.setTokenId(tokenId); ev.setHp(hp); ev.setMaxHp(maxHp);
+        send("/token.hp", ev);
     }
 
-    public void assignToken(String tokenId, String newOwnerId) {
-        TokenAssignRequest req = new TokenAssignRequest();
-        req.setTokenId(tokenId);
-        req.setOwnerId(newOwnerId);
-        send("/token.assign", req);
-    }
+    // ================================================================ Private
 
-    public void updateTokenHp(String tokenId, int newHp, int newMaxHp) {
-        TokenHpUpdateEvent event = new TokenHpUpdateEvent();
-        event.setTokenId(tokenId);
-        event.setHp(newHp);
-        event.setMaxHp(newMaxHp);
-        send("/token.hp", event);
+    /** Run a blocking call on a background thread, deliver result on FX thread. */
+    private <T> void httpAsync(java.util.concurrent.Callable<T> call, Consumer<T> onResult) {
+        new Thread(() -> {
+            T result = null;
+            try { result = call.call(); } catch (Exception e) { e.printStackTrace(); }
+            final T r = result;
+            Platform.runLater(() -> onResult.accept(r));
+        }).start();
     }
 }
