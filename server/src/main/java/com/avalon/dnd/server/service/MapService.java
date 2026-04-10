@@ -48,6 +48,8 @@ public class MapService {
         String safeName = (originalName == null || originalName.isBlank())
                 ? "map.jpg"
                 : Paths.get(originalName).getFileName().toString();
+
+        // ИСПРАВЛЕНИЕ: только UUID, без имени сессии — никаких дубликатов
         String filename = UUID.randomUUID() + "_" + safeName;
         Path filePath = uploadDir.resolve(filename);
         file.transferTo(filePath.toFile());

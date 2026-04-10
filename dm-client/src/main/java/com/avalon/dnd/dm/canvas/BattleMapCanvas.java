@@ -23,6 +23,7 @@ public class BattleMapCanvas extends Canvas {
     private TokenDto draggingToken = null;
     private double dragOffsetX, dragOffsetY;
     private Image backgroundImage;
+    private String currentBackgroundUrl = null;
 
     private final Map<String, Image> imageCache = new HashMap<>();
     private TokenDto hoveredToken = null;
@@ -74,8 +75,8 @@ public class BattleMapCanvas extends Canvas {
 
             // Safety cap: JavaFX hardware renderer cannot handle textures larger
             // than ~8192 px in either dimension on most GPUs.
-            double safeW = Math.min(Math.max(width,  1), 8192);
-            double safeH = Math.min(Math.max(height, 1), 8192);
+            double safeW = Math.min(Math.max(width,  1), 16384);
+            double safeH = Math.min(Math.max(height, 1), 16384);
 
             setWidth(safeW);
             setHeight(safeH);
@@ -443,12 +444,13 @@ public class BattleMapCanvas extends Canvas {
      */
     public void setBackground(String fullUrl) {
         String resolved = resolveServerUrl(fullUrl);
+        if (resolved == null || resolved.equals(currentBackgroundUrl)) {
+            return;   // <-- ИСПРАВЛЕНИЕ: не перезагружаем фон при каждом notifyMapChanged()
+        }
+        currentBackgroundUrl = resolved;
         System.out.println("[canvas] Loading background: " + resolved);
-        if (resolved == null) return;
 
-        // FIX: percent-encode non-ASCII chars so JavaFX can handle Cyrillic filenames
         String encoded = encodeUrl(resolved);
-
         backgroundImage = new Image(encoded, true);
         backgroundImage.progressProperty().addListener((obs, old, p) -> {
             if (p.doubleValue() >= 1.0) {
@@ -519,5 +521,6 @@ public class BattleMapCanvas extends Canvas {
     public void clearCache() {
         imageCache.clear();
         backgroundImage = null;
+        currentBackgroundUrl = null;   // <-- ИСПРАВЛЕНИЕ
     }
 }

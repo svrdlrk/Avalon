@@ -92,11 +92,11 @@ public class GridService {
     }
 
     private static GridConfig normalize(GridConfig in) {
-        int cell = clamp(in.getCellSize(), 24, 128);
-        int cols = clamp(in.getCols(), 4, 60);
-        int rows = clamp(in.getRows(), 4, 60);
-        int ox = clamp(in.getOffsetX(), 0, 800);
-        int oy = clamp(in.getOffsetY(), 0, 800);
+        int cell = clamp(in.getCellSize(), 24, 256);
+        int cols = clamp(in.getCols(), 4, 100);
+        int rows = clamp(in.getRows(), 4, 100);
+        int ox = clamp(in.getOffsetX(), 0, 1200);
+        int oy = clamp(in.getOffsetY(), 0, 1200);
 
         GridConfig out = new GridConfig();
         out.setCellSize(cell);
