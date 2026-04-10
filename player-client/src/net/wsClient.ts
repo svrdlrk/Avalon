@@ -16,7 +16,8 @@ class WsClient {
     private sessionId: string | null = null;
     private playerId:  string | null = null;
     private serverBaseUrl = 'http://localhost:8080';
-
+    private onConnectedCallback: (() => void) | null = null;
+    private connectedOnce = false;
     // ---------------------------------------------------------------- helpers
 
     /**
@@ -58,7 +59,8 @@ class WsClient {
         onConnected: () => void,
     ) {
         this.disconnect();
-
+        this.onConnectedCallback = onConnected;
+        this.connectedOnce = false;
         // FIX: normalise once here so all subsequent send() calls use the
         // clean ID and the server-side validation never fails with
         // "Session not found" due to a trailing space or comma.
@@ -73,6 +75,7 @@ class WsClient {
             reconnectDelay: 5000,
 
             onConnect: () => {
+                console.log("CONNECTED");
                 // Broadcast channel — all session events
                 this.client!.subscribe(
                     `/topic/session/${cleanSessionId}`,
@@ -81,7 +84,6 @@ class WsClient {
                         this.handleEvent(msg);
                     },
                 );
-
                 // One-time join channel
                 this.client!.subscribe(
                     `/topic/session/${cleanSessionId}/join/${joinNonce}`,
@@ -90,7 +92,11 @@ class WsClient {
                         if (msg.type === 'SESSION_STATE') {
                             this.applySessionState(msg, cleanSessionId);
                             this.subscribePrivateChannel(cleanSessionId);
-                            onConnected();
+
+                            if (!this.connectedOnce) {
+                                this.connectedOnce = true;
+                                this.onConnectedCallback?.();
+                            }
                         }
                     },
                 );
@@ -159,7 +165,14 @@ class WsClient {
                 break;
 
             case 'SESSION_STATE':
-                // Handled via join / private channels only
+                if (this.sessionId) {
+                    this.applySessionState(msg as WsMessage<SessionStateDto>, this.sessionId);
+
+                    if (!this.connectedOnce) {
+                        this.connectedOnce = true;
+                        this.onConnectedCallback?.();
+                    }
+                }
                 break;
 
             default:
@@ -212,10 +225,17 @@ class WsClient {
     getServerBaseUrl(): string { return this.serverBaseUrl; }
 
     private normalizeServerUrl(serverUrl: string): string {
+        let url = serverUrl.trim();
+
+        // если пользователь ввёл без протокола
+        if (!url.startsWith('http://') && !url.startsWith('https://')) {
+            url = 'http://' + url;
+        }
+
         try {
-            return new URL(serverUrl).origin;
+            return new URL(url).origin;
         } catch {
-            return serverUrl.replace(/\/$/, '');
+            return url.replace(/\/$/, '');
         }
     }
 }
