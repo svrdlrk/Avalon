@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { useGameStore } from '../store/gameStore';
-import { SERVER_BASE } from './BattleMap';
+import { wsClient } from '../net/wsClient';
 
 /**
  * InitiativeBar — горизонтальная панель инициативы вверху экрана.
@@ -36,7 +36,7 @@ const InitiativeBar: React.FC = () => {
                     const imgUrl   = token?.imageUrl
                         ? (token.imageUrl.startsWith('http')
                             ? token.imageUrl
-                            : SERVER_BASE + token.imageUrl)
+                            : wsClient.getServerBaseUrl() + token.imageUrl)
                         : null;
 
                     return (

@@ -15,6 +15,7 @@ class WsClient {
     private client:    Client | null = null;
     private sessionId: string | null = null;
     private playerId:  string | null = null;
+    private serverBaseUrl = 'http://localhost:8080';
 
     private applySessionState(msg: WsMessage<SessionStateDto>, sid: string) {
         const state   = msg.payload;
@@ -43,10 +44,11 @@ class WsClient {
         this.disconnect();
         this.sessionId = sessionId;
         this.playerId  = null;
+        this.serverBaseUrl = this.normalizeServerUrl(serverUrl);
         const joinNonce = crypto.randomUUID();
 
         this.client = new Client({
-            webSocketFactory: () => new SockJS(`${serverUrl}/ws`),
+            webSocketFactory: () => new SockJS(`${this.serverBaseUrl}/ws`),
             reconnectDelay: 5000,
 
             onConnect: () => {
@@ -160,6 +162,16 @@ class WsClient {
     }
 
     getPlayerId(): string | null { return this.playerId; }
+
+    getServerBaseUrl(): string { return this.serverBaseUrl; }
+
+    private normalizeServerUrl(serverUrl: string): string {
+        try {
+            return new URL(serverUrl).origin;
+        } catch {
+            return serverUrl.replace(/\/$/, '');
+        }
+    }
 }
 
 export const wsClient = new WsClient();

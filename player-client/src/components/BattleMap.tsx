@@ -12,7 +12,7 @@ export const SERVER_BASE = 'http://localhost:8080';
 
 function useRemoteImage(imageUrl: string | null) {
     const fullUrl = imageUrl
-        ? (imageUrl.startsWith('http') ? imageUrl : SERVER_BASE + imageUrl)
+        ? (imageUrl.startsWith('http') ? imageUrl : wsClient.getServerBaseUrl() + imageUrl)
         : null;
     return useImage(fullUrl);
 }
@@ -76,22 +76,23 @@ const TokenShape: React.FC<{
             onMouseLeave={() => setHovered(false)}
         >
             {/* Glow ring for own token */}
-            {isMyToken && (
+            {isMyToken && !tokenImage && (
                 <Circle x={cx} y={cy} radius={radius + 3} fill="rgba(241,196,15,0.25)" />
             )}
 
             {/* Base circle */}
-            <Circle
-                x={cx} y={cy}
-                radius={radius}
-                fill={fillColor}
-                stroke={borderColor}
-                strokeWidth={isMyToken ? 2.5 : 1.5}
-                shadowColor={borderColor}
-                shadowBlur={isMyToken ? 14 : 6}
-                shadowOpacity={0.7}
-            />
-
+            {!tokenImage && (
+                <Circle
+                    x={cx} y={cy}
+                    radius={radius}
+                    fill={fillColor}
+                    stroke={borderColor}
+                    strokeWidth={isMyToken ? 2.5 : 1.5}
+                    shadowColor={borderColor}
+                    shadowBlur={isMyToken ? 14 : 6}
+                    shadowOpacity={0.7}
+                />
+            )}
             {/* Token image clipped to circle */}
             {tokenImage && (
                 <KonvaImage
@@ -119,11 +120,6 @@ const TokenShape: React.FC<{
                 listening={false}
             />
 
-            {/* Size badge */}
-            {gs > 1 && (
-                <Text x={size - 22} y={4} text={`${gs}×${gs}`}
-                      fontSize={9} fill="rgba(255,255,255,0.7)" listening={false} />
-            )}
 
             {/* HP bar — only for owner / DM */}
             {showHp && (
@@ -170,8 +166,9 @@ const ObjectShape: React.FC<{
     const w = Math.max(1, obj.width ?? 1);
     const h = Math.max(1, obj.height ?? 1);
 
+    const baseUrl = wsClient.getServerBaseUrl();
     const fullUrl = obj.imageUrl
-        ? (obj.imageUrl.startsWith('http') ? obj.imageUrl : SERVER_BASE + obj.imageUrl)
+        ? (obj.imageUrl.startsWith('http') ? obj.imageUrl : baseUrl + obj.imageUrl)
         : null;
     const [objImage] = useImage(fullUrl);
 
@@ -224,8 +221,9 @@ const BattleMap: React.FC = () => {
     const myPlayer = myPlayerId ? players[myPlayerId] : null;
     const isDm     = myPlayer?.role === 'DM';
 
+    const baseUrl = wsClient.getServerBaseUrl();
     const fullBgUrl = backgroundUrl
-        ? (backgroundUrl.startsWith('http') ? backgroundUrl : SERVER_BASE + backgroundUrl)
+        ? (backgroundUrl.startsWith('http') ? backgroundUrl : baseUrl + backgroundUrl)
         : null;
     const [bgImage] = useImage(fullBgUrl);
 
@@ -250,6 +248,43 @@ const BattleMap: React.FC = () => {
         const clampedCol = Math.max(0, Math.min(newCol, grid.cols - gs));
         const clampedRow = Math.max(0, Math.min(newRow, grid.rows - gs));
 
+        const movedBounds = {
+            left: clampedCol,
+            top: clampedRow,
+            right: clampedCol + gs,
+            bottom: clampedRow + gs,
+        };
+
+        const collidesWithToken = Object.values(tokens).some((other) => {
+            if (other.id === token.id) return false;
+            const otherSize = Math.max(1, other.gridSize ?? 1);
+            return !(
+                movedBounds.right <= other.col ||
+                movedBounds.left >= other.col + otherSize ||
+                movedBounds.bottom <= other.row ||
+                movedBounds.top >= other.row + otherSize
+            );
+        });
+
+        const collidesWithObject = Object.values(objects).some((obj) => {
+            const objWidth = Math.max(1, obj.width ?? 1);
+            const objHeight = Math.max(1, obj.height ?? 1);
+            return !(
+                movedBounds.right <= obj.col ||
+                movedBounds.left >= obj.col + objWidth ||
+                movedBounds.bottom <= obj.row ||
+                movedBounds.top >= obj.row + objHeight
+            );
+        });
+
+        if (collidesWithToken || collidesWithObject) {
+            node.position({
+                x: grid.offsetX + token.col * grid.cellSize,
+                y: grid.offsetY + token.row * grid.cellSize,
+            });
+            return;
+        }
+
         // Snap to grid
         node.position({
             x: grid.offsetX + clampedCol * grid.cellSize,
@@ -261,7 +296,7 @@ const BattleMap: React.FC = () => {
             toCol: clampedCol,
             toRow: clampedRow,
         });
-    }, [grid]);
+    }, [grid, tokens, objects]);
 
     if (!grid) {
         return (
