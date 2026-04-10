@@ -21,13 +21,18 @@ public class AssetCatalogController {
     @GetMapping("/catalog")
     public JsonNode getCatalog() {
         try {
-            // Ищем catalog.json в classpath (resources/assets/catalog.json)
+            java.nio.file.Path fsPath = java.nio.file.Paths.get("server/src/main/resources/assets/catalog.json");
+            if (java.nio.file.Files.exists(fsPath)) {
+                try (InputStream is = java.nio.file.Files.newInputStream(fsPath)) {
+                    return mapper.readTree(is);
+                }
+            }
+
             ClassPathResource res = new ClassPathResource("assets/catalog.json");
             try (InputStream is = res.getInputStream()) {
                 return mapper.readTree(is);
             }
         } catch (Exception e) {
-            // Если файла нет — возвращаем пустой каталог
             return mapper.createObjectNode()
                     .set("tokens", mapper.createArrayNode())
                     .deepCopy();

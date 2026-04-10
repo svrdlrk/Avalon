@@ -46,3 +46,4 @@ bin/
 data/
 *.png
 *.jpg
+*.json

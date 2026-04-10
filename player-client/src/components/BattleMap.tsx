@@ -182,11 +182,7 @@ const ObjectShape: React.FC<{
 
     return (
         <Group x={px} y={py} listening={false}>
-            {/* Background fill always present */}
-            <Rect x={0} y={0} width={pw} height={ph} fill="#4a3728" />
-
-            {/* Object image — centered, preserving aspect ratio via object-fit simulation */}
-            {objImage && (() => {
+            {objImage ? (() => {
                 // Fit image inside cell while preserving aspect ratio (cover = fill cell)
                 const imgW = objImage.width;
                 const imgH = objImage.height;
@@ -203,11 +199,14 @@ const ObjectShape: React.FC<{
                         opacity={0.92}
                     />
                 );
-            })()}
-
-            {/* Border */}
-            <Rect x={0} y={0} width={pw} height={ph}
-                  fill="transparent" stroke="rgba(90,45,12,0.8)" strokeWidth={1} />
+            })() : (
+                <>
+                    {/* Default object fill only when no image is provided */}
+                    <Rect x={0} y={0} width={pw} height={ph} fill="#4a3728" />
+                    <Rect x={0} y={0} width={pw} height={ph}
+                          fill="transparent" stroke="rgba(90,45,12,0.8)" strokeWidth={1} />
+                </>
+            )}
         </Group>
     );
 });

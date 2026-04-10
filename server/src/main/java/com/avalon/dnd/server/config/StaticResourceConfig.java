@@ -16,21 +16,24 @@ import java.nio.file.Paths;
 @Configuration
 public class StaticResourceConfig implements WebMvcConfigurer {
 
-    @Value("${upload.path:./uploads}")
+    @Value("${upload.path:./server/src/main/resources/uploads}")
     private String uploadPath;
 
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
         // Загруженные карты из файловой системы
-        Path uploadDir = Paths.get(uploadPath).toAbsolutePath();
+        Path uploadDir = Paths.get(uploadPath).toAbsolutePath().normalize();
+        Path sourceUploadDir = Paths.get("server/src/main/resources/uploads").toAbsolutePath().normalize();
         registry.addResourceHandler("/uploads/**")
                 .addResourceLocations("file:" + uploadDir + "/")
+                .addResourceLocations("file:" + sourceUploadDir + "/")
+                .addResourceLocations("classpath:/uploads/")
                 .setCachePeriod(3600);
 
-        // Встроенные ассеты токенов и объектов из classpath
-        // Файлы лежат в server/src/main/resources/assets/
+        Path sourceAssetsDir = Paths.get("server/src/main/resources/assets").toAbsolutePath().normalize();
         registry.addResourceHandler("/assets/**")
                 .addResourceLocations("classpath:/assets/")
-                .setCachePeriod(86400); // 24h — они не меняются
+                .addResourceLocations("file:" + sourceAssetsDir + "/")
+                .setCachePeriod(86400);
     }
 }

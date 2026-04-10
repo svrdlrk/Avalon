@@ -9,7 +9,7 @@ public class InitiativeUpdateRequest {
 
     /** Полный список в нужном порядке (уже отсортированный по инициативе DM-ом). */
     private List<InitiativeStateDto.InitiativeEntry> entries;
-    /** Индекс текущего хода (0-based). */
+    /** индекс текущего хода (0-based). */
     private int currentIndex;
 
     public InitiativeUpdateRequest() {}

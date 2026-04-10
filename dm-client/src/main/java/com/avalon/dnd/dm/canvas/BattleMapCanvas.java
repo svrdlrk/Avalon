@@ -198,7 +198,6 @@ public class BattleMapCanvas extends Canvas {
 
             Image img = getObjectImage(obj.getImageUrl());
             if (img != null && !img.isError()) {
-                // Fit image covering the cell area (maintain aspect ratio)
                 double scaleX = w / img.getWidth();
                 double scaleY = h / img.getHeight();
                 double scale  = Math.max(scaleX, scaleY);
@@ -212,15 +211,13 @@ public class BattleMapCanvas extends Canvas {
                 gc.clip();
                 gc.drawImage(img, drawX, drawY, drawW, drawH);
                 gc.restore();
-                gc.setFill(Color.web("#000000", 0.12));
-                gc.fillRect(x, y, w, h);
             } else {
                 gc.setFill(Color.web("#8B4513"));
                 gc.fillRect(x, y, w, h);
+                gc.setStroke(Color.web("#5a2d0c"));
+                gc.setLineWidth(1);
+                gc.strokeRect(x, y, w, h);
             }
-            gc.setStroke(Color.web("#5a2d0c"));
-            gc.setLineWidth(1);
-            gc.strokeRect(x, y, w, h);
         }
     }
 
@@ -385,7 +382,7 @@ public class BattleMapCanvas extends Canvas {
     private Image getTokenImage(TokenDto token) {
         String url = token.getImageUrl();
         if (url == null || url.isBlank()) return null;
-        String fullUrl = url.startsWith("http") ? url : serverBaseUrl + url;
+        String fullUrl = resolveServerUrl(url);
         return imageCache.computeIfAbsent(fullUrl, u -> {
             Image img = new Image(u, true);
             img.progressProperty().addListener((obs, old, p) -> {
@@ -400,7 +397,7 @@ public class BattleMapCanvas extends Canvas {
 
     private Image getObjectImage(String imageUrl) {
         if (imageUrl == null || imageUrl.isBlank()) return null;
-        String fullUrl = imageUrl.startsWith("http") ? imageUrl : serverBaseUrl + imageUrl;
+        String fullUrl = resolveServerUrl(imageUrl);
         return imageCache.computeIfAbsent("obj:" + fullUrl, u -> {
             Image img = new Image(fullUrl, true);
             img.progressProperty().addListener((obs, old, p) -> {
@@ -410,13 +407,30 @@ public class BattleMapCanvas extends Canvas {
         });
     }
 
+    private String resolveServerUrl(String path) {
+        if (path == null || path.isBlank()) return null;
+        if (path.startsWith("http://") || path.startsWith("https://")) return path;
+
+        boolean baseEndsWithSlash = serverBaseUrl.endsWith("/");
+        boolean pathStartsWithSlash = path.startsWith("/");
+
+        if (baseEndsWithSlash && pathStartsWithSlash) {
+            return serverBaseUrl.substring(0, serverBaseUrl.length() - 1) + path;
+        }
+        if (!baseEndsWithSlash && !pathStartsWithSlash) {
+            return serverBaseUrl + "/" + path;
+        }
+        return serverBaseUrl + path;
+    }
+
     /**
      * Sets background image from a full HTTP URL.
      */
     public void setBackground(String fullUrl) {
-        if (fullUrl == null || fullUrl.isEmpty()) return;
-        System.out.println("[canvas] Loading background: " + fullUrl);
-        backgroundImage = new Image(fullUrl, true);
+        String resolved = resolveServerUrl(fullUrl);
+        System.out.println("[canvas] Loading background: " + resolved);
+        if (resolved == null) return;
+        backgroundImage = new Image(resolved, true);
         backgroundImage.progressProperty().addListener((obs, old, p) -> {
             if (p.doubleValue() >= 1.0) {
                 if (backgroundImage.isError()) {

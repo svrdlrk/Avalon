@@ -17,6 +17,16 @@ public class CorsConfig {
                         .allowedOriginPatterns("*")
                         .allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
                         .allowedHeaders("*");
+
+                registry.addMapping("/assets/**")
+                        .allowedOriginPatterns("*")
+                        .allowedMethods("GET", "OPTIONS")
+                        .allowedHeaders("*");
+
+                registry.addMapping("/uploads/**")
+                        .allowedOriginPatterns("*")
+                        .allowedMethods("GET", "OPTIONS")
+                        .allowedHeaders("*");
             }
         };
     }

@@ -45,6 +45,7 @@ public class ServerConnection {
         disconnect();
         this.onConnected = onConnected;
         String joinNonce = UUID.randomUUID().toString();
+        String normalizedSessionId = normalizeSessionId(sessionId);
 
         var wsClient    = new SockJsClient(List.of(new WebSocketTransport(new StandardWebSocketClient())));
         var stompClient = new WebSocketStompClient(wsClient);
@@ -54,13 +55,13 @@ public class ServerConnection {
             @Override
             public void afterConnected(StompSession session, StompHeaders headers) {
                 stompSession = session;
-                stompSession.subscribe("/topic/session/" + sessionId, new BroadcastHandler());
+                stompSession.subscribe("/topic/session/" + normalizedSessionId, new BroadcastHandler());
                 stompSession.subscribe(
-                        "/topic/session/" + sessionId + "/join/" + joinNonce,
-                        new JoinStateHandler(sessionId, true));
+                        "/topic/session/" + normalizedSessionId + "/join/" + joinNonce,
+                        new JoinStateHandler(normalizedSessionId, true));
 
                 JoinSessionRequestDto req = new JoinSessionRequestDto();
-                req.setSessionId(sessionId);
+                req.setSessionId(normalizedSessionId);
                 req.setPlayerName(playerName);
                 req.setDm(isDm);
                 req.setJoinNonce(joinNonce);
@@ -87,7 +88,7 @@ public class ServerConnection {
         }
         StompHeaders headers = new StompHeaders();
         headers.setDestination("/app" + destination);
-        headers.set("sessionId", ClientState.getInstance().getSessionId());
+        headers.set("sessionId", normalizeSessionId(ClientState.getInstance().getSessionId()));
         headers.set("playerId",  ClientState.getInstance().getPlayerId());
         stompSession.send(headers, payload);
     }
@@ -257,19 +258,22 @@ public class ServerConnection {
                           java.io.File file, Consumer<String> onDone) {
         new Thread(() -> {
             try {
+                HttpUrl uploadUrl = HttpUrl.parse(serverUrl + "/api/map/upload")
+                        .newBuilder()
+                        .addPathSegment(normalizeSessionId(sessionId))
+                        .build();
                 RequestBody body = new MultipartBody.Builder()
                         .setType(MultipartBody.FORM)
-                        .addFormDataPart("sessionId", sessionId)
                         .addFormDataPart("file", file.getName(),
                                 RequestBody.create(file, MediaType.parse("image/*")))
                         .build();
                 try (Response r = httpClient.newCall(
-                        new Request.Builder().url(serverUrl + "/api/map/upload")
+                        new Request.Builder().url(uploadUrl)
                                 .post(body).build()).execute()) {
                     if (r.isSuccessful() && r.body() != null) {
-                        String url = r.body().string().trim();
-                        System.out.println("[upload] url: " + url);
-                        Platform.runLater(() -> { if (onDone != null) onDone.accept(url); });
+                        String responseUrl = r.body().string().trim();
+                        System.out.println("[upload] url: " + responseUrl);
+                        Platform.runLater(() -> { if (onDone != null) onDone.accept(responseUrl); });
                         return;
                     }
                     System.err.println("[upload] failed: " + r.code());
@@ -317,5 +321,22 @@ public class ServerConnection {
             final T r = result;
             Platform.runLater(() -> onResult.accept(r));
         }).start();
+    }
+
+    private static MediaType guessMediaType(String fileName) {
+        String lower = fileName == null ? "" : fileName.toLowerCase();
+        if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return MediaType.parse("image/jpeg");
+        if (lower.endsWith(".png")) return MediaType.parse("image/png");
+        if (lower.endsWith(".gif")) return MediaType.parse("image/gif");
+        if (lower.endsWith(".webp")) return MediaType.parse("image/webp");
+        return MediaType.parse("application/octet-stream");
+    }
+
+    private String normalizeSessionId(String sessionId) {
+        if (sessionId == null) return null;
+        String normalized = sessionId.trim();
+        int comma = normalized.indexOf(',');
+        if (comma >= 0) normalized = normalized.substring(0, comma).trim();
+        return normalized;
     }
 }

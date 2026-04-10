@@ -24,7 +24,7 @@ spring:
       max-request-size: 50MB
 
 upload:
-  path: ./uploads
+  path: ./server/src/main/resources/uploads
 
 # Уровень логирования (убрать лишний шум)
 logging:

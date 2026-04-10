@@ -67,14 +67,15 @@ public class SessionWsController {
         if (request.getJoinNonce() == null || request.getJoinNonce().isBlank())
             throw new RuntimeException("joinNonce required");
 
-        GameSession session = sessionService.getSession(request.getSessionId());
+        String sessionId = normalizeSessionId(request.getSessionId());
+        GameSession session = sessionService.getSession(sessionId);
         if (session == null) throw new RuntimeException("Session not found");
 
         Player player = sessionService.joinSession(
                 request.getSessionId(), request.getPlayerName(), request.isDm());
 
         // Map WS session → game player for disconnect cleanup
-        wsToPlayer.put(wsSessionId, new PlayerRef(request.getSessionId(), player.getId()));
+        wsToPlayer.put(wsSessionId, new PlayerRef(sessionId, player.getId()));
 
         // Broadcast PLAYER_JOINED so DM refreshes its player list
         messaging.convertAndSend(
@@ -98,11 +99,12 @@ public class SessionWsController {
     @MessageMapping("/session.sync")
     public void sync(@Header("sessionId") String sessionId,
                      @Header("playerId")  String playerId) {
-        Player player = validationService.validate(sessionId, playerId);
-        GameSession session = sessionService.getSession(sessionId);
+        String normalizedSessionId = normalizeSessionId(sessionId);
+        Player player = validationService.validate(normalizedSessionId, playerId);
+        GameSession session = sessionService.getSession(normalizedSessionId);
         messaging.convertAndSend(
-                privateTopic(sessionId, player.getId()),
-                new WsMessage<>(WsEventType.SESSION_STATE, sessionId,
+                privateTopic(normalizedSessionId, player.getId()),
+                new WsMessage<>(WsEventType.SESSION_STATE, normalizedSessionId,
                         session.getVersion(), buildState(session, playerId)));
     }
 
@@ -164,5 +166,13 @@ public class SessionWsController {
 
     private static String privateTopic(String sid, String playerId) {
         return "/topic/session/" + sid + "/private/" + playerId;
+    }
+
+    private String normalizeSessionId(String sessionId) {
+        if (sessionId == null) return null;
+        String normalized = sessionId.trim();
+        int comma = normalized.indexOf(',');
+        if (comma >= 0) normalized = normalized.substring(0, comma).trim();
+        return normalized;
     }
 }
