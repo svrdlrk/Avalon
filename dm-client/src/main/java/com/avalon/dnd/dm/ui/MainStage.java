@@ -21,7 +21,7 @@ public class MainStage {
 
     private final Stage stage;
     private BattleMapCanvas mapCanvas;
-    private ScrollPane mapScrollPane;   // need reference to toggle pannable
+    private ScrollPane mapScrollPane;
 
     private ComboBox<TokenDto>     tokenActionsCombo;
     private ComboBox<PlayerDto>    playerAssignCombo;
@@ -35,6 +35,14 @@ public class MainStage {
     private final List<JsonNode>  objectCatalog = new ArrayList<>();
     private final List<InitEntry> iniQueue      = new ArrayList<>();
     private int iniIndex = 0;
+
+    // FIX: keep references to registered listeners so we can remove them
+    // before registering new ones when the DM reconnects / loads another
+    // session.  Without this, each call to switchToBattleMap stacks another
+    // listener on the singleton ClientState, causing double background loads
+    // and other ghost-update issues.
+    private Runnable backgroundChangeListener = null;
+    private Runnable selectorRefreshListener  = null;
 
     public MainStage(Stage stage) { this.stage = stage; }
 
@@ -188,16 +196,37 @@ public class MainStage {
     // ================================================================ Battle map
 
     private void switchToBattleMap(String playerClientBase, String sessionId) {
+
+        // FIX: remove stale listeners from any previous session so they don't
+        // fire on the new canvas / new ClientState data.
+        if (backgroundChangeListener != null) {
+            ClientState.getInstance().removeChangeListener(backgroundChangeListener);
+            backgroundChangeListener = null;
+        }
+        if (selectorRefreshListener != null) {
+            ClientState.getInstance().removeChangeListener(selectorRefreshListener);
+            selectorRefreshListener = null;
+        }
+
         mapCanvas = new BattleMapCanvas();
         mapCanvas.setServerBaseUrl(currentServerUrl);
 
+        // FIX: backgroundUrl is already a relative path like "/uploads/maps/..."
+        // Prepend the server base only once here; the listener below does the same.
         String bg = ClientState.getInstance().getBackgroundUrl();
-        if (bg != null && !bg.isEmpty()) mapCanvas.setBackground(currentServerUrl + bg);
+        if (bg != null && !bg.isEmpty()) {
+            mapCanvas.setBackground(currentServerUrl + bg);
+        }
 
-        ClientState.getInstance().addChangeListener(() -> {
+        // FIX: keep the reference so we can remove it on next switchToBattleMap
+        backgroundChangeListener = () -> {
             String url = ClientState.getInstance().getBackgroundUrl();
-            if (url != null && mapCanvas != null) mapCanvas.setBackground(currentServerUrl + url);
-        });
+            if (url != null && !url.isEmpty() && mapCanvas != null) {
+                // url is relative ("/uploads/maps/..."), prepend base once
+                mapCanvas.setBackground(currentServerUrl + url);
+            }
+        };
+        ClientState.getInstance().addChangeListener(backgroundChangeListener);
 
         TabPane tabs = new TabPane();
         tabs.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
@@ -220,7 +249,6 @@ public class MainStage {
         mapScrollPane = new ScrollPane(mapCanvas);
         mapScrollPane.setFitToWidth(false);
         mapScrollPane.setFitToHeight(false);
-        // FIX: disable panning — canvas consumes drag events during token drag
         mapScrollPane.setPannable(false);
 
         BorderPane root = new BorderPane();
@@ -229,7 +257,9 @@ public class MainStage {
         stage.getScene().setRoot(root);
         mapCanvas.render();
 
-        ClientState.getInstance().addChangeListener(this::refreshSelectors);
+        // FIX: keep reference for cleanup
+        selectorRefreshListener = this::refreshSelectors;
+        ClientState.getInstance().addChangeListener(selectorRefreshListener);
         refreshSelectors();
     }
 
@@ -287,7 +317,6 @@ public class MainStage {
         Button addBtn = new Button("➕ Добавить");
         addBtn.setOnAction(e -> {
             addToken(nameField.getText(), catCombo.getSelectionModel().getSelectedItem(), hpSpin.getValue());
-            // FIX: clear player selection after creating token
             playerAssignCombo.getSelectionModel().clearSelection();
         });
 
@@ -298,7 +327,6 @@ public class MainStage {
             return t.getName() + sz + " (" + own + ")";
         });
 
-        // FIX: show only player names, no ID
         playerAssignCombo = makeCombo(140,
                 p -> p == null ? "" : p.getName());
 
@@ -313,7 +341,6 @@ public class MainStage {
         tab.setContent(new VBox(r1, new Separator(), r2)); return tab;
     }
 
-    /** Returns player name by id, or short id if not found. */
     private String getPlayerName(String ownerId) {
         PlayerDto p = ClientState.getInstance().getPlayers().get(ownerId);
         return p != null ? p.getName() : shortId(ownerId);
@@ -377,6 +404,10 @@ public class MainStage {
                     ClientState.getInstance().getSessionId(), file, url -> {
                         uploadBtn.setDisable(false);
                         if (url != null && mapCanvas != null) {
+                            // FIX: url from server is already relative ("/uploads/maps/...").
+                            // Prepend base here; the backgroundChangeListener will do the same
+                            // when MAP_BACKGROUND_UPDATED arrives — that's fine because
+                            // setBackground is idempotent (same URL → same cached image).
                             String full = currentServerUrl + url.trim();
                             mapCanvas.setBackground(full);
                             upSt.setText("✅ " + url.trim());
@@ -517,7 +548,6 @@ public class MainStage {
 
         tokenActionsCombo.getItems().setAll(ClientState.getInstance().getTokens().values());
 
-        // FIX: only PLAYER role, only names shown in combo
         playerAssignCombo.getItems().setAll(
                 ClientState.getInstance().getPlayers().values().stream()
                         .filter(p -> "PLAYER".equalsIgnoreCase(p.getRole()))
@@ -548,7 +578,6 @@ public class MainStage {
             String ip = ce.path("imagePath").asText(null);
             if (ip != null && !ip.equals("null")) img = "/" + ip;
         }
-        // Only use selected player if explicitly chosen — DO NOT auto-assign
         PlayerDto p = playerAssignCombo.getSelectionModel().getSelectedItem();
         String ownerId = (p != null) ? p.getId() : null;
         ServerConnection.getInstance().createToken(name, col, row, hp, hp, gs, img, ownerId);

@@ -11,32 +11,38 @@ import javafx.scene.paint.Color;
 import javafx.scene.text.Font;
 import javafx.scene.text.TextAlignment;
 
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 
 public class BattleMapCanvas extends Canvas {
 
-    // Server base URL for loading assets via HTTP (set from MainStage)
     private String serverBaseUrl = "http://localhost:8080";
 
     private TokenDto draggingToken = null;
-    private double dragOffsetX, dragOffsetY;   // mouse offset from token top-left
+    private double dragOffsetX, dragOffsetY;
     private Image backgroundImage;
 
     private final Map<String, Image> imageCache = new HashMap<>();
     private TokenDto hoveredToken = null;
 
+    // FIX: guard flag — prevents renderAndResize from running while a previous
+    // resize is still being processed by the JavaFX render thread.
+    // Without this, rapidly resizing the canvas (e.g. large grid) causes the
+    // prism RTTexture NPE / ClassCastException seen in the error log.
+    private boolean resizePending = false;
+
     public BattleMapCanvas() {
         ClientState.getInstance().addChangeListener(this::renderAndResize);
 
-        // FIX: consume mouse events during drag to prevent ScrollPane from panning
         setOnMousePressed(e -> {
             onMousePressed(e);
             if (draggingToken != null) e.consume();
         });
         setOnMouseDragged(e -> {
             onMouseDragged(e);
-            e.consume();   // always consume drag — prevents ScrollPane panning
+            e.consume();
         });
         setOnMouseReleased(e -> {
             onMouseReleased(e);
@@ -55,13 +61,26 @@ public class BattleMapCanvas extends Canvas {
         return ClientState.getInstance().getGrid();
     }
 
+    // FIX: coalesce rapid resize calls so we never resize a canvas that is
+    // still being rendered — avoids the RTTexture NPE on large grids.
     private void renderAndResize() {
-        GridConfig g = grid();
-        double width  = g.getOffsetX() + (double) g.getCols() * g.getCellSize();
-        double height = g.getOffsetY() + (double) g.getRows() * g.getCellSize();
-        setWidth(Math.max(width, 1));
-        setHeight(Math.max(height, 1));
-        render();
+        if (resizePending) return;
+        resizePending = true;
+        javafx.application.Platform.runLater(() -> {
+            resizePending = false;
+            GridConfig g = grid();
+            double width  = g.getOffsetX() + (double) g.getCols() * g.getCellSize();
+            double height = g.getOffsetY() + (double) g.getRows() * g.getCellSize();
+
+            // Safety cap: JavaFX hardware renderer cannot handle textures larger
+            // than ~8192 px in either dimension on most GPUs.
+            double safeW = Math.min(Math.max(width,  1), 8192);
+            double safeH = Math.min(Math.max(height, 1), 8192);
+
+            setWidth(safeW);
+            setHeight(safeH);
+            render();
+        });
     }
 
     public void render() {
@@ -110,7 +129,7 @@ public class BattleMapCanvas extends Canvas {
         String myId = ClientState.getInstance().getPlayerId();
 
         for (TokenDto token : ClientState.getInstance().getTokens().values()) {
-            if (token == draggingToken) continue;   // drawn separately in onMouseDragged
+            if (token == draggingToken) continue;
             drawToken(gc, token, ox, oy, cell, myId, 1.0);
         }
     }
@@ -151,7 +170,6 @@ public class BattleMapCanvas extends Canvas {
             gc.fillOval(x + 3, y + 3, w - 6, h - 6);
         }
 
-        // Name
         gc.setGlobalAlpha(alpha);
         gc.setFill(Color.WHITE);
         double fontSize = Math.max(9, Math.min(14, cell * gs / 6.0));
@@ -161,7 +179,6 @@ public class BattleMapCanvas extends Canvas {
                 ? token.getName().substring(0, 7) + "…" : token.getName();
         gc.fillText(label, x + w / 2, y + h / 2 + fontSize / 3);
 
-        // HP bar — DM sees all
         if (token.getMaxHp() > 0) {
             double barW = w - 6, barH = Math.max(4, cell / 12.0);
             double barX = x + 3, barY = y + h - barH - 4;
@@ -310,7 +327,6 @@ public class BattleMapCanvas extends Canvas {
         if (draggingToken == null) {
             ClientState.getInstance().setPendingPlaceCell(col, row);
         } else {
-            // Offset of mouse from token top-left pixel
             dragOffsetX = e.getX() - (ox + draggingToken.getCol() * cell);
             dragOffsetY = e.getY() - (oy + draggingToken.getRow() * cell);
         }
@@ -318,7 +334,7 @@ public class BattleMapCanvas extends Canvas {
 
     private void onMouseDragged(MouseEvent e) {
         if (draggingToken == null) return;
-        render();   // redraw everything without the dragged token
+        render();
         GraphicsContext gc = getGraphicsContext2D();
         int cell = grid().getCellSize();
         int gs   = Math.max(1, draggingToken.getGridSize());
@@ -326,7 +342,6 @@ public class BattleMapCanvas extends Canvas {
         double y = e.getY() - dragOffsetY;
         double w = gs * cell;
 
-        // Draw ghost token at drag position
         String myId = ClientState.getInstance().getPlayerId();
         gc.setGlobalAlpha(0.7);
         Image img = getTokenImage(draggingToken);
@@ -356,7 +371,6 @@ public class BattleMapCanvas extends Canvas {
         int oy   = grid.getOffsetY();
         int gs   = Math.max(1, draggingToken.getGridSize());
 
-        // Token top-left in pixel space
         double tokenX = e.getX() - dragOffsetX;
         double tokenY = e.getY() - dragOffsetY;
 
@@ -375,21 +389,19 @@ public class BattleMapCanvas extends Canvas {
 
     // ---- images ----
 
-    /**
-     * FIX: load token images via HTTP from server, not from local filesystem.
-     * This works regardless of the working directory.
-     */
     private Image getTokenImage(TokenDto token) {
         String url = token.getImageUrl();
         if (url == null || url.isBlank()) return null;
         String fullUrl = resolveServerUrl(url);
         return imageCache.computeIfAbsent(fullUrl, u -> {
-            Image img = new Image(u, true);
+            // FIX: encode before loading so Cyrillic filenames work
+            String encoded = encodeUrl(u);
+            Image img = new Image(encoded, true);
             img.progressProperty().addListener((obs, old, p) -> {
                 if (p.doubleValue() >= 1.0) javafx.application.Platform.runLater(this::render);
             });
             img.errorProperty().addListener((obs, old, err) -> {
-                if (err) System.err.println("[canvas] Failed to load image: " + u);
+                if (err) System.err.println("[canvas] Failed to load image: " + encoded);
             });
             return img;
         });
@@ -399,7 +411,8 @@ public class BattleMapCanvas extends Canvas {
         if (imageUrl == null || imageUrl.isBlank()) return null;
         String fullUrl = resolveServerUrl(imageUrl);
         return imageCache.computeIfAbsent("obj:" + fullUrl, u -> {
-            Image img = new Image(fullUrl, true);
+            String encoded = encodeUrl(fullUrl);
+            Image img = new Image(encoded, true);
             img.progressProperty().addListener((obs, old, p) -> {
                 if (p.doubleValue() >= 1.0) javafx.application.Platform.runLater(this::render);
             });
@@ -425,21 +438,81 @@ public class BattleMapCanvas extends Canvas {
 
     /**
      * Sets background image from a full HTTP URL.
+     * Non-ASCII characters (e.g. Cyrillic) in the filename are percent-encoded
+     * so that JavaFX Image can load the URL correctly.
      */
     public void setBackground(String fullUrl) {
         String resolved = resolveServerUrl(fullUrl);
         System.out.println("[canvas] Loading background: " + resolved);
         if (resolved == null) return;
-        backgroundImage = new Image(resolved, true);
+
+        // FIX: percent-encode non-ASCII chars so JavaFX can handle Cyrillic filenames
+        String encoded = encodeUrl(resolved);
+
+        backgroundImage = new Image(encoded, true);
         backgroundImage.progressProperty().addListener((obs, old, p) -> {
             if (p.doubleValue() >= 1.0) {
                 if (backgroundImage.isError()) {
-                    System.err.println("[canvas] Background load error: " + fullUrl);
+                    System.err.println("[canvas] Background load error: " + encoded);
                 } else {
                     javafx.application.Platform.runLater(this::render);
                 }
             }
         });
+    }
+
+    /**
+     * Percent-encodes non-ASCII and space characters in each path segment of a URL,
+     * leaving the scheme, host, port, and '/' separators untouched.
+     * Already-encoded sequences (%XX) are preserved.
+     */
+    private static String encodeUrl(String url) {
+        if (url == null) return null;
+        try {
+            int schemeEnd = url.indexOf("://");
+            if (schemeEnd < 0) return url;
+            int pathStart = url.indexOf('/', schemeEnd + 3);
+            if (pathStart < 0) return url;
+
+            String base = url.substring(0, pathStart);   // "http://localhost:8080"
+            String path = url.substring(pathStart);      // "/uploads/maps/uuid_файл.jpg"
+
+            String[] segments = path.split("/", -1);
+            StringBuilder sb = new StringBuilder(base);
+            for (int i = 0; i < segments.length; i++) {
+                if (i > 0) sb.append('/');
+                sb.append(encodePathSegment(segments[i]));
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            return url; // safe fallback
+        }
+    }
+
+    /** Percent-encodes a single path segment (no slashes). */
+    private static String encodePathSegment(String segment) {
+        if (segment == null || segment.isEmpty()) return segment == null ? "" : segment;
+        try {
+            // URI(null, null, rawPath, null) encodes path using RFC 3986 rules
+            return new URI(null, null, "/" + segment, null)
+                    .toASCIIString()
+                    .substring(1); // drop the leading '/' we added
+        } catch (Exception e) {
+            // Manual fallback: UTF-8 percent-encode everything except unreserved chars
+            byte[] bytes = segment.getBytes(StandardCharsets.UTF_8);
+            StringBuilder sb = new StringBuilder();
+            for (byte b : bytes) {
+                int v = b & 0xFF;
+                if ((v >= 'A' && v <= 'Z') || (v >= 'a' && v <= 'z') ||
+                        (v >= '0' && v <= '9') ||
+                        v == '-' || v == '_' || v == '.' || v == '~' || v == '+') {
+                    sb.append((char) v);
+                } else {
+                    sb.append(String.format("%%%02X", v));
+                }
+            }
+            return sb.toString();
+        }
     }
 
     /** Clears image cache (call when server URL changes). */

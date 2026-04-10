@@ -17,6 +17,20 @@ class WsClient {
     private playerId:  string | null = null;
     private serverBaseUrl = 'http://localhost:8080';
 
+    // ---------------------------------------------------------------- helpers
+
+    /**
+     * Strips leading/trailing whitespace and anything after the first comma.
+     * Mirrors the server-side normalizeSessionId() so the IDs always match.
+     */
+    private normalizeSessionId(raw: string | null): string | null {
+        if (raw == null) return null;
+        let s = raw.trim();
+        const comma = s.indexOf(',');
+        if (comma >= 0) s = s.substring(0, comma).trim();
+        return s;
+    }
+
     private applySessionState(msg: WsMessage<SessionStateDto>, sid: string) {
         const state   = msg.payload;
         this.playerId = state.myPlayerId;
@@ -34,6 +48,8 @@ class WsClient {
         );
     }
 
+    // ---------------------------------------------------------------- connect
+
     connect(
         serverUrl: string,
         sessionId: string,
@@ -42,7 +58,12 @@ class WsClient {
         onConnected: () => void,
     ) {
         this.disconnect();
-        this.sessionId = sessionId;
+
+        // FIX: normalise once here so all subsequent send() calls use the
+        // clean ID and the server-side validation never fails with
+        // "Session not found" due to a trailing space or comma.
+        const cleanSessionId = this.normalizeSessionId(sessionId) ?? sessionId;
+        this.sessionId = cleanSessionId;
         this.playerId  = null;
         this.serverBaseUrl = this.normalizeServerUrl(serverUrl);
         const joinNonce = crypto.randomUUID();
@@ -54,7 +75,7 @@ class WsClient {
             onConnect: () => {
                 // Broadcast channel — all session events
                 this.client!.subscribe(
-                    `/topic/session/${sessionId}`,
+                    `/topic/session/${cleanSessionId}`,
                     (frame) => {
                         const msg: WsMessage<unknown> = JSON.parse(frame.body);
                         this.handleEvent(msg);
@@ -63,12 +84,12 @@ class WsClient {
 
                 // One-time join channel
                 this.client!.subscribe(
-                    `/topic/session/${sessionId}/join/${joinNonce}`,
+                    `/topic/session/${cleanSessionId}/join/${joinNonce}`,
                     (frame) => {
                         const msg: WsMessage<SessionStateDto> = JSON.parse(frame.body);
                         if (msg.type === 'SESSION_STATE') {
-                            this.applySessionState(msg, sessionId);
-                            this.subscribePrivateChannel(sessionId);
+                            this.applySessionState(msg, cleanSessionId);
+                            this.subscribePrivateChannel(cleanSessionId);
                             onConnected();
                         }
                     },
@@ -76,7 +97,12 @@ class WsClient {
 
                 this.client!.publish({
                     destination: '/app/session.join',
-                    body: JSON.stringify({ sessionId, playerName, isDm, joinNonce }),
+                    body: JSON.stringify({
+                        sessionId: cleanSessionId,
+                        playerName,
+                        isDm,
+                        joinNonce,
+                    }),
                 });
             },
 
@@ -86,6 +112,8 @@ class WsClient {
 
         this.client.activate();
     }
+
+    // ---------------------------------------------------------------- events
 
     private handleEvent(msg: WsMessage<unknown>) {
         const store = useGameStore.getState();
@@ -123,7 +151,6 @@ class WsClient {
                 break;
 
             case 'PLAYER_LEFT':
-                // payload = playerId string
                 store.removePlayer(msg.payload as string);
                 break;
 
@@ -140,14 +167,29 @@ class WsClient {
         }
     }
 
+    // ---------------------------------------------------------------- send
+
     send(destination: string, payload: unknown) {
         if (!this.client?.connected) {
             console.warn('[ws] not connected, dropping:', destination);
             return;
         }
+
+        // FIX: guard against missing IDs — if either is absent the server will
+        // reject the message with "Player not found"; log clearly instead of
+        // silently succeeding and leaving the player unable to move tokens.
+        if (!this.sessionId || !this.playerId) {
+            console.warn(
+                '[ws] send() called before session/player IDs are set — dropping:',
+                destination,
+                { sessionId: this.sessionId, playerId: this.playerId },
+            );
+            return;
+        }
+
         const headers: StompHeaders = {
-            sessionId: this.sessionId ?? '',
-            playerId:  this.playerId  ?? '',
+            sessionId: this.sessionId,
+            playerId:  this.playerId,
         };
         this.client.publish({
             destination: `/app${destination}`,
@@ -156,9 +198,13 @@ class WsClient {
         });
     }
 
+    // ---------------------------------------------------------------- misc
+
     disconnect() {
         this.client?.deactivate();
-        this.client = null;
+        this.client    = null;
+        this.sessionId = null;
+        this.playerId  = null;
     }
 
     getPlayerId(): string | null { return this.playerId; }
