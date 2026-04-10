@@ -64,9 +64,34 @@ public class TokenService {
                     + event.getToCol() + "," + event.getToRow() + ")");
         }
 
+        int newCol = event.getToCol();
+        int newRow = event.getToRow();
+        int tokenSize = Math.max(1, token.getGridSize());
+
+        boolean collidesWithToken = session.getTokens().values().stream()
+                .filter(t -> !t.getId().equals(token.getId()))
+                .anyMatch(t -> intersects(
+                        newCol, newRow, tokenSize, tokenSize,
+                        t.getCol(), t.getRow(), Math.max(1, t.getGridSize()), Math.max(1, t.getGridSize())
+                ));
+
+        if (collidesWithToken) {
+            throw new RuntimeException("Move blocked: token collides with another token");
+        }
+
+        boolean collidesWithObject = session.getObjects().values().stream()
+                .anyMatch(o -> intersects(
+                        newCol, newRow, tokenSize, tokenSize,
+                        o.getCol(), o.getRow(), Math.max(1, o.getWidth()), Math.max(1, o.getHeight())
+                ));
+
+        if (collidesWithObject) {
+            throw new RuntimeException("Move blocked: token collides with an object");
+        }
+
         synchronized (token) {
-            token.setCol(event.getToCol());
-            token.setRow(event.getToRow());
+            token.setCol(newCol);
+            token.setRow(newRow);
         }
 
         return token;
@@ -136,5 +161,13 @@ public class TokenService {
         if (player.getRole() == Role.DM) return true;
         return token.getOwnerId() != null
                 && token.getOwnerId().equals(player.getId());
+    }
+
+    private boolean intersects(int x1, int y1, int w1, int h1,
+                               int x2, int y2, int w2, int h2) {
+        return x1 < x2 + w2
+                && x1 + w1 > x2
+                && y1 < y2 + h2
+                && y1 + h1 > y2;
     }
 }
