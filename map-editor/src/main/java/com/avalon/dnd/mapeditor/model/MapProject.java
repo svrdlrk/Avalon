@@ -15,6 +15,10 @@ public class MapProject {
     private String description;
     private String backgroundUrl; // legacy compatibility for older saves/layouts
     private BackgroundLayer backgroundLayer = new BackgroundLayer();
+    private ReferenceOverlay referenceOverlay = new ReferenceOverlay();
+    private TerrainLayer terrainLayer = new TerrainLayer();
+    private WallLayer wallLayer = new WallLayer();
+    private FogSettings fogSettings = new FogSettings();
     private GridConfig grid = new GridConfig(64, 40, 30);
 
     private final List<MapLayer> layers = new ArrayList<>();
@@ -36,6 +40,10 @@ public class MapProject {
         copy.name = this.name;
         copy.description = this.description;
         copy.backgroundLayer = this.backgroundLayer == null ? new BackgroundLayer() : this.backgroundLayer.copy();
+        copy.referenceOverlay = this.referenceOverlay == null ? new ReferenceOverlay() : this.referenceOverlay.copy();
+        copy.terrainLayer = this.terrainLayer == null ? new TerrainLayer() : this.terrainLayer.copy();
+        copy.wallLayer = this.wallLayer == null ? new WallLayer() : this.wallLayer.copy();
+        copy.fogSettings = this.fogSettings == null ? new FogSettings() : this.fogSettings.copy();
         copy.backgroundUrl = copy.backgroundLayer.getImageUrl();
 
         GridConfig gridCopy = new GridConfig();
@@ -152,6 +160,10 @@ public class MapProject {
     }
 
     public BackgroundLayer getBackgroundLayer() { return backgroundLayer; }
+    public ReferenceOverlay getReferenceOverlay() { return referenceOverlay; }
+    public TerrainLayer getTerrainLayer() { return terrainLayer; }
+    public WallLayer getWallLayer() { return wallLayer; }
+    public FogSettings getFogSettings() { return fogSettings; }
     public GridConfig getGrid() { return grid; }
 
     public void setId(String id) { this.id = id; }
@@ -167,6 +179,18 @@ public class MapProject {
     public void setBackgroundLayer(BackgroundLayer backgroundLayer) {
         this.backgroundLayer = backgroundLayer == null ? new BackgroundLayer() : backgroundLayer;
         this.backgroundUrl = this.backgroundLayer.getImageUrl();
+    }
+    public void setReferenceOverlay(ReferenceOverlay referenceOverlay) {
+        this.referenceOverlay = referenceOverlay == null ? new ReferenceOverlay() : referenceOverlay;
+    }
+    public void setTerrainLayer(TerrainLayer terrainLayer) {
+        this.terrainLayer = terrainLayer == null ? new TerrainLayer() : terrainLayer;
+    }
+    public void setWallLayer(WallLayer wallLayer) {
+        this.wallLayer = wallLayer == null ? new WallLayer() : wallLayer;
+    }
+    public void setFogSettings(FogSettings fogSettings) {
+        this.fogSettings = fogSettings == null ? new FogSettings() : fogSettings;
     }
     public void setGrid(GridConfig grid) { this.grid = grid == null ? new GridConfig(64, 40, 30) : grid; }
 }

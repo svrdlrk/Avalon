@@ -13,6 +13,8 @@ public class EditorState {
     public static final String PROP_SELECTED_ASSET = "selectedAsset";
     public static final String PROP_SELECTED_PLACEMENT = "selectedPlacement";
     public static final String PROP_SELECTED_LAYER = "selectedLayer";
+    public static final String PROP_SELECTED_WALL = "selectedWall";
+    public static final String PROP_SELECTED_WALL_VERTEX = "selectedWallVertex";
     public static final String PROP_VIEW = "view";
     public static final String PROP_UI = "ui";
 
@@ -26,12 +28,16 @@ public class EditorState {
     private String selectedAssetId;
     private String selectedPlacementId;
     private String selectedLayerId;
+    private String selectedWallPathId;
+    private int selectedWallVertexIndex = -1;
 
     private double viewOffsetX = 0;
     private double viewOffsetY = 0;
     private double zoom = 1.0;
     private boolean snapToGrid = true;
     private boolean fogPreviewEnabled = true;
+    private Double wallSnapX;
+    private Double wallSnapY;
 
     public void addListener(PropertyChangeListener listener) {
         pcs.addPropertyChangeListener(listener);
@@ -45,6 +51,10 @@ public class EditorState {
 
     public void setProject(MapProject project) {
         MapProject old = this.project;
+        clearWallSnapIndicator();
+        if (old != null && selectedPlacementId != null) {
+            old.findPlacement(selectedPlacementId).ifPresent(p -> p.setSelected(false));
+        }
         this.project = project;
         if (this.project != null) {
             this.project.ensureDefaultLayers();
@@ -67,6 +77,7 @@ public class EditorState {
             return false;
         }
         this.project = history.undo(project);
+        clearWallSnapIndicator();
         if (this.project != null) {
             this.project.ensureDefaultLayers();
             if (selectedLayerId == null || this.project.findLayer(selectedLayerId).isEmpty()) {
@@ -83,6 +94,7 @@ public class EditorState {
             return false;
         }
         this.project = history.redo(project);
+        clearWallSnapIndicator();
         if (this.project != null) {
             this.project.ensureDefaultLayers();
             if (selectedLayerId == null || this.project.findLayer(selectedLayerId).isEmpty()) {
@@ -101,6 +113,7 @@ public class EditorState {
     public void setActiveTool(Tool activeTool) {
         Tool old = this.activeTool;
         this.activeTool = activeTool;
+        clearWallSnapIndicator();
         pcs.firePropertyChange(PROP_ACTIVE_TOOL, old, activeTool);
     }
 
@@ -114,7 +127,13 @@ public class EditorState {
     public String getSelectedPlacementId() { return selectedPlacementId; }
     public void setSelectedPlacementId(String selectedPlacementId) {
         String old = this.selectedPlacementId;
+        if (project != null && old != null) {
+            project.findPlacement(old).ifPresent(p -> p.setSelected(false));
+        }
         this.selectedPlacementId = selectedPlacementId;
+        if (project != null && selectedPlacementId != null) {
+            project.findPlacement(selectedPlacementId).ifPresent(p -> p.setSelected(true));
+        }
         pcs.firePropertyChange(PROP_SELECTED_PLACEMENT, old, selectedPlacementId);
     }
 
@@ -168,10 +187,13 @@ public class EditorState {
 
     public void clearSelection() {
         setSelectedPlacementId(null);
+        setSelectedWallPathId(null);
+        setSelectedWallVertexIndex(-1);
     }
 
     public void selectPlacement(String placementId) {
         setSelectedPlacementId(placementId);
+        setSelectedWallPathId(null);
     }
 
     public void selectAsset(String assetId) {
@@ -182,6 +204,74 @@ public class EditorState {
         setSelectedLayerId(layerId);
     }
 
+    public String getSelectedWallPathId() {
+        return selectedWallPathId;
+    }
+
+    public int getSelectedWallVertexIndex() {
+        return selectedWallVertexIndex;
+    }
+
+    public void setSelectedWallPathId(String selectedWallPathId) {
+        String old = this.selectedWallPathId;
+        this.selectedWallPathId = selectedWallPathId;
+        if (selectedWallPathId == null) {
+            this.selectedWallVertexIndex = -1;
+        }
+        pcs.firePropertyChange(PROP_SELECTED_WALL, old, selectedWallPathId);
+    }
+
+    public void setSelectedWallVertexIndex(int selectedWallVertexIndex) {
+        int old = this.selectedWallVertexIndex;
+        this.selectedWallVertexIndex = selectedWallVertexIndex;
+        pcs.firePropertyChange(PROP_SELECTED_WALL_VERTEX, old, selectedWallVertexIndex);
+    }
+
+    public void selectWallPath(String wallPathId) {
+        setSelectedPlacementId(null);
+        setSelectedWallPathId(wallPathId);
+        setSelectedWallVertexIndex(-1);
+    }
+
+    public void selectWallVertex(String wallPathId, int vertexIndex) {
+        setSelectedPlacementId(null);
+        setSelectedWallPathId(wallPathId);
+        setSelectedWallVertexIndex(vertexIndex);
+    }
+
+    public WallPath selectedWallPath() {
+        if (project == null || selectedWallPathId == null) return null;
+        return project.getWallLayer() == null ? null : project.getWallLayer().findPathById(selectedWallPathId);
+    }
+
+
+    public void setWallSnapIndicator(Double x, Double y) {
+        Double oldX = this.wallSnapX;
+        Double oldY = this.wallSnapY;
+        this.wallSnapX = x;
+        this.wallSnapY = y;
+        pcs.firePropertyChange(PROP_UI, null, null);
+    }
+
+    public void clearWallSnapIndicator() {
+        if (this.wallSnapX != null || this.wallSnapY != null) {
+            this.wallSnapX = null;
+            this.wallSnapY = null;
+            pcs.firePropertyChange(PROP_UI, null, null);
+        }
+    }
+
+    public boolean hasWallSnapIndicator() {
+        return wallSnapX != null && wallSnapY != null;
+    }
+
+    public Double getWallSnapX() {
+        return wallSnapX;
+    }
+
+    public Double getWallSnapY() {
+        return wallSnapY;
+    }
     public AssetDefinition selectedAsset() {
         if (assetCatalog == null || selectedAssetId == null) return null;
         return assetCatalog.findById(selectedAssetId).orElse(null);

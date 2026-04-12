@@ -21,7 +21,12 @@ public class SelectTool implements Tool {
             state.selectAsset(hit.getAssetId());
             state.selectLayer(hit.getLayerId());
         } else {
-            state.clearSelection();
+            var wallHit = canvas.findWallPathAt(event.getX(), event.getY());
+            if (wallHit != null) {
+                state.selectWallPath(wallHit.getId());
+            } else {
+                state.clearSelection();
+            }
         }
         canvas.requestRender();
     }

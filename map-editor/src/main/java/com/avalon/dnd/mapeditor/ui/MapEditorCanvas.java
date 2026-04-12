@@ -3,16 +3,24 @@ package com.avalon.dnd.mapeditor.ui;
 import com.avalon.dnd.mapeditor.model.BackgroundLayer;
 import com.avalon.dnd.mapeditor.model.BackgroundMode;
 import com.avalon.dnd.mapeditor.model.EditorState;
+import com.avalon.dnd.mapeditor.model.FogSettings;
 import com.avalon.dnd.mapeditor.model.MapLayer;
 import com.avalon.dnd.mapeditor.model.MapPlacement;
 import com.avalon.dnd.mapeditor.model.MapProject;
 import com.avalon.dnd.mapeditor.model.PlacementKind;
+import com.avalon.dnd.mapeditor.model.TerrainCell;
+import com.avalon.dnd.mapeditor.model.TerrainLayer;
+import com.avalon.dnd.mapeditor.model.WallLayer;
+import com.avalon.dnd.mapeditor.model.WallPath;
+import com.avalon.dnd.mapeditor.model.WallPoint;
+import com.avalon.dnd.mapeditor.service.FogCalculator;
 import javafx.application.Platform;
 import javafx.geometry.VPos;
 import javafx.scene.canvas.Canvas;
 import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.image.Image;
 import javafx.scene.input.MouseEvent;
+import javafx.scene.input.ScrollEvent;
 import javafx.scene.paint.Color;
 import javafx.scene.text.Font;
 import javafx.scene.text.TextAlignment;
@@ -64,13 +72,18 @@ public class MapEditorCanvas extends Canvas {
         });
 
         setOnScroll(e -> {
-            double zoom = state.getZoom();
-            if (e.getDeltaY() > 0) {
-                state.setZoom(zoom * 1.08);
-            } else {
-                state.setZoom(zoom / 1.08);
+            if (state.getActiveTool() != null) {
+                state.getActiveTool().onScroll(e, this, state);
             }
-            requestRender();
+            if (!e.isConsumed()) {
+                double zoom = state.getZoom();
+                if (e.getDeltaY() > 0) {
+                    state.setZoom(zoom * 1.08);
+                } else {
+                    state.setZoom(zoom / 1.08);
+                }
+                requestRender();
+            }
         });
 
         requestRender();
@@ -113,9 +126,13 @@ public class MapEditorCanvas extends Canvas {
         gc.scale(state.getZoom(), state.getZoom());
 
         drawBackground(gc);
+        drawTerrainLayer(gc);
+        drawReferenceOverlay(gc);
         drawGrid(gc);
+        drawWallLayer(gc);
         drawPlacements(gc);
         drawFogPreview(gc);
+        drawWallSnapIndicator(gc);
 
         if (hoverCol != null && hoverRow != null) {
             drawHoverCell(gc);
@@ -235,6 +252,257 @@ public class MapEditorCanvas extends Canvas {
         gc.restore();
     }
 
+    private void drawReferenceOverlay(GraphicsContext gc) {
+        MapProject project = state.getProject();
+        if (project == null || project.getReferenceOverlay() == null) {
+            return;
+        }
+
+        var reference = project.getReferenceOverlay();
+        if (!reference.isVisible()) {
+            return;
+        }
+
+        String url = reference.getImageUrl();
+        if (url == null || url.isBlank()) {
+            return;
+        }
+
+        String cacheKey = "ref:" + url;
+        Image image = imageCache.get(cacheKey);
+        if (image == null) {
+            image = loadImage(url);
+            if (image != null) {
+                imageCache.put(cacheKey, image);
+            } else {
+                return;
+            }
+        }
+
+        if (image.isError()) {
+            return;
+        }
+
+        gc.save();
+        gc.setGlobalAlpha(reference.getOpacity());
+        double x = reference.getOffsetX();
+        double y = reference.getOffsetY();
+        double scale = reference.getScale();
+        double drawW = image.getWidth() * scale;
+        double drawH = image.getHeight() * scale;
+        gc.translate(x + drawW / 2.0, y + drawH / 2.0);
+        gc.rotate(reference.getRotation());
+        gc.drawImage(image, -drawW / 2.0, -drawH / 2.0, drawW, drawH);
+        gc.restore();
+    }
+
+    private void drawTerrainLayer(GraphicsContext gc) {
+        MapProject project = state.getProject();
+        if (project == null) {
+            return;
+        }
+        TerrainLayer terrain = project.getTerrainLayer();
+        if (terrain == null || !terrain.isVisible()) {
+            return;
+        }
+
+        var grid = state.grid();
+        int cell = grid.getCellSize();
+        int ox = grid.getOffsetX();
+        int oy = grid.getOffsetY();
+
+        gc.save();
+        gc.setGlobalAlpha(terrain.getOpacity());
+        for (TerrainCell terrainCell : terrain.getCells()) {
+            if (terrainCell == null) {
+                continue;
+            }
+            double x = ox + terrainCell.getCol() * cell;
+            double y = oy + terrainCell.getRow() * cell;
+            double w = terrainCell.getWidth() * cell;
+            double h = terrainCell.getHeight() * cell;
+            gc.setFill(colorForTerrain(terrainCell.getTerrainType()));
+            gc.fillRect(x, y, w, h);
+        }
+        gc.restore();
+    }
+
+    private void drawWallLayer(GraphicsContext gc) {
+        MapProject project = state.getProject();
+        if (project == null) {
+            return;
+        }
+        WallLayer wallLayer = project.getWallLayer();
+        if (wallLayer == null || !wallLayer.isVisible()) {
+            return;
+        }
+
+        WallPath selectedWall = state.selectedWallPath();
+
+        gc.save();
+        gc.setGlobalAlpha(wallLayer.getOpacity());
+        gc.setLineCap(javafx.scene.shape.StrokeLineCap.ROUND);
+        for (WallPath path : wallLayer.getPaths()) {
+            if (path == null || path.getPoints().isEmpty()) {
+                continue;
+            }
+            gc.setLineWidth(path.getThickness() / state.getZoom());
+            gc.setStroke(path.isBlocksSight() ? Color.web("#2f3b52") : Color.web("#7f8c8d"));
+            if (path.getPoints().size() == 1) {
+                WallPoint point = path.getPoints().get(0);
+                double radius = Math.max(2.5, path.getThickness()) / state.getZoom();
+                gc.setFill(path.isBlocksSight() ? Color.web("#2f3b52") : Color.web("#7f8c8d"));
+                gc.fillOval(point.getX() - radius, point.getY() - radius, radius * 2.0, radius * 2.0);
+            } else {
+                WallPoint prev = null;
+                for (WallPoint point : path.getPoints()) {
+                    if (prev != null) {
+                        gc.strokeLine(prev.getX(), prev.getY(), point.getX(), point.getY());
+                    }
+                    prev = point;
+                }
+            }
+        }
+
+        if (selectedWall != null && selectedWall.isVisible()) {
+            drawSelectedWall(gc, selectedWall);
+            WallMergeCandidate mergeCandidate = findMergeCandidate(selectedWall, wallLayer);
+            if (mergeCandidate != null) {
+                WallPath candidatePath = wallLayer.findPathById(mergeCandidate.otherPathId());
+                if (candidatePath != null && candidatePath.isVisible()) {
+                    drawMergeCandidateWall(gc, candidatePath);
+                }
+            }
+        }
+        gc.restore();
+    }
+
+    private void drawSelectedWall(GraphicsContext gc, WallPath path) {
+        if (path == null || path.getPoints().isEmpty()) {
+            return;
+        }
+
+        gc.save();
+        gc.setLineCap(javafx.scene.shape.StrokeLineCap.ROUND);
+        gc.setStroke(Color.web("#ffd54a"));
+        gc.setLineWidth(Math.max(2.0 / state.getZoom(), path.getThickness() / state.getZoom() + 1.5));
+        if (path.getPoints().size() == 1) {
+            WallPoint point = path.getPoints().get(0);
+            double radius = Math.max(3.5, path.getThickness()) / state.getZoom();
+            gc.setFill(Color.web("#ffd54a"));
+            gc.fillOval(point.getX() - radius, point.getY() - radius, radius * 2.0, radius * 2.0);
+        } else {
+            WallPoint prev = null;
+            for (WallPoint point : path.getPoints()) {
+                if (prev != null) {
+                    gc.strokeLine(prev.getX(), prev.getY(), point.getX(), point.getY());
+                }
+                prev = point;
+            }
+        }
+
+        int selectedIndex = state.getSelectedWallVertexIndex();
+        for (int i = 0; i < path.getPoints().size(); i++) {
+            WallPoint point = path.getPoints().get(i);
+            double radius = (i == selectedIndex ? 6.0 : 4.0) / state.getZoom();
+            gc.setFill(i == selectedIndex ? Color.web("#ff8c00") : Color.web("#ffd54a"));
+            gc.fillOval(point.getX() - radius, point.getY() - radius, radius * 2.0, radius * 2.0);
+            gc.setStroke(Color.web("#111111"));
+            gc.setLineWidth(1.2 / state.getZoom());
+            gc.strokeOval(point.getX() - radius, point.getY() - radius, radius * 2.0, radius * 2.0);
+        }
+        gc.restore();
+    }
+
+    private void drawMergeCandidateWall(GraphicsContext gc, WallPath path) {
+        if (path == null || path.getPoints().isEmpty()) {
+            return;
+        }
+
+        gc.save();
+        gc.setLineCap(javafx.scene.shape.StrokeLineCap.ROUND);
+        gc.setLineDashes(10.0, 8.0);
+        gc.setStroke(Color.web("#ff9f1c"));
+        gc.setLineWidth(Math.max(2.0 / state.getZoom(), path.getThickness() / state.getZoom() + 1.0));
+        if (path.getPoints().size() == 1) {
+            WallPoint point = path.getPoints().get(0);
+            double radius = Math.max(3.0, path.getThickness()) / state.getZoom();
+            gc.setFill(Color.web("#ff9f1c"));
+            gc.fillOval(point.getX() - radius, point.getY() - radius, radius * 2.0, radius * 2.0);
+        } else {
+            WallPoint prev = null;
+            for (WallPoint point : path.getPoints()) {
+                if (prev != null) {
+                    gc.strokeLine(prev.getX(), prev.getY(), point.getX(), point.getY());
+                }
+                prev = point;
+            }
+        }
+        gc.restore();
+    }
+
+    private WallMergeCandidate findMergeCandidate(WallPath selected, WallLayer layer) {
+        if (selected == null || layer == null || selected.getPoints().isEmpty()) {
+            return null;
+        }
+        double tolerance = 0.01;
+        WallPoint start = selected.getFirstPoint();
+        WallPoint end = selected.getLastPoint();
+        if (start == null || end == null) {
+            return null;
+        }
+        for (WallPath other : layer.getPaths()) {
+            if (other == null || other == selected || other.getPoints().isEmpty()) {
+                continue;
+            }
+            if (pointsNear(end, other.getFirstPoint(), tolerance)) {
+                return new WallMergeCandidate(other.getId(), true, false);
+            }
+            if (pointsNear(end, other.getLastPoint(), tolerance)) {
+                return new WallMergeCandidate(other.getId(), true, true);
+            }
+            if (pointsNear(start, other.getLastPoint(), tolerance)) {
+                return new WallMergeCandidate(other.getId(), false, false);
+            }
+            if (pointsNear(start, other.getFirstPoint(), tolerance)) {
+                return new WallMergeCandidate(other.getId(), false, true);
+            }
+        }
+        return null;
+    }
+
+    private boolean pointsNear(WallPoint a, WallPoint b, double tolerance) {
+        if (a == null || b == null) {
+            return false;
+        }
+        double dx = a.getX() - b.getX();
+        double dy = a.getY() - b.getY();
+        return dx * dx + dy * dy <= tolerance * tolerance;
+    }
+
+    private record WallMergeCandidate(String otherPathId, boolean appendToEnd, boolean reverseOther) {}
+
+    private void drawWallSnapIndicator(GraphicsContext gc) {
+        if (!state.hasWallSnapIndicator()) {
+            return;
+        }
+        Double x = state.getWallSnapX();
+        Double y = state.getWallSnapY();
+        if (x == null || y == null) {
+            return;
+        }
+        gc.save();
+        gc.setStroke(Color.web("#00e5ff"));
+        gc.setFill(Color.web("#00e5ff", 0.25));
+        double radius = 7.0 / state.getZoom();
+        gc.setLineWidth(2.0 / state.getZoom());
+        gc.strokeOval(x - radius, y - radius, radius * 2.0, radius * 2.0);
+        gc.fillOval(x - radius * 0.55, y - radius * 0.55, radius * 1.1, radius * 1.1);
+        gc.strokeLine(x - radius * 1.5, y, x + radius * 1.5, y);
+        gc.strokeLine(x, y - radius * 1.5, x, y + radius * 1.5);
+        gc.restore();
+    }
+
     private void drawGrid(GraphicsContext gc) {
         var grid = state.grid();
         int cell = grid.getCellSize();
@@ -312,20 +580,30 @@ public class MapEditorCanvas extends Canvas {
             return;
         }
 
+        FogSettings settings = state.getProject().getFogSettings();
+        if (settings == null || !settings.isEnabled()) {
+            return;
+        }
+
+        boolean[][] visible = FogCalculator.computeVisibleCells(state.getProject());
+        if (visible.length == 0 || visible[0].length == 0) {
+            return;
+        }
+
         var grid = state.grid();
         int cell = grid.getCellSize();
         int ox = grid.getOffsetX();
         int oy = grid.getOffsetY();
 
         gc.save();
-        gc.setFill(Color.color(0.0, 0.0, 0.0, 0.12));
-        for (MapPlacement placement : state.getProject().getPlacements()) {
-            if (!placement.isBlocksSight()) continue;
-            double x = ox + placement.getCol() * cell;
-            double y = oy + placement.getRow() * cell;
-            double w = placement.effectiveWidth() * cell;
-            double h = placement.effectiveHeight() * cell;
-            gc.fillRect(x, y, w, h);
+        gc.setFill(Color.color(0.0, 0.0, 0.0, settings.getOpacity()));
+        for (int row = 0; row < visible.length; row++) {
+            for (int col = 0; col < visible[row].length; col++) {
+                if (visible[row][col]) {
+                    continue;
+                }
+                gc.fillRect(ox + col * cell, oy + row * cell, cell, cell);
+            }
         }
         gc.restore();
     }
@@ -335,6 +613,19 @@ public class MapEditorCanvas extends Canvas {
         if (placement.getKind() == PlacementKind.DOOR) return Color.web("#8e5a2b");
         if (placement.getKind() == PlacementKind.WALL) return Color.web("#666666");
         return Color.web("#6e4d2b");
+    }
+
+    private Color colorForTerrain(String terrainType) {
+        if (terrainType == null) {
+            return Color.web("#4d7c3a");
+        }
+        return switch (terrainType.toLowerCase()) {
+            case "stone", "rocks" -> Color.web("#8a8f98");
+            case "dirt", "mud" -> Color.web("#7b5e3b");
+            case "sand" -> Color.web("#cbb27b");
+            case "water" -> Color.web("#397bbf");
+            default -> Color.web("#4d7c3a");
+        };
     }
 
     private void drawSelection(GraphicsContext gc, MapPlacement selected) {
@@ -443,6 +734,18 @@ public class MapEditorCanvas extends Canvas {
         return null;
     }
 
+    public int getGridCellSize() {
+        return state.grid().getCellSize();
+    }
+
+    public int getGridOffsetX() {
+        return state.grid().getOffsetX();
+    }
+
+    public int getGridOffsetY() {
+        return state.grid().getOffsetY();
+    }
+
     public int[] screenToCell(double screenX, double screenY) {
         var grid = state.grid();
         int cell = grid.getCellSize();
@@ -459,6 +762,49 @@ public class MapEditorCanvas extends Canvas {
             return null;
         }
         return new int[] { col, row };
+    }
+
+    public double screenToWorldX(double screenX) {
+        return (screenX - state.getViewOffsetX()) / state.getZoom();
+    }
+
+    public double screenToWorldY(double screenY) {
+        return (screenY - state.getViewOffsetY()) / state.getZoom();
+    }
+
+    public WallPath findWallPathAt(double screenX, double screenY) {
+        MapProject project = state.getProject();
+        if (project == null || project.getWallLayer() == null || !project.getWallLayer().isVisible()) {
+            return null;
+        }
+
+        double worldX = screenToWorldX(screenX);
+        double worldY = screenToWorldY(screenY);
+        double maxDistance = 8.0 / state.getZoom();
+
+        for (int i = project.getWallLayer().getPaths().size() - 1; i >= 0; i--) {
+            WallPath path = project.getWallLayer().getPaths().get(i);
+            if (path == null || !path.isVisible() || path.getPoints().isEmpty()) {
+                continue;
+            }
+
+            if (path.findNearestVertexIndex(worldX, worldY, maxDistance) >= 0) {
+                return path;
+            }
+            if (path.getPoints().size() >= 2 && path.findNearestSegmentInsertIndex(worldX, worldY, maxDistance) >= 0) {
+                return path;
+            }
+        }
+        return null;
+    }
+
+    public int findWallVertexAt(WallPath path, double screenX, double screenY) {
+        if (path == null) {
+            return -1;
+        }
+        double worldX = screenToWorldX(screenX);
+        double worldY = screenToWorldY(screenY);
+        return path.findNearestVertexIndex(worldX, worldY, 8.0 / state.getZoom());
     }
 
     private void updateHover(double x, double y) {

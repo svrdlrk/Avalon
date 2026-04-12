@@ -8,8 +8,12 @@ import com.avalon.dnd.mapeditor.tool.BrushTool;
 import com.avalon.dnd.mapeditor.tool.EraseTool;
 import com.avalon.dnd.mapeditor.tool.PanTool;
 import com.avalon.dnd.mapeditor.tool.MoveTool;
+import com.avalon.dnd.mapeditor.tool.ReferenceOverlayTool;
 import com.avalon.dnd.mapeditor.tool.PlaceAssetTool;
 import com.avalon.dnd.mapeditor.tool.SelectTool;
+import com.avalon.dnd.mapeditor.tool.TerrainBrushTool;
+import com.avalon.dnd.mapeditor.tool.WallBrushTool;
+import com.avalon.dnd.mapeditor.tool.WallEditTool;
 import com.avalon.dnd.mapeditor.tool.Tool;
 import javafx.collections.FXCollections;
 import javafx.geometry.Insets;
@@ -53,6 +57,32 @@ public class MapEditorPane extends BorderPane {
     private final Spinner<Integer> backgroundOffsetYSpinner = new Spinner<>();
     private final Slider backgroundOpacitySlider = new Slider(0.0, 1.0, 1.0);
 
+    private final TextField referenceUrlField = new TextField();
+    private final CheckBox referenceVisibleCheck = new CheckBox("Visible");
+    private final CheckBox referenceLockedCheck = new CheckBox("Locked");
+    private final Slider referenceOpacitySlider = new Slider(0.0, 1.0, 0.65);
+    private final Spinner<Double> referenceScaleSpinner = new Spinner<>();
+    private final Spinner<Double> referenceRotationSpinner = new Spinner<>();
+    private final Spinner<Integer> referenceOffsetXSpinner = new Spinner<>();
+    private final Spinner<Integer> referenceOffsetYSpinner = new Spinner<>();
+
+    private final CheckBox terrainVisibleCheck = new CheckBox("Visible");
+    private final CheckBox terrainLockedCheck = new CheckBox("Locked");
+    private final Slider terrainOpacitySlider = new Slider(0.0, 1.0, 0.85);
+    private final ComboBox<String> terrainTypeCombo = new ComboBox<>();
+
+    private final CheckBox wallVisibleCheck = new CheckBox("Visible");
+    private final CheckBox wallLockedCheck = new CheckBox("Locked");
+    private final Slider wallOpacitySlider = new Slider(0.0, 1.0, 0.9);
+    private final Spinner<Double> wallThicknessSpinner = new Spinner<>();
+    private final CheckBox wallBlocksMoveCheck = new CheckBox("Blocks movement");
+    private final CheckBox wallBlocksSightCheck = new CheckBox("Blocks sight");
+
+    private final CheckBox fogEnabledCheck = new CheckBox("Enabled");
+    private final CheckBox fogRevealFromTokensCheck = new CheckBox("Reveal from tokens");
+    private final CheckBox fogRevealFromSelectedCheck = new CheckBox("Reveal selected placement");
+    private final Slider fogOpacitySlider = new Slider(0.0, 1.0, 0.72);
+    private final Spinner<Integer> fogRadiusSpinner = new Spinner<>();
 
     private final TextField placementNameField = new TextField();
     private final ComboBox<MapLayer> placementLayerCombo = new ComboBox<>();
@@ -69,6 +99,10 @@ public class MapEditorPane extends BorderPane {
     private boolean syncingLayerSelection = false;
     private boolean syncingPlacementForm = false;
     private boolean syncingBackgroundForm = false;
+    private boolean syncingReferenceForm = false;
+    private boolean syncingTerrainForm = false;
+    private boolean syncingWallForm = false;
+    private boolean syncingFogForm = false;
 
     public MapEditorPane(MapProject project, AssetCatalog catalog) {
         state.setAssetCatalog(catalog);
@@ -76,8 +110,12 @@ public class MapEditorPane extends BorderPane {
 
         tools.put("select", new SelectTool());
         tools.put("move", new MoveTool());
+        tools.put("reference", new ReferenceOverlayTool());
         tools.put("place", new PlaceAssetTool());
         tools.put("brush", new BrushTool());
+        tools.put("terrain", new TerrainBrushTool());
+        tools.put("wall", new WallBrushTool());
+        tools.put("wallEdit", new WallEditTool());
         tools.put("erase", new EraseTool());
         tools.put("pan", new PanTool());
 
@@ -116,8 +154,12 @@ public class MapEditorPane extends BorderPane {
 
         ToggleButton select = buttonFor(tools.get("select"), toolGroup);
         ToggleButton move = buttonFor(tools.get("move"), toolGroup);
+        ToggleButton reference = buttonFor(tools.get("reference"), toolGroup);
         ToggleButton place = buttonFor(tools.get("place"), toolGroup);
         ToggleButton brush = buttonFor(tools.get("brush"), toolGroup);
+        ToggleButton terrain = buttonFor(tools.get("terrain"), toolGroup);
+        ToggleButton wall = buttonFor(tools.get("wall"), toolGroup);
+        ToggleButton wallEdit = buttonFor(tools.get("wallEdit"), toolGroup);
         ToggleButton erase = buttonFor(tools.get("erase"), toolGroup);
         ToggleButton pan = buttonFor(tools.get("pan"), toolGroup);
 
@@ -130,6 +172,10 @@ public class MapEditorPane extends BorderPane {
             canvas.requestRender();
             refreshSelection();
             refreshBackgroundForm();
+            refreshReferenceForm();
+            refreshTerrainForm();
+            refreshWallForm();
+            refreshFogForm();
             refreshLayerList();
         });
 
@@ -171,7 +217,7 @@ public class MapEditorPane extends BorderPane {
         ToolBar bar = new ToolBar(
                 title,
                 new Separator(Orientation.VERTICAL),
-                select, move, place, brush, erase, pan,
+                select, move, reference, place, brush, terrain, wall, wallEdit, erase, pan,
                 new Separator(Orientation.VERTICAL),
                 newProject, undo, redo, save, load, exportLayout, importLayout, resetView,
                 new Separator(Orientation.VERTICAL),
@@ -201,7 +247,7 @@ public class MapEditorPane extends BorderPane {
         assetList.getSelectionModel().selectedItemProperty().addListener((obs, oldV, newV) -> {
             if (newV != null) {
                 state.selectAsset(newV.getId());
-                state.setActiveTool(activeTool(newV.getKind() == null ? "place" : (newV.getKind().name().equals("WALL") ? "brush" : "place")));
+                state.setActiveTool(activeTool(newV.getKind() == null ? "place" : (newV.getKind().name().equals("WALL") ? "wall" : "place")));
                 if (state.getProject() != null) {
                     MapLayer suggested = state.getProject().defaultLayerFor(newV.getKind());
                     if (suggested != null) {
@@ -222,10 +268,14 @@ public class MapEditorPane extends BorderPane {
 
     private Node buildRightPanel() {
         VBox backgroundBox = buildBackgroundPanel();
+        VBox referenceBox = buildReferencePanel();
+        VBox terrainBox = buildTerrainPanel();
+        VBox wallBox = buildWallPanel();
+        VBox fogBox = buildFogPanel();
         VBox selectionBox = buildPropertiesPanel();
         VBox layersBox = buildLayerPanel();
 
-        VBox outer = new VBox(12, backgroundBox, selectionBox, layersBox);
+        VBox outer = new VBox(12, backgroundBox, referenceBox, terrainBox, wallBox, fogBox, selectionBox, layersBox);
         outer.setPadding(new Insets(12));
         outer.setPrefWidth(320);
 
@@ -345,6 +395,262 @@ public class MapEditorPane extends BorderPane {
         );
 
         refreshBackgroundForm();
+        return box;
+    }
+
+    private VBox buildReferencePanel() {
+        VBoxWrapper box = new VBoxWrapper("Reference", new Label("Reference overlay image"));
+
+        referenceUrlField.setPromptText("Reference image URL");
+        referenceVisibleCheck.setSelected(true);
+        referenceLockedCheck.setSelected(false);
+        referenceOpacitySlider.setShowTickLabels(true);
+        referenceOpacitySlider.setShowTickMarks(true);
+        referenceOpacitySlider.setBlockIncrement(0.05);
+        referenceScaleSpinner.setValueFactory(new SpinnerValueFactory.DoubleSpinnerValueFactory(0.1, 10.0, 1.0, 0.1));
+        referenceRotationSpinner.setValueFactory(new SpinnerValueFactory.DoubleSpinnerValueFactory(-180.0, 180.0, 0.0, 5.0));
+        referenceOffsetXSpinner.setValueFactory(new SpinnerValueFactory.IntegerSpinnerValueFactory(-100000, 100000, 0));
+        referenceOffsetYSpinner.setValueFactory(new SpinnerValueFactory.IntegerSpinnerValueFactory(-100000, 100000, 0));
+
+        referenceUrlField.setOnAction(e -> commitReferenceEdit(() -> reference().setImageUrl(referenceUrlField.getText())));
+        referenceUrlField.focusedProperty().addListener((obs, oldV, newV) -> {
+            if (!newV) {
+                commitReferenceEdit(() -> reference().setImageUrl(referenceUrlField.getText()));
+            }
+        });
+        referenceVisibleCheck.selectedProperty().addListener((obs, oldV, newV) -> {
+            if (syncingReferenceForm) return;
+            commitReferenceEdit(() -> reference().setVisible(Boolean.TRUE.equals(newV)));
+        });
+        referenceLockedCheck.selectedProperty().addListener((obs, oldV, newV) -> {
+            if (syncingReferenceForm) return;
+            commitReferenceEdit(() -> reference().setLocked(Boolean.TRUE.equals(newV)));
+        });
+        referenceOpacitySlider.valueProperty().addListener((obs, oldV, newV) -> {
+            if (syncingReferenceForm || newV == null) return;
+            commitReferenceEdit(() -> reference().setOpacity(newV.doubleValue()));
+        });
+        referenceScaleSpinner.valueProperty().addListener((obs, oldV, newV) -> {
+            if (syncingReferenceForm || newV == null) return;
+            commitReferenceEdit(() -> reference().setScale(newV));
+        });
+        referenceRotationSpinner.valueProperty().addListener((obs, oldV, newV) -> {
+            if (syncingReferenceForm || newV == null) return;
+            commitReferenceEdit(() -> reference().setRotation(newV));
+        });
+        referenceOffsetXSpinner.valueProperty().addListener((obs, oldV, newV) -> {
+            if (syncingReferenceForm || newV == null) return;
+            commitReferenceEdit(() -> reference().setOffsetX(newV));
+        });
+        referenceOffsetYSpinner.valueProperty().addListener((obs, oldV, newV) -> {
+            if (syncingReferenceForm || newV == null) return;
+            commitReferenceEdit(() -> reference().setOffsetY(newV));
+        });
+
+        Button useSelectedAsset = new Button("Use selected asset");
+        useSelectedAsset.setOnAction(e -> {
+            if (state.selectedAsset() != null) {
+                commitReferenceEdit(() -> reference().setImageUrl(state.selectedAsset().getImageUrl()));
+            }
+        });
+
+        Button clearReference = new Button("Clear reference");
+        clearReference.setOnAction(e -> commitReferenceEdit(() -> reference().setImageUrl(null)));
+
+        Button resetTransform = new Button("Reset transform");
+        resetTransform.setOnAction(e -> commitReferenceEdit(() -> {
+            ReferenceOverlay overlay = reference();
+            overlay.setScale(1.0);
+            overlay.setRotation(0.0);
+            overlay.setOffsetX(0.0);
+            overlay.setOffsetY(0.0);
+        }));
+
+        GridPane form = new GridPane();
+        form.setHgap(8);
+        form.setVgap(8);
+        form.addRow(0, new Label("Image URL"), referenceUrlField);
+        form.addRow(1, new Label("Visible"), referenceVisibleCheck);
+        form.addRow(2, new Label("Locked"), referenceLockedCheck);
+        form.addRow(3, new Label("Opacity"), referenceOpacitySlider);
+        form.addRow(4, new Label("Scale"), referenceScaleSpinner);
+        form.addRow(5, new Label("Rotation"), referenceRotationSpinner);
+        form.addRow(6, new Label("Offset X"), referenceOffsetXSpinner);
+        form.addRow(7, new Label("Offset Y"), referenceOffsetYSpinner);
+
+        box.getChildren().addAll(
+                new Label("Reference overlay"),
+                form,
+                useSelectedAsset,
+                clearReference,
+                resetTransform
+        );
+
+        refreshReferenceForm();
+        return box;
+    }
+
+
+    private VBox buildTerrainPanel() {
+        VBoxWrapper box = new VBoxWrapper("Terrain", new Label("Paintable terrain layer"));
+
+        terrainTypeCombo.getItems().setAll("grass", "stone", "dirt", "sand", "water");
+        terrainVisibleCheck.setSelected(true);
+        terrainLockedCheck.setSelected(false);
+        terrainOpacitySlider.setShowTickLabels(true);
+        terrainOpacitySlider.setShowTickMarks(true);
+        terrainOpacitySlider.setBlockIncrement(0.05);
+
+        terrainTypeCombo.valueProperty().addListener((obs, oldV, newV) -> {
+            if (syncingTerrainForm || newV == null) return;
+            commitTerrainEdit(() -> terrain().setPaintType(newV));
+        });
+        terrainVisibleCheck.selectedProperty().addListener((obs, oldV, newV) -> {
+            if (syncingTerrainForm) return;
+            commitTerrainEdit(() -> terrain().setVisible(Boolean.TRUE.equals(newV)));
+        });
+        terrainLockedCheck.selectedProperty().addListener((obs, oldV, newV) -> {
+            if (syncingTerrainForm) return;
+            commitTerrainEdit(() -> terrain().setLocked(Boolean.TRUE.equals(newV)));
+        });
+        terrainOpacitySlider.valueProperty().addListener((obs, oldV, newV) -> {
+            if (syncingTerrainForm || newV == null) return;
+            commitTerrainEdit(() -> terrain().setOpacity(newV.doubleValue()));
+        });
+
+        Button clearTerrain = new Button("Clear terrain");
+        clearTerrain.setOnAction(e -> commitTerrainEdit(() -> terrain().setCells(null)));
+
+        GridPane form = new GridPane();
+        form.setHgap(8);
+        form.setVgap(8);
+        form.addRow(0, new Label("Type"), terrainTypeCombo);
+        form.addRow(1, new Label("Visible"), terrainVisibleCheck);
+        form.addRow(2, new Label("Locked"), terrainLockedCheck);
+        form.addRow(3, new Label("Opacity"), terrainOpacitySlider);
+
+        box.getChildren().addAll(new Label("Terrain layer"), form, clearTerrain);
+        refreshTerrainForm();
+        return box;
+    }
+
+    private VBox buildWallPanel() {
+        VBoxWrapper box = new VBoxWrapper("Walls", new Label("Blockers and cliff lines"));
+
+        wallVisibleCheck.setSelected(true);
+        wallLockedCheck.setSelected(false);
+        wallOpacitySlider.setShowTickLabels(true);
+        wallOpacitySlider.setShowTickMarks(true);
+        wallOpacitySlider.setBlockIncrement(0.05);
+        wallThicknessSpinner.setValueFactory(new SpinnerValueFactory.DoubleSpinnerValueFactory(0.5, 20.0, 2.5, 0.5));
+
+        wallVisibleCheck.selectedProperty().addListener((obs, oldV, newV) -> {
+            if (syncingWallForm) return;
+            commitWallEdit(() -> wall().setVisible(Boolean.TRUE.equals(newV)));
+        });
+        wallLockedCheck.selectedProperty().addListener((obs, oldV, newV) -> {
+            if (syncingWallForm) return;
+            commitWallEdit(() -> wall().setLocked(Boolean.TRUE.equals(newV)));
+        });
+        wallOpacitySlider.valueProperty().addListener((obs, oldV, newV) -> {
+            if (syncingWallForm || newV == null) return;
+            commitWallEdit(() -> wall().setOpacity(newV.doubleValue()));
+        });
+        wallThicknessSpinner.valueProperty().addListener((obs, oldV, newV) -> {
+            if (syncingWallForm || newV == null) return;
+            commitWallEdit(() -> wall().setDefaultThickness(newV));
+        });
+        wallBlocksMoveCheck.selectedProperty().addListener((obs, oldV, newV) -> {
+            if (syncingWallForm) return;
+            commitWallEdit(() -> wall().setDefaultBlocksMovement(Boolean.TRUE.equals(newV)));
+        });
+        wallBlocksSightCheck.selectedProperty().addListener((obs, oldV, newV) -> {
+            if (syncingWallForm) return;
+            commitWallEdit(() -> wall().setDefaultBlocksSight(Boolean.TRUE.equals(newV)));
+        });
+
+        Button splitWall = new Button("Split wall");
+        splitWall.setOnAction(e -> splitSelectedWall());
+
+        Button mergeWall = new Button("Merge wall");
+        mergeWall.setOnAction(e -> mergeSelectedWall());
+
+        Button clearWalls = new Button("Clear walls");
+        clearWalls.setOnAction(e -> commitWallEdit(() -> wall().setPaths(null)));
+
+        GridPane form = new GridPane();
+        form.setHgap(8);
+        form.setVgap(8);
+        form.addRow(0, new Label("Visible"), wallVisibleCheck);
+        form.addRow(1, new Label("Locked"), wallLockedCheck);
+        form.addRow(2, new Label("Opacity"), wallOpacitySlider);
+        form.addRow(3, new Label("Thickness"), wallThicknessSpinner);
+        form.addRow(4, new Label("Blocks movement"), wallBlocksMoveCheck);
+        form.addRow(5, new Label("Blocks sight"), wallBlocksSightCheck);
+
+        box.getChildren().addAll(new Label("Wall layer"), form, splitWall, mergeWall, clearWalls);
+        refreshWallForm();
+        return box;
+    }
+
+    private VBox buildFogPanel() {
+        VBoxWrapper box = new VBoxWrapper("Fog of war", new Label("Visibility preview"));
+
+        fogEnabledCheck.setSelected(true);
+        fogRevealFromTokensCheck.setSelected(true);
+        fogRevealFromSelectedCheck.setSelected(true);
+        fogOpacitySlider.setShowTickLabels(true);
+        fogOpacitySlider.setShowTickMarks(true);
+        fogOpacitySlider.setBlockIncrement(0.05);
+        fogRadiusSpinner.setValueFactory(new SpinnerValueFactory.IntegerSpinnerValueFactory(0, 64, 6));
+
+        fogEnabledCheck.selectedProperty().addListener((obs, oldV, newV) -> {
+            if (syncingFogForm) return;
+            commitFogEdit(() -> fog().setEnabled(Boolean.TRUE.equals(newV)));
+        });
+        fogRevealFromTokensCheck.selectedProperty().addListener((obs, oldV, newV) -> {
+            if (syncingFogForm) return;
+            commitFogEdit(() -> fog().setRevealFromTokens(Boolean.TRUE.equals(newV)));
+        });
+        fogRevealFromSelectedCheck.selectedProperty().addListener((obs, oldV, newV) -> {
+            if (syncingFogForm) return;
+            commitFogEdit(() -> fog().setRevealFromSelectedPlacement(Boolean.TRUE.equals(newV)));
+        });
+        fogOpacitySlider.valueProperty().addListener((obs, oldV, newV) -> {
+            if (syncingFogForm || newV == null) return;
+            commitFogEdit(() -> fog().setOpacity(newV.doubleValue()));
+        });
+        fogRadiusSpinner.valueProperty().addListener((obs, oldV, newV) -> {
+            if (syncingFogForm || newV == null) return;
+            commitFogEdit(() -> fog().setRevealRadius(newV));
+        });
+
+        Button resetFog = new Button("Reset fog");
+        resetFog.setOnAction(e -> commitFogEdit(() -> {
+            FogSettings fog = fog();
+            fog.setEnabled(true);
+            fog.setRevealFromTokens(true);
+            fog.setRevealFromSelectedPlacement(true);
+            fog.setRevealRadius(6);
+            fog.setOpacity(0.72);
+        }));
+
+        GridPane form = new GridPane();
+        form.setHgap(8);
+        form.setVgap(8);
+        form.addRow(0, new Label("Enabled"), fogEnabledCheck);
+        form.addRow(1, new Label("Reveal tokens"), fogRevealFromTokensCheck);
+        form.addRow(2, new Label("Reveal selected"), fogRevealFromSelectedCheck);
+        form.addRow(3, new Label("Radius"), fogRadiusSpinner);
+        form.addRow(4, new Label("Opacity"), fogOpacitySlider);
+
+        box.getChildren().addAll(
+                new Label("Fog settings"),
+                form,
+                resetFog
+        );
+
+        refreshFogForm();
         return box;
     }
 
@@ -516,6 +822,65 @@ public class MapEditorPane extends BorderPane {
         }
     }
 
+    private void refreshReferenceForm() {
+        syncingReferenceForm = true;
+        try {
+            ReferenceOverlay overlay = reference();
+            referenceUrlField.setText(overlay.getImageUrl() == null ? "" : overlay.getImageUrl());
+            referenceVisibleCheck.setSelected(overlay.isVisible());
+            referenceLockedCheck.setSelected(overlay.isLocked());
+            referenceOpacitySlider.setValue(overlay.getOpacity());
+            referenceScaleSpinner.getValueFactory().setValue(overlay.getScale());
+            referenceRotationSpinner.getValueFactory().setValue(overlay.getRotation());
+            referenceOffsetXSpinner.getValueFactory().setValue((int) Math.round(overlay.getOffsetX()));
+            referenceOffsetYSpinner.getValueFactory().setValue((int) Math.round(overlay.getOffsetY()));
+        } finally {
+            syncingReferenceForm = false;
+        }
+    }
+
+    private void refreshTerrainForm() {
+        syncingTerrainForm = true;
+        try {
+            TerrainLayer terrain = terrain();
+            terrainVisibleCheck.setSelected(terrain.isVisible());
+            terrainLockedCheck.setSelected(terrain.isLocked());
+            terrainOpacitySlider.setValue(terrain.getOpacity());
+            terrainTypeCombo.getSelectionModel().select(terrain.getPaintType());
+        } finally {
+            syncingTerrainForm = false;
+        }
+    }
+
+    private void refreshWallForm() {
+        syncingWallForm = true;
+        try {
+            WallLayer wall = wall();
+            wallVisibleCheck.setSelected(wall.isVisible());
+            wallLockedCheck.setSelected(wall.isLocked());
+            wallOpacitySlider.setValue(wall.getOpacity());
+            wallThicknessSpinner.getValueFactory().setValue(wall.getDefaultThickness());
+            wallBlocksMoveCheck.setSelected(wall.isDefaultBlocksMovement());
+            wallBlocksSightCheck.setSelected(wall.isDefaultBlocksSight());
+        } finally {
+            syncingWallForm = false;
+        }
+    }
+
+    private void refreshFogForm() {
+        syncingFogForm = true;
+        try {
+            FogSettings fog = fog();
+            fogEnabledCheck.setSelected(fog.isEnabled());
+            fogRevealFromTokensCheck.setSelected(fog.isRevealFromTokens());
+            fogRevealFromSelectedCheck.setSelected(fog.isRevealFromSelectedPlacement());
+            fogRadiusSpinner.getValueFactory().setValue(fog.getRevealRadius());
+            fogOpacitySlider.setValue(fog.getOpacity());
+        } finally {
+            syncingFogForm = false;
+        }
+    }
+
     private BackgroundLayer background() {
         if (state.getProject() == null) {
             return new BackgroundLayer();
@@ -524,6 +889,46 @@ public class MapEditorPane extends BorderPane {
             state.getProject().setBackgroundLayer(new BackgroundLayer());
         }
         return state.getProject().getBackgroundLayer();
+    }
+
+    private ReferenceOverlay reference() {
+        if (state.getProject() == null) {
+            return new ReferenceOverlay();
+        }
+        if (state.getProject().getReferenceOverlay() == null) {
+            state.getProject().setReferenceOverlay(new ReferenceOverlay());
+        }
+        return state.getProject().getReferenceOverlay();
+    }
+
+    private TerrainLayer terrain() {
+        if (state.getProject() == null) {
+            return new TerrainLayer();
+        }
+        if (state.getProject().getTerrainLayer() == null) {
+            state.getProject().setTerrainLayer(new TerrainLayer());
+        }
+        return state.getProject().getTerrainLayer();
+    }
+
+    private WallLayer wall() {
+        if (state.getProject() == null) {
+            return new WallLayer();
+        }
+        if (state.getProject().getWallLayer() == null) {
+            state.getProject().setWallLayer(new WallLayer());
+        }
+        return state.getProject().getWallLayer();
+    }
+
+    private FogSettings fog() {
+        if (state.getProject() == null) {
+            return new FogSettings();
+        }
+        if (state.getProject().getFogSettings() == null) {
+            state.getProject().setFogSettings(new FogSettings());
+        }
+        return state.getProject().getFogSettings();
     }
 
     private void setBackgroundUrl(String url) {
@@ -545,10 +950,144 @@ public class MapEditorPane extends BorderPane {
         refreshBackgroundForm();
     }
 
+    private void commitReferenceEdit(Runnable action) {
+        if (state.getProject() == null) {
+            return;
+        }
+        state.recordHistory();
+        action.run();
+        canvas.requestRender();
+        refreshReferenceForm();
+    }
+
+    private void commitTerrainEdit(Runnable action) {
+        if (state.getProject() == null) {
+            return;
+        }
+        state.recordHistory();
+        action.run();
+        canvas.requestRender();
+        refreshTerrainForm();
+    }
+
+    private void commitWallEdit(Runnable action) {
+        if (state.getProject() == null) {
+            return;
+        }
+        state.recordHistory();
+        action.run();
+        canvas.requestRender();
+        refreshWallForm();
+    }
+
+    private void commitFogEdit(Runnable action) {
+        if (state.getProject() == null) {
+            return;
+        }
+        state.recordHistory();
+        action.run();
+        canvas.requestRender();
+        refreshFogForm();
+    }
+
+    private void splitSelectedWall() {
+        if (state.getProject() == null) {
+            return;
+        }
+        WallPath selected = state.selectedWallPath();
+        if (selected == null) {
+            return;
+        }
+        int vertexIndex = state.getSelectedWallVertexIndex();
+        if (vertexIndex <= 0 || vertexIndex >= selected.getPoints().size() - 1) {
+            return;
+        }
+
+        commitWallEdit(() -> {
+            WallPath tail = selected.splitAtVertex(vertexIndex);
+            if (tail != null) {
+                wall().addPath(tail);
+                state.selectWallPath(tail.getId());
+            }
+        });
+    }
+
+    private void mergeSelectedWall() {
+        if (state.getProject() == null) {
+            return;
+        }
+        WallPath selected = state.selectedWallPath();
+        if (selected == null || selected.getPoints().size() < 2) {
+            return;
+        }
+
+        WallMergeCandidate candidate = findMergeCandidate(selected);
+        if (candidate == null) {
+            return;
+        }
+
+        commitWallEdit(() -> {
+            WallPath other = wall().findPathById(candidate.otherPathId());
+            if (other == null || selected.getId().equals(other.getId())) {
+                return;
+            }
+            if (selected.mergeWith(other, candidate.appendToEnd(), candidate.reverseOther())) {
+                wall().removePathById(other.getId());
+                state.selectWallPath(selected.getId());
+            }
+        });
+    }
+
+    private WallMergeCandidate findMergeCandidate(WallPath selected) {
+        if (selected == null || selected.getPoints().isEmpty() || state.getProject() == null) {
+            return null;
+        }
+        double tolerance = 0.01;
+        WallPoint start = selected.getFirstPoint();
+        WallPoint end = selected.getLastPoint();
+        if (start == null || end == null) {
+            return null;
+        }
+        for (WallPath other : wall().getPaths()) {
+            if (other == null || other == selected || other.getPoints().isEmpty()) {
+                continue;
+            }
+            if (pointsNear(end, other.getFirstPoint(), tolerance)) {
+                return new WallMergeCandidate(other.getId(), true, false);
+            }
+            if (pointsNear(end, other.getLastPoint(), tolerance)) {
+                return new WallMergeCandidate(other.getId(), true, true);
+            }
+            if (pointsNear(start, other.getLastPoint(), tolerance)) {
+                return new WallMergeCandidate(other.getId(), false, false);
+            }
+            if (pointsNear(start, other.getFirstPoint(), tolerance)) {
+                return new WallMergeCandidate(other.getId(), false, true);
+            }
+        }
+        return null;
+    }
+
+    private boolean pointsNear(WallPoint a, WallPoint b, double tolerance) {
+        if (a == null || b == null) {
+            return false;
+        }
+        double dx = a.getX() - b.getX();
+        double dy = a.getY() - b.getY();
+        return dx * dx + dy * dy <= tolerance * tolerance;
+    }
+
+    private record WallMergeCandidate(String otherPathId, boolean appendToEnd, boolean reverseOther) {}
+
     private void refreshSelection() {
         if (state.selectedPlacement() != null) {
             selectionLabel.setText("Selected: " + displayName(state.selectedPlacement().getName(), state.selectedPlacement().getAssetId()));
             layerLabel.setText("Layer: " + safeLayerName(state.selectedPlacement().getLayerId()));
+        } else if (state.selectedWallPath() != null) {
+            String wallName = state.selectedWallPath().getName() == null ? state.selectedWallPath().getId() : state.selectedWallPath().getName();
+            String vertexInfo = state.getSelectedWallVertexIndex() >= 0 ? " | Vertex: " + state.getSelectedWallVertexIndex() : "";
+            selectionLabel.setText("Wall: " + wallName + vertexInfo);
+            layerLabel.setText("Layer: Walls");
         } else if (state.selectedAsset() != null) {
             selectionLabel.setText("Asset: " + state.selectedAsset().getName());
             layerLabel.setText("Layer: " + safeLayerName(state.getSelectedLayerId()));
@@ -558,6 +1097,10 @@ public class MapEditorPane extends BorderPane {
         }
         refreshPlacementForm();
         refreshBackgroundForm();
+        refreshReferenceForm();
+        refreshTerrainForm();
+        refreshWallForm();
+        refreshFogForm();
         refreshLayerList();
     }
 
@@ -693,10 +1236,34 @@ public class MapEditorPane extends BorderPane {
     }
 
     private void deleteSelected() {
-        if (state.getSelectedPlacementId() != null && state.getProject() != null) {
+        if (state.getProject() == null) {
+            return;
+        }
+
+        if (state.getSelectedPlacementId() != null) {
             state.recordHistory();
             state.getProject().removePlacementById(state.getSelectedPlacementId());
             state.clearSelection();
+            canvas.requestRender();
+            refreshSelection();
+            return;
+        }
+
+        if (state.selectedWallPath() != null) {
+            state.recordHistory();
+            WallPath wall = state.selectedWallPath();
+            int vertexIndex = state.getSelectedWallVertexIndex();
+            if (vertexIndex >= 0 && wall.removePoint(vertexIndex)) {
+                if (wall.getPoints().size() < 2) {
+                    state.getProject().getWallLayer().removePathById(wall.getId());
+                    state.selectWallPath(null);
+                } else {
+                    state.selectWallVertex(wall.getId(), Math.min(vertexIndex, wall.getPoints().size() - 1));
+                }
+            } else {
+                state.getProject().getWallLayer().removePathById(wall.getId());
+                state.selectWallPath(null);
+            }
             canvas.requestRender();
             refreshSelection();
         }
@@ -726,6 +1293,10 @@ public class MapEditorPane extends BorderPane {
             canvas.requestRender();
             refreshSelection();
             refreshBackgroundForm();
+            refreshReferenceForm();
+            refreshTerrainForm();
+            refreshWallForm();
+            refreshFogForm();
             refreshLayerList();
         } catch (Exception ex) {
             showError("Load failed", ex);
@@ -758,6 +1329,10 @@ public class MapEditorPane extends BorderPane {
             canvas.requestRender();
             refreshSelection();
             refreshBackgroundForm();
+            refreshReferenceForm();
+            refreshTerrainForm();
+            refreshWallForm();
+            refreshFogForm();
             refreshLayerList();
         } catch (Exception ex) {
             showError("Import failed", ex);
@@ -794,6 +1369,10 @@ public class MapEditorPane extends BorderPane {
             canvas.requestRender();
             refreshSelection();
             refreshBackgroundForm();
+            refreshReferenceForm();
+            refreshTerrainForm();
+            refreshWallForm();
+            refreshFogForm();
             refreshLayerList();
         }
     }
@@ -803,6 +1382,10 @@ public class MapEditorPane extends BorderPane {
             canvas.requestRender();
             refreshSelection();
             refreshBackgroundForm();
+            refreshReferenceForm();
+            refreshTerrainForm();
+            refreshWallForm();
+            refreshFogForm();
             refreshLayerList();
         }
     }
@@ -893,6 +1476,8 @@ public class MapEditorPane extends BorderPane {
         scene.getAccelerators().put(new KeyCodeCombination(KeyCode.Y, KeyCombination.SHORTCUT_DOWN), this::redo);
         scene.getAccelerators().put(new KeyCodeCombination(KeyCode.D, KeyCombination.SHORTCUT_DOWN), this::duplicateSelected);
         scene.getAccelerators().put(new KeyCodeCombination(KeyCode.DELETE), this::deleteSelected);
+        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.M, KeyCombination.SHORTCUT_DOWN), this::mergeSelectedWall);
+        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.M, KeyCombination.SHORTCUT_DOWN, KeyCombination.SHIFT_DOWN), this::splitSelectedWall);
         scene.getAccelerators().put(new KeyCodeCombination(KeyCode.LEFT), () -> nudgeSelected(-1, 0));
         scene.getAccelerators().put(new KeyCodeCombination(KeyCode.RIGHT), () -> nudgeSelected(1, 0));
         scene.getAccelerators().put(new KeyCodeCombination(KeyCode.UP), () -> nudgeSelected(0, -1));
