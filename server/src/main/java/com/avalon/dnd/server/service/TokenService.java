@@ -12,9 +12,11 @@ import java.util.UUID;
 public class TokenService {
 
     private final SessionService sessionService;
+    private final MapBattleRulesService battleRulesService;
 
-    public TokenService(SessionService sessionService) {
+    public TokenService(SessionService sessionService, MapBattleRulesService battleRulesService) {
         this.sessionService = sessionService;
+        this.battleRulesService = battleRulesService;
     }
 
     public Token createToken(TokenCreateRequest request, Player player) {
@@ -33,6 +35,10 @@ public class TokenService {
         token.setMaxHp(Math.max(1, request.getMaxHp()));
         token.setGridSize(request.getGridSize());
         token.setImageUrl(request.getImageUrl());
+
+        if (!battleRulesService.isTokenPlacementAllowed(session, token.getCol(), token.getRow(), token.getGridSize())) {
+            throw new RuntimeException("Placement blocked by terrain or wall geometry");
+        }
 
         session.getTokens().put(tokenId, token);
         return token;
@@ -67,6 +73,10 @@ public class TokenService {
         int newCol = event.getToCol();
         int newRow = event.getToRow();
         int tokenSize = Math.max(1, token.getGridSize());
+
+        if (!battleRulesService.isTokenMoveAllowed(session, token, newCol, newRow)) {
+            throw new RuntimeException("Move blocked by wall, terrain or object geometry");
+        }
 
         boolean collidesWithToken = session.getTokens().values().stream()
                 .filter(t -> !t.getId().equals(token.getId()))

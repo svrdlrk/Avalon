@@ -4,6 +4,7 @@ import com.avalon.dnd.mapeditor.model.*;
 import com.avalon.dnd.mapeditor.service.ProjectRepository;
 import com.avalon.dnd.mapeditor.service.SharedProjectMapper;
 import com.avalon.dnd.shared.MapLayoutUpdateDto;
+import com.avalon.dnd.shared.GridConfig;
 import com.avalon.dnd.mapeditor.tool.BrushTool;
 import com.avalon.dnd.mapeditor.tool.EraseTool;
 import com.avalon.dnd.mapeditor.tool.PanTool;
@@ -138,6 +139,10 @@ public class MapEditorPane extends BorderPane {
         refreshLayerList();
     }
 
+
+    private GridConfig grid() {
+        return state.grid();
+    }
     private Tool activeTool(String id) {
         return tools.getOrDefault(id, tools.get("select"));
     }

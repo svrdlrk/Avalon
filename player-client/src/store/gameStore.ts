@@ -18,6 +18,11 @@ interface GameState {
     players:       Record<string, PlayerDto>;
     backgroundUrl: string | null;
     initiative:    InitiativeStateDto | null;
+    referenceOverlayLayer: unknown | null;
+    terrainLayer: unknown | null;
+    wallLayer: unknown | null;
+    fogSettings: unknown | null;
+    assetPackIds: string[];
 
     applyState:           (state: SessionStateDto, sessionId: string) => void;
     applyMapLayoutUpdate: (dto: MapLayoutUpdateDto) => void;
@@ -40,6 +45,11 @@ export const useGameStore = create<GameState>((set) => ({
     players:       {},
     backgroundUrl: null,
     initiative:    null,
+    referenceOverlayLayer: null,
+    terrainLayer: null,
+    wallLayer: null,
+    fogSettings: null,
+    assetPackIds: [],
 
     applyState: (state, sessionId) =>
         set({
@@ -51,6 +61,11 @@ export const useGameStore = create<GameState>((set) => ({
             players:       Object.fromEntries(state.players.map((p) => [p.id, p])),
             backgroundUrl: state.backgroundUrl ?? null,
             initiative:    state.initiative    ?? null,
+            referenceOverlayLayer: state.referenceOverlayLayer ?? null,
+            terrainLayer: state.terrainLayer ?? null,
+            wallLayer: state.wallLayer ?? null,
+            fogSettings: state.fogSettings ?? null,
+            assetPackIds: state.assetPackIds ?? [],
         }),
 
     applyMapLayoutUpdate: (dto) =>
@@ -61,6 +76,11 @@ export const useGameStore = create<GameState>((set) => ({
                 ? Object.fromEntries(dto.objects.map((o) => [o.id, o]))
                 : s.objects,
             backgroundUrl: dto.backgroundUrl ?? s.backgroundUrl,
+            referenceOverlayLayer: dto.referenceOverlayLayer ?? s.referenceOverlayLayer,
+            terrainLayer: dto.terrainLayer ?? s.terrainLayer,
+            wallLayer: dto.wallLayer ?? s.wallLayer,
+            fogSettings: dto.fogSettings ?? s.fogSettings,
+            assetPackIds: dto.assetPackIds ?? s.assetPackIds,
         })),
 
     moveToken: (token) =>

@@ -2,6 +2,7 @@ package com.avalon.dnd.dm.model;
 
 import com.avalon.dnd.shared.*;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -16,6 +17,11 @@ public class ClientState {
     private String playerId;
     private GridConfig grid = new GridConfig(64, 20, 20);
     private String backgroundUrl;
+    private Object referenceOverlayLayer;
+    private Object terrainLayer;
+    private Object wallLayer;
+    private Object fogSettings;
+    private java.util.List<String> assetPackIds = new java.util.concurrent.CopyOnWriteArrayList<>();
 
     private final Map<String, TokenDto>     tokens  = new ConcurrentHashMap<>();
     private final Map<String, MapObjectDto> objects = new ConcurrentHashMap<>();
@@ -33,6 +39,11 @@ public class ClientState {
         this.playerId      = playerId;
         this.grid          = state.getGrid();
         this.backgroundUrl = state.getBackgroundUrl();
+        this.referenceOverlayLayer = state.getReferenceOverlayLayer();
+        this.terrainLayer = state.getTerrainLayer();
+        this.wallLayer = state.getWallLayer();
+        this.fogSettings = state.getFogSettings();
+        this.assetPackIds = new java.util.concurrent.CopyOnWriteArrayList<>(state.getAssetPackIds() == null ? java.util.List.of() : state.getAssetPackIds());
         tokens.clear();  state.getTokens().forEach(t -> tokens.put(t.getId(), t));
         objects.clear(); state.getObjects().forEach(o -> objects.put(o.getId(), o));
         players.clear(); state.getPlayers().forEach(p -> players.put(p.getId(), p));
@@ -42,6 +53,11 @@ public class ClientState {
     public void applyMapLayoutUpdate(MapLayoutUpdateDto dto) {
         this.grid          = dto.getGrid();
         this.backgroundUrl = dto.getBackgroundUrl();
+        this.referenceOverlayLayer = dto.getReferenceOverlayLayer();
+        this.terrainLayer = dto.getTerrainLayer();
+        this.wallLayer = dto.getWallLayer();
+        this.fogSettings = dto.getFogSettings();
+        this.assetPackIds = new java.util.concurrent.CopyOnWriteArrayList<>(dto.getAssetPackIds() == null ? java.util.List.of() : dto.getAssetPackIds());
         tokens.clear();  dto.getTokens().forEach(t -> tokens.put(t.getId(), t));
         objects.clear();
         if (dto.getObjects() != null) dto.getObjects().forEach(o -> objects.put(o.getId(), o));
@@ -96,5 +112,22 @@ public class ClientState {
     public void setBackgroundUrl(String url) {
         this.backgroundUrl = url;
         notifyMapChanged();
+    }
+
+    public Object getReferenceOverlayLayer() { return referenceOverlayLayer; }
+    public void setReferenceOverlayLayer(Object value) { this.referenceOverlayLayer = value; }
+
+    public Object getTerrainLayer() { return terrainLayer; }
+    public void setTerrainLayer(Object value) { this.terrainLayer = value; }
+
+    public Object getWallLayer() { return wallLayer; }
+    public void setWallLayer(Object value) { this.wallLayer = value; }
+
+    public Object getFogSettings() { return fogSettings; }
+    public void setFogSettings(Object value) { this.fogSettings = value; }
+
+    public List<String> getAssetPackIds() { return assetPackIds; }
+    public void setAssetPackIds(List<String> value) {
+        this.assetPackIds = value == null ? new ArrayList<>() : new ArrayList<>(value);
     }
 }

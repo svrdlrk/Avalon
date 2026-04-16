@@ -17,6 +17,11 @@ public class SessionSnapshot {
     public String             id;
     public GridConfig         grid;
     public String             backgroundUrl;
+    public Object             referenceOverlayLayer;
+    public Object             terrainLayer;
+    public Object             wallLayer;
+    public Object             fogSettings;
+    public List<String>       assetPackIds;
     public long               version;
     public List<PlayerSnapshot>     players;
     public List<TokenSnapshot>      tokens;
@@ -63,6 +68,8 @@ public class SessionSnapshot {
         public int maxHp;
         public int gridSize;
         public String imageUrl;
+        public boolean blocksMovement;
+        public boolean blocksSight;
 
         public TokenSnapshot() {}
 
@@ -102,6 +109,8 @@ public class SessionSnapshot {
         public String sessionId;
         public int gridSize;
         public String imageUrl;
+        public boolean blocksMovement;
+        public boolean blocksSight;
 
         public MapObjectSnapshot() {}
 
@@ -115,11 +124,13 @@ public class SessionSnapshot {
             s.height = o.getHeight();
             s.gridSize = o.getGridSize();
             s.imageUrl = o.getImageUrl();
+            s.blocksMovement = o.isBlocksMovement();
+            s.blocksSight = o.isBlocksSight();
             return s;
         }
 
         public MapObject toModel(String sessionId) {
-            return new MapObject(id, type, col, row, width, height, sessionId, gridSize, imageUrl);
+            return new MapObject(id, type, col, row, width, height, sessionId, gridSize, imageUrl, blocksMovement, blocksSight);
         }
     }
 
@@ -130,6 +141,11 @@ public class SessionSnapshot {
         snap.id            = session.getId();
         snap.grid          = session.getGrid();
         snap.backgroundUrl = session.getBackgroundUrl();
+        snap.referenceOverlayLayer = session.getReferenceOverlayLayer();
+        snap.terrainLayer = session.getTerrainLayer();
+        snap.wallLayer = session.getWallLayer();
+        snap.fogSettings = session.getFogSettings();
+        snap.assetPackIds = session.getAssetPackIds();
         snap.version       = session.getVersion();
         snap.initiative    = session.getInitiativeState();
         snap.players = session.getPlayers().values().stream()

@@ -1,9 +1,9 @@
-import React, { useRef, useCallback, useState } from 'react';
+import React, { useRef, useCallback, useState, useMemo } from 'react';
 import {
     Stage, Layer, Rect, Line, Circle, Text, Group, Image as KonvaImage,
 } from 'react-konva';
 import { useGameStore } from '../store/gameStore';
-import type { TokenDto, MapObjectDto } from '../types/types';
+import type { TokenDto, MapObjectDto, GridConfig } from '../types/types';
 import { wsClient } from '../net/wsClient';
 import useImage from '../hooks/useImage';
 import type Konva from 'konva';
@@ -23,6 +23,156 @@ function hpColor(hp: number, maxHp: number): string {
     if (ratio > 0.5) return '#2ecc71';
     if (ratio > 0.25) return '#f39c12';
     return '#e74c3c';
+}
+
+
+type AnyMap = Record<string, any>;
+
+function getBool(v: any, def = false): boolean {
+    if (typeof v === 'boolean') return v;
+    if (v == null) return def;
+    return String(v).toLowerCase() === 'true';
+}
+
+function getNum(v: any, def = 0): number {
+    const n = typeof v === 'number' ? v : Number(v);
+    return Number.isFinite(n) ? n : def;
+}
+
+function asMap(v: any): AnyMap | null {
+    return v && typeof v === 'object' && !Array.isArray(v) ? v as AnyMap : null;
+}
+
+function buildBlockedCells(grid: GridConfig, terrainLayer: unknown, wallLayer: unknown, objects: Record<string, MapObjectDto>) {
+    const blocked = Array.from({ length: grid.rows }, () => Array<boolean>(grid.cols).fill(false));
+
+    Object.values(objects).forEach((obj) => {
+        if (!obj.blocksMovement) return;
+        const w = Math.max(1, obj.width ?? 1);
+        const h = Math.max(1, obj.height ?? 1);
+        for (let r = obj.row; r < obj.row + h; r++) {
+            if (r < 0 || r >= grid.rows) continue;
+            for (let c = obj.col; c < obj.col + w; c++) {
+                if (c < 0 || c >= grid.cols) continue;
+                blocked[r][c] = true;
+            }
+        }
+    });
+
+    const terrain = asMap(terrainLayer);
+    const cells = terrain?.cells;
+    if (Array.isArray(cells)) {
+        cells.forEach((cell) => {
+            const m = asMap(cell);
+            if (!m || !getBool(m.blocksMovement, false)) return;
+            const col = Math.floor(getNum(m.col));
+            const row = Math.floor(getNum(m.row));
+            const w = Math.max(1, Math.floor(getNum(m.width, 1)));
+            const h = Math.max(1, Math.floor(getNum(m.height, 1)));
+            for (let r = row; r < row + h; r++) {
+                if (r < 0 || r >= grid.rows) continue;
+                for (let c = col; c < col + w; c++) {
+                    if (c < 0 || c >= grid.cols) continue;
+                    blocked[r][c] = true;
+                }
+            }
+        });
+    }
+
+    const wall = asMap(wallLayer);
+    const paths = wall?.paths;
+    if (Array.isArray(paths)) {
+        const cellSize = Math.max(1, grid.cellSize);
+        const ox = grid.offsetX;
+        const oy = grid.offsetY;
+        paths.forEach((path) => {
+            const pm = asMap(path);
+            if (!pm || !getBool(pm.blocksMovement, true)) return;
+            const thickness = Math.max(0.5, getNum(pm.thickness, 2.5));
+            const expand = Math.max(0, Math.ceil(thickness / cellSize));
+            const points = Array.isArray(pm.points) ? pm.points : [];
+            let prev: {x:number,y:number} | null = null;
+            for (const pt of points) {
+                const mm = asMap(pt);
+                if (!mm) continue;
+                const curr = { x: getNum(mm.x), y: getNum(mm.y) };
+                if (prev) markWallSegment(blocked, prev, curr, ox, oy, cellSize, expand);
+                prev = curr;
+            }
+        });
+    }
+
+    return blocked;
+}
+
+function markWallSegment(blocked: boolean[][], a: {x:number,y:number}, b: {x:number,y:number}, ox: number, oy: number, cellSize: number, expand: number) {
+    const cells = bresenhamCells(Math.floor((a.x - ox) / cellSize), Math.floor((a.y - oy) / cellSize), Math.floor((b.x - ox) / cellSize), Math.floor((b.y - oy) / cellSize));
+    for (const cell of cells) {
+        for (let r = cell.row - expand; r <= cell.row + expand; r++) {
+            if (r < 0 || r >= blocked.length) continue;
+            for (let c = cell.col - expand; c <= cell.col + expand; c++) {
+                if (c < 0 || c >= blocked[r].length) continue;
+                blocked[r][c] = true;
+            }
+        }
+    }
+}
+
+function bresenhamCells(x0: number, y0: number, x1: number, y1: number) {
+    const cells: Array<{col:number,row:number}> = [];
+    let x = x0, y = y0;
+    const dx = Math.abs(x1 - x0);
+    const dy = Math.abs(y1 - y0);
+    const sx = x0 < x1 ? 1 : -1;
+    const sy = y0 < y1 ? 1 : -1;
+    let err = dx - dy;
+    for (;;) {
+        cells.push({ col: x, row: y });
+        if (x === x1 && y === y1) break;
+        const e2 = 2 * err;
+        if (e2 > -dy) { err -= dy; x += sx; }
+        if (e2 < dx) { err += dx; y += sy; }
+    }
+    return cells;
+}
+
+function computeVisibleCells(grid: GridConfig, tokens: Record<string, TokenDto>, myPlayerId: string | null, fogSettings: unknown, terrainLayer: unknown, wallLayer: unknown, objects: Record<string, MapObjectDto>) {
+    const fog = asMap(fogSettings);
+    const enabled = fog ? getBool(fog.enabled, true) : true;
+    const revealFromTokens = fog ? getBool(fog.revealFromTokens, true) : true;
+    const revealRadius = fog ? Math.max(0, Math.floor(getNum(fog.revealRadius, 6))) : 6;
+    const blockers = buildBlockedCells(grid, terrainLayer, wallLayer, objects);
+    const visible = Array.from({ length: grid.rows }, () => Array<boolean>(grid.cols).fill(!enabled));
+
+    if (!enabled) return visible;
+
+    const sources = Object.values(tokens).filter((t) => revealFromTokens && t.ownerId === myPlayerId);
+    if (sources.length === 0) return visible;
+
+    const radiusSq = revealRadius * revealRadius;
+    for (const source of sources) {
+        const gs = Math.max(1, source.gridSize ?? 1);
+        const sx = source.col + Math.floor(gs / 2);
+        const sy = source.row + Math.floor(gs / 2);
+        for (let row = Math.max(0, sy - revealRadius); row <= Math.min(grid.rows - 1, sy + revealRadius); row++) {
+            for (let col = Math.max(0, sx - revealRadius); col <= Math.min(grid.cols - 1, sx + revealRadius); col++) {
+                const dx = col - sx, dy = row - sy;
+                if (dx * dx + dy * dy > radiusSq) continue;
+                if (hasLineOfSight(sx, sy, col, row, blockers)) visible[row][col] = true;
+            }
+        }
+    }
+
+    return visible;
+}
+
+function hasLineOfSight(x0: number, y0: number, x1: number, y1: number, blocked: boolean[][]) {
+    const cells = bresenhamCells(x0, y0, x1, y1);
+    for (const cell of cells) {
+        if ((cell.col === x0 && cell.row === y0) || (cell.col === x1 && cell.row === y1)) continue;
+        if (cell.row >= 0 && cell.row < blocked.length && cell.col >= 0 && cell.col < blocked[cell.row].length && blocked[cell.row][cell.col]) return false;
+    }
+    return true;
 }
 
 // ================================================================ TokenShape
@@ -212,7 +362,7 @@ ObjectShape.displayName = 'ObjectShape';
 // ================================================================ BattleMap
 
 const BattleMap: React.FC = () => {
-    const { grid, tokens, objects, myPlayerId, backgroundUrl, players } = useGameStore();
+    const { grid, tokens, objects, myPlayerId, backgroundUrl, players, terrainLayer, wallLayer, fogSettings } = useGameStore();
     const stageRef = useRef<Konva.Stage>(null);
 
     // FIX: use a React state for stageDraggable so JSX prop stays in sync
@@ -226,6 +376,13 @@ const BattleMap: React.FC = () => {
         ? (backgroundUrl.startsWith('http') ? backgroundUrl : baseUrl + backgroundUrl)
         : null;
     const [bgImage] = useImage(fullBgUrl);
+    const visibleCells = useMemo(() => {
+        if (!grid) return null;
+        if (isDm) {
+            return Array.from({ length: grid.rows }, () => Array<boolean>(grid.cols).fill(true));
+        }
+        return computeVisibleCells(grid, tokens, myPlayerId, fogSettings, terrainLayer, wallLayer, objects);
+    }, [grid, tokens, myPlayerId, fogSettings, terrainLayer, wallLayer, objects, isDm]);
 
     // FIX: set React state, not imperative Konva call, so re-renders respect it
     const handleTokenDragStart = useCallback(() => {
@@ -267,6 +424,7 @@ const BattleMap: React.FC = () => {
         });
 
         const collidesWithObject = Object.values(objects).some((obj) => {
+            if (!obj.blocksMovement) return false;
             const objWidth = Math.max(1, obj.width ?? 1);
             const objHeight = Math.max(1, obj.height ?? 1);
             return !(
@@ -377,6 +535,36 @@ const BattleMap: React.FC = () => {
                             fill="#1a2035"
                         />
                     )}
+                </Layer>
+
+                {/* Terrain / walls / fog */}
+                <Layer listening={false}>
+                    {Array.isArray((terrainLayer as any)?.cells) && (terrainLayer as any).cells.map((cell: any, idx: number) => {
+                        const col = Math.floor(getNum(cell?.col));
+                        const row = Math.floor(getNum(cell?.row));
+                        const w = Math.max(1, Math.floor(getNum(cell?.width, 1)));
+                        const h = Math.max(1, Math.floor(getNum(cell?.height, 1)));
+                        const type = String(cell?.terrainType ?? 'grass');
+                        const fill = type.includes('water') ? 'rgba(52,152,219,0.34)'
+                            : type.includes('sand') ? 'rgba(241,196,15,0.18)'
+                            : type.includes('stone') || type.includes('rock') ? 'rgba(149,165,166,0.20)'
+                            : type.includes('dirt') ? 'rgba(139,69,19,0.18)'
+                            : 'rgba(46,204,113,0.14)';
+                        return <Rect key={`terrain-${idx}`} x={grid.offsetX + col * grid.cellSize} y={grid.offsetY + row * grid.cellSize} width={w * grid.cellSize} height={h * grid.cellSize} fill={fill} listening={false} />;
+                    })}
+                    {Array.isArray((wallLayer as any)?.paths) && (wallLayer as any).paths.map((path: any, idx: number) => {
+                        const points = Array.isArray(path?.points) ? path.points : [];
+                        const flat: number[] = [];
+                        for (const pt of points) {
+                            flat.push(getNum(pt?.x), getNum(pt?.y));
+                        }
+                        if (flat.length < 4) return null;
+                        const thickness = Math.max(1.5, getNum(path?.thickness, 2.5));
+                        return <Line key={`wall-${idx}`} points={flat} stroke={path?.blocksSight === false ? 'rgba(189,195,199,0.75)' : 'rgba(236,240,241,0.85)'} strokeWidth={thickness} lineCap="round" lineJoin="round" listening={false} />;
+                    })}
+                    {visibleCells && visibleCells.map((row, r) => row.map((v, c) => v ? null : (
+                        <Rect key={`fog-${r}-${c}`} x={grid.offsetX + c * grid.cellSize} y={grid.offsetY + r * grid.cellSize} width={grid.cellSize} height={grid.cellSize} fill="rgba(0,0,0,0.55)" listening={false} />
+                    )))}
                 </Layer>
 
                 {/* Grid */}

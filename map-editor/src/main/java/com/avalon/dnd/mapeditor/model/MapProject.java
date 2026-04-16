@@ -20,6 +20,7 @@ public class MapProject {
     private WallLayer wallLayer = new WallLayer();
     private FogSettings fogSettings = new FogSettings();
     private GridConfig grid = new GridConfig(64, 40, 30);
+    private final List<String> assetPackIds = new ArrayList<>();
 
     private final List<MapLayer> layers = new ArrayList<>();
     private final List<MapPlacement> placements = new ArrayList<>();
@@ -45,6 +46,7 @@ public class MapProject {
         copy.wallLayer = this.wallLayer == null ? new WallLayer() : this.wallLayer.copy();
         copy.fogSettings = this.fogSettings == null ? new FogSettings() : this.fogSettings.copy();
         copy.backgroundUrl = copy.backgroundLayer.getImageUrl();
+        copy.assetPackIds.addAll(this.assetPackIds);
 
         GridConfig gridCopy = new GridConfig();
         if (this.grid != null) {
@@ -161,10 +163,14 @@ public class MapProject {
 
     public BackgroundLayer getBackgroundLayer() { return backgroundLayer; }
     public ReferenceOverlay getReferenceOverlay() { return referenceOverlay; }
+    public ReferenceOverlayLayer getReferenceOverlayLayer() {
+        return referenceOverlay instanceof ReferenceOverlayLayer rol ? rol : new ReferenceOverlayLayer().copy(referenceOverlay);
+    }
     public TerrainLayer getTerrainLayer() { return terrainLayer; }
     public WallLayer getWallLayer() { return wallLayer; }
     public FogSettings getFogSettings() { return fogSettings; }
     public GridConfig getGrid() { return grid; }
+    public List<String> getAssetPackIds() { return Collections.unmodifiableList(assetPackIds); }
 
     public void setId(String id) { this.id = id; }
     public void setName(String name) { this.name = name; }
@@ -183,6 +189,9 @@ public class MapProject {
     public void setReferenceOverlay(ReferenceOverlay referenceOverlay) {
         this.referenceOverlay = referenceOverlay == null ? new ReferenceOverlay() : referenceOverlay;
     }
+    public void setReferenceOverlayLayer(ReferenceOverlayLayer referenceOverlayLayer) {
+        this.referenceOverlay = referenceOverlayLayer == null ? new ReferenceOverlayLayer() : referenceOverlayLayer;
+    }
     public void setTerrainLayer(TerrainLayer terrainLayer) {
         this.terrainLayer = terrainLayer == null ? new TerrainLayer() : terrainLayer;
     }
@@ -191,6 +200,10 @@ public class MapProject {
     }
     public void setFogSettings(FogSettings fogSettings) {
         this.fogSettings = fogSettings == null ? new FogSettings() : fogSettings;
+    }
+    public void setAssetPackIds(List<String> assetPackIds) {
+        this.assetPackIds.clear();
+        if (assetPackIds != null) this.assetPackIds.addAll(assetPackIds);
     }
     public void setGrid(GridConfig grid) { this.grid = grid == null ? new GridConfig(64, 40, 30) : grid; }
 }

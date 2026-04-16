@@ -21,6 +21,13 @@ public class MapPlacement {
 
     private boolean selected;
     private boolean locked;
+    private String ownerId;
+    private String faction;
+    private int hp = 10;
+    private int maxHp = 10;
+    private boolean hidden;
+    private int initiativeOrder;
+    private boolean npc;
 
     public MapPlacement() {}
 
@@ -66,6 +73,13 @@ public class MapPlacement {
         copy.imageUrl = this.imageUrl;
         copy.selected = this.selected;
         copy.locked = this.locked;
+        copy.ownerId = this.ownerId;
+        copy.faction = this.faction;
+        copy.hp = this.hp;
+        copy.maxHp = this.maxHp;
+        copy.hidden = this.hidden;
+        copy.initiativeOrder = this.initiativeOrder;
+        copy.npc = this.npc;
         return copy;
     }
 
@@ -98,6 +112,13 @@ public class MapPlacement {
     public String getImageUrl() { return imageUrl; }
     public boolean isSelected() { return selected; }
     public boolean isLocked() { return locked; }
+    public String getOwnerId() { return ownerId; }
+    public String getFaction() { return faction; }
+    public int getHp() { return hp; }
+    public int getMaxHp() { return maxHp; }
+    public boolean isHidden() { return hidden; }
+    public int getInitiativeOrder() { return initiativeOrder; }
+    public boolean isNpc() { return npc; }
 
     public void setId(String id) { this.id = id; }
     public void setKind(PlacementKind kind) { this.kind = kind == null ? PlacementKind.OBJECT : kind; }
@@ -115,4 +136,11 @@ public class MapPlacement {
     public void setImageUrl(String imageUrl) { this.imageUrl = imageUrl; }
     public void setSelected(boolean selected) { this.selected = selected; }
     public void setLocked(boolean locked) { this.locked = locked; }
+    public void setOwnerId(String ownerId) { this.ownerId = ownerId; }
+    public void setFaction(String faction) { this.faction = faction; }
+    public void setHp(int hp) { this.hp = Math.max(0, hp); }
+    public void setMaxHp(int maxHp) { this.maxHp = Math.max(1, maxHp); }
+    public void setHidden(boolean hidden) { this.hidden = hidden; }
+    public void setInitiativeOrder(int initiativeOrder) { this.initiativeOrder = initiativeOrder; }
+    public void setNpc(boolean npc) { this.npc = npc; }
 }

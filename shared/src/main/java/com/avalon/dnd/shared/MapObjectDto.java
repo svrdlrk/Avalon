@@ -12,16 +12,24 @@ public class MapObjectDto {
     private int gridSize = 1;
     /** URL текстуры объекта (относительный от корня сервера или null). */
     private String imageUrl;
+    private boolean blocksMovement;
+    private boolean blocksSight;
 
 
     public MapObjectDto() {}
 
     public MapObjectDto(String id, String type, int col, int row, int width, int height) {
-        this(id, type, col, row, width, height, 1, null);
+        this(id, type, col, row, width, height, 1, null, false, false);
     }
 
     public MapObjectDto(String id, String type, int col, int row,
                         int width, int height,int gridSize, String imageUrl) {
+        this(id, type, col, row, width, height, gridSize, imageUrl, false, false);
+    }
+
+    public MapObjectDto(String id, String type, int col, int row,
+                        int width, int height, int gridSize, String imageUrl,
+                        boolean blocksMovement, boolean blocksSight) {
         this.id = id;
         this.type = type;
         this.col = col;
@@ -30,6 +38,8 @@ public class MapObjectDto {
         this.height = height;
         this.gridSize = Math.max(1, Math.min(4, gridSize));
         this.imageUrl = imageUrl;
+        this.blocksMovement = blocksMovement;
+        this.blocksSight = blocksSight;
     }
 
     public String getId() { return id; }
@@ -40,6 +50,10 @@ public class MapObjectDto {
     public int getHeight() { return height; }
     public int getGridSize() { return gridSize; }
     public String getImageUrl() { return imageUrl; }
+    public boolean isBlocksMovement() { return blocksMovement; }
+    public boolean isBlocksSight() { return blocksSight; }
     public void setGridSize(int gridSize) { this.gridSize = Math.max(1, Math.min(4, gridSize)); }
     public void setImageUrl(String imageUrl) { this.imageUrl = imageUrl; }
+    public void setBlocksMovement(boolean blocksMovement) { this.blocksMovement = blocksMovement; }
+    public void setBlocksSight(boolean blocksSight) { this.blocksSight = blocksSight; }
 }

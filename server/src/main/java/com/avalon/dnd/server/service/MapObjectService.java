@@ -37,7 +37,9 @@ public class MapObjectService {
                 request.getHeight(),
                 player.getSessionId(),
                 request.getGridSize(),
-                request.getImageUrl()
+                request.getImageUrl(),
+                request.isBlocksMovement(),
+                request.isBlocksSight()
         );
 
         session.getObjects().put(id, obj);
@@ -72,7 +74,9 @@ public class MapObjectService {
                 o.getCol(), o.getRow(),
                 o.getWidth(), o.getHeight(),
                 o.getGridSize(),
-                o.getImageUrl()
+                o.getImageUrl(),
+                o.isBlocksMovement(),
+                o.isBlocksSight()
         );
     }
 }

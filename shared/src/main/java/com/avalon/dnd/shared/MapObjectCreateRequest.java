@@ -11,6 +11,8 @@ public class MapObjectCreateRequest {
     private int gridSize = 1;
     /** URL текстуры объекта (относительный от корня сервера или null). */
     private String imageUrl;
+    private boolean blocksMovement;
+    private boolean blocksSight;
 
     public MapObjectCreateRequest() {}
 
@@ -27,6 +29,8 @@ public class MapObjectCreateRequest {
         this.height = height;
         this.gridSize = gridSize;
         this.imageUrl = imageUrl;
+        this.blocksMovement = false;
+        this.blocksSight = false;
     }
 
     public String getType() { return type; }
@@ -36,6 +40,8 @@ public class MapObjectCreateRequest {
     public int getHeight() { return height; }
     public int getGridSize() { return gridSize; }
     public String getImageUrl() { return imageUrl; }
+    public boolean isBlocksMovement() { return blocksMovement; }
+    public boolean isBlocksSight() { return blocksSight; }
 
     public void setType(String type) { this.type = type; }
     public void setCol(int col) { this.col = col; }
@@ -44,4 +50,6 @@ public class MapObjectCreateRequest {
     public void setHeight(int height) { this.height = height; }
     public void setGridSize(int gridSize) { this.gridSize = gridSize; }
     public void setImageUrl(String imageUrl) { this.imageUrl = imageUrl; }
+    public void setBlocksMovement(boolean blocksMovement) { this.blocksMovement = blocksMovement; }
+    public void setBlocksSight(boolean blocksSight) { this.blocksSight = blocksSight; }
 }

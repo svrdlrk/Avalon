@@ -41,19 +41,36 @@ public final class SharedProjectMapper {
                         placement.effectiveWidth(),
                         placement.effectiveHeight(),
                         placement.getGridSize(),
-                        placement.getImageUrl()
+                        placement.getImageUrl(),
+                        placement.isBlocksMovement(),
+                        placement.isBlocksSight()
                 ));
             }
         }
 
         GridConfig grid = project.getGrid();
-        return new MapLayoutUpdateDto(grid, tokens, objects, project.getBackgroundUrl());
+        return new MapLayoutUpdateDto(
+                grid,
+                tokens,
+                objects,
+                project.getBackgroundUrl(),
+                project.getReferenceOverlayLayer(),
+                project.getTerrainLayer(),
+                project.getWallLayer(),
+                project.getFogSettings(),
+                project.getAssetPackIds()
+        );
     }
 
     public static MapProject fromLayoutDto(String id, String name, MapLayoutUpdateDto dto) {
         MapProject project = MapProject.createBlank(id, name);
         project.setGrid(dto.getGrid() == null ? new GridConfig(64, 40, 30) : dto.getGrid());
         project.setBackgroundUrl(dto.getBackgroundUrl());
+        project.setReferenceOverlayLayer(dto.getReferenceOverlayLayer() instanceof com.avalon.dnd.mapeditor.model.ReferenceOverlayLayer rol ? rol : null);
+        project.setTerrainLayer(dto.getTerrainLayer() instanceof com.avalon.dnd.mapeditor.model.TerrainLayer tl ? tl : null);
+        project.setWallLayer(dto.getWallLayer() instanceof com.avalon.dnd.mapeditor.model.WallLayer wl ? wl : null);
+        project.setFogSettings(dto.getFogSettings() instanceof com.avalon.dnd.mapeditor.model.FogSettings fs ? fs : null);
+        project.setAssetPackIds(dto.getAssetPackIds());
 
         if (dto.getObjects() != null) {
             for (MapObjectDto objectDto : dto.getObjects()) {
@@ -68,6 +85,8 @@ public final class SharedProjectMapper {
                 placement.setHeight(objectDto.getHeight());
                 placement.setGridSize(objectDto.getGridSize());
                 placement.setImageUrl(objectDto.getImageUrl());
+                placement.setBlocksMovement(objectDto.isBlocksMovement());
+                placement.setBlocksSight(objectDto.isBlocksSight());
                 project.addPlacement(placement);
             }
         }

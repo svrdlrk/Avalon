@@ -63,11 +63,6 @@ public class GridService {
 
         List<TokenDto> tokenDtos = new ArrayList<>();
         for (Token t : session.getTokens().values()) {
-            // FIX: use full toDto (via TokenService) so gridSize and imageUrl
-            // are preserved in the MAP_UPDATED broadcast.  The old private helper
-            // used a 7-arg TokenDto constructor that defaulted gridSize=1 and
-            // imageUrl=null, causing tokens to lose their size/image after any
-            // grid resize on the DM client.
             tokenDtos.add(TokenService.toDto(t));
         }
 
@@ -76,14 +71,19 @@ public class GridService {
             objectDtos.add(new com.avalon.dnd.shared.MapObjectDto(
                     o.getId(), o.getType(), o.getCol(), o.getRow(),
                     o.getWidth(), o.getHeight(),
-                    o.getGridSize(), o.getImageUrl()));   // FIX: pass gridSize + imageUrl
+                    o.getGridSize(), o.getImageUrl()));
         }
 
         return new MapLayoutUpdateDto(
                 g,
                 tokenDtos,
                 objectDtos,
-                session.getBackgroundUrl()
+                session.getBackgroundUrl(),
+                session.getReferenceOverlayLayer(),
+                session.getTerrainLayer(),
+                session.getWallLayer(),
+                session.getFogSettings(),
+                session.getAssetPackIds()
         );
     }
 

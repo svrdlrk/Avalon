@@ -52,7 +52,12 @@ public class SessionWsController {
                         .toList(),
                 session.getObjects().values().stream().map(MapObjectService::toDto).toList(),
                 session.getBackgroundUrl(),
-                session.getInitiativeState()
+                session.getInitiativeState(),
+                session.getReferenceOverlayLayer(),
+                session.getTerrainLayer(),
+                session.getWallLayer(),
+                session.getFogSettings(),
+                session.getAssetPackIds()
         );
     }
 

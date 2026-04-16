@@ -139,6 +139,11 @@ public class SessionPersistenceService {
 
         if (snap.grid != null) session.setGrid(snap.grid);
         session.setBackgroundUrl(snap.backgroundUrl);
+        session.setReferenceOverlayLayer(snap.referenceOverlayLayer);
+        session.setTerrainLayer(snap.terrainLayer);
+        session.setWallLayer(snap.wallLayer);
+        session.setFogSettings(snap.fogSettings);
+        session.setAssetPackIds(snap.assetPackIds);
 
         session.getTokens().clear();
         if (snap.tokens != null) {

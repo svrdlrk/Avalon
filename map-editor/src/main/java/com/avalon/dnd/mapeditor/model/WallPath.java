@@ -257,4 +257,10 @@ public class WallPath {
     public boolean hasEnoughPoints() {
         return points.size() >= 2;
     }
+
+    private static double distanceSq(double x1, double y1, double x2, double y2) {
+        double dx = x1 - x2;
+        double dy = y1 - y2;
+        return dx * dx + dy * dy;
+    }
 }

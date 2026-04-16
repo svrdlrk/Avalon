@@ -14,6 +14,7 @@ import javafx.scene.text.TextAlignment;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 public class BattleMapCanvas extends Canvas {
@@ -96,6 +97,9 @@ public class BattleMapCanvas extends Canvas {
             gc.fillRect(0, 0, getWidth(), getHeight());
         }
 
+        drawReferenceOverlay(gc);
+        drawTerrainLayer(gc);
+        drawWallLayer(gc);
         drawGrid(gc, grid);
         drawObjects(gc, grid);
         drawTokens(gc, grid);
@@ -386,6 +390,137 @@ public class BattleMapCanvas extends Canvas {
 
         draggingToken = null;
         render();
+    }
+
+    private void drawReferenceOverlay(GraphicsContext gc) {
+        Object overlay = ClientState.getInstance().getReferenceOverlayLayer();
+        if (!(overlay instanceof java.util.Map<?, ?> map)) {
+            return;
+        }
+
+        boolean visible = getBoolean(map.get("visible"), true);
+        if (!visible) {
+            return;
+        }
+
+        String imageUrl = getString(map.get("imageUrl"));
+        if (imageUrl == null || imageUrl.isBlank()) {
+            return;
+        }
+
+        Image image = loadImage(resolveServerUrl(imageUrl));
+        if (image == null || image.isError()) {
+            return;
+        }
+
+        double opacity = clamp(getDouble(map.get("opacity"), 0.65), 0.0, 1.0);
+        double scale = Math.max(0.1, getDouble(map.get("scale"), 1.0));
+        double offsetX = getDouble(map.get("offsetX"), 0.0);
+        double offsetY = getDouble(map.get("offsetY"), 0.0);
+
+        gc.save();
+        gc.setGlobalAlpha(opacity);
+        gc.drawImage(image, offsetX, offsetY, image.getWidth() * scale, image.getHeight() * scale);
+        gc.restore();
+    }
+
+
+    private void drawTerrainLayer(GraphicsContext gc) {
+        Object terrain = ClientState.getInstance().getTerrainLayer();
+        if (!(terrain instanceof java.util.Map<?, ?> map)) {
+            return;
+        }
+        Object cellsObj = map.get("cells");
+        if (!(cellsObj instanceof List<?> cells)) {
+            return;
+        }
+        for (Object cellObj : cells) {
+            if (!(cellObj instanceof java.util.Map<?, ?> cell)) continue;
+            int col = (int) getDouble(cell.get("col"), 0.0);
+            int row = (int) getDouble(cell.get("row"), 0.0);
+            int width = Math.max(1, (int) getDouble(cell.get("width"), 1.0));
+            int height = Math.max(1, (int) getDouble(cell.get("height"), 1.0));
+            if (!getBoolean(cell.get("visible"), true)) continue;
+            String type = getString(cell.get("terrainType"));
+            Color fill = terrainColor(type, getBoolean(cell.get("blocksMovement"), false), getBoolean(cell.get("blocksSight"), false));
+            int cellSize = grid().getCellSize();
+            int ox = grid().getOffsetX();
+            int oy = grid().getOffsetY();
+            gc.setFill(fill);
+            gc.fillRect(ox + col * cellSize, oy + row * cellSize, width * cellSize, height * cellSize);
+        }
+    }
+
+    private void drawWallLayer(GraphicsContext gc) {
+        Object wall = ClientState.getInstance().getWallLayer();
+        if (!(wall instanceof java.util.Map<?, ?> map)) {
+            return;
+        }
+        Object pathsObj = map.get("paths");
+        if (!(pathsObj instanceof List<?> paths)) {
+            return;
+        }
+        for (Object pathObj : paths) {
+            if (!(pathObj instanceof java.util.Map<?, ?> path)) continue;
+            Object pointsObj = path.get("points");
+            if (!(pointsObj instanceof List<?> points) || points.size() < 2) continue;
+            double[] xs = new double[points.size()];
+            double[] ys = new double[points.size()];
+            int i = 0;
+            for (Object ptObj : points) {
+                if (!(ptObj instanceof java.util.Map<?, ?> pt)) continue;
+                xs[i] = getDouble(pt.get("x"), 0.0);
+                ys[i] = getDouble(pt.get("y"), 0.0);
+                i++;
+            }
+            if (i < 2) continue;
+            gc.setStroke(getBoolean(path.get("blocksSight"), true) ? Color.web("#ecf0f1", 0.9) : Color.web("#95a5a6", 0.75));
+            gc.setLineWidth(Math.max(1.5, getDouble(path.get("thickness"), 2.5)));
+            gc.strokePolyline(xs, ys, i);
+        }
+    }
+
+    private Color terrainColor(String type, boolean blocksMovement, boolean blocksSight) {
+        if (type == null) type = "grass";
+        String t = type.toLowerCase();
+        if (t.contains("water")) return Color.web("#3498db", 0.28);
+        if (t.contains("sand")) return Color.web("#f1c40f", 0.18);
+        if (t.contains("stone") || t.contains("rock")) return Color.web("#95a5a6", 0.20);
+        if (t.contains("dirt") || t.contains("mud")) return Color.web("#8b4513", 0.18);
+        if (blocksMovement || blocksSight) return Color.web("#2c3e50", 0.16);
+        return Color.web("#2ecc71", 0.12);
+    }
+
+    private Image loadImage(String fullUrl) {
+        if (fullUrl == null || fullUrl.isBlank()) return null;
+        return imageCache.computeIfAbsent("ref:" + fullUrl, u -> {
+            String encoded = encodeUrl(fullUrl);
+            Image img = new Image(encoded, true);
+            img.progressProperty().addListener((obs, old, p) -> {
+                if (p.doubleValue() >= 1.0) javafx.application.Platform.runLater(this::render);
+            });
+            return img;
+        });
+    }
+
+    private static String getString(Object value) {
+        return value == null ? null : String.valueOf(value);
+    }
+
+    private static boolean getBoolean(Object value, boolean defaultValue) {
+        if (value == null) return defaultValue;
+        if (value instanceof Boolean b) return b;
+        return Boolean.parseBoolean(String.valueOf(value));
+    }
+
+    private static double getDouble(Object value, double defaultValue) {
+        if (value == null) return defaultValue;
+        if (value instanceof Number n) return n.doubleValue();
+        try { return Double.parseDouble(String.valueOf(value)); } catch (Exception e) { return defaultValue; }
+    }
+
+    private static double clamp(double v, double min, double max) {
+        return Math.max(min, Math.min(max, v));
     }
 
     // ---- images ----

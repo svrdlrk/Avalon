@@ -18,6 +18,8 @@ export interface TokenDto {
     maxHp:    number;
     gridSize: number;
     imageUrl: string | null;
+    blocksMovement?: boolean;
+    blocksSight?: boolean;
 }
 
 export interface PlayerDto {
@@ -35,6 +37,8 @@ export interface MapObjectDto {
     height:   number;
     gridSize: number;
     imageUrl: string | null;
+    blocksMovement?: boolean;
+    blocksSight?: boolean;
 }
 
 export interface SessionStateDto {
@@ -45,6 +49,11 @@ export interface SessionStateDto {
     objects:       MapObjectDto[];
     backgroundUrl?: string;
     initiative?:   InitiativeStateDto;
+    referenceOverlayLayer?: unknown;
+    terrainLayer?: unknown;
+    wallLayer?: unknown;
+    fogSettings?: unknown;
+    assetPackIds?: string[];
 }
 
 export interface MapLayoutUpdateDto {
@@ -52,6 +61,11 @@ export interface MapLayoutUpdateDto {
     tokens:         TokenDto[];
     objects:        MapObjectDto[];
     backgroundUrl?: string;
+    referenceOverlayLayer?: unknown;
+    terrainLayer?: unknown;
+    wallLayer?: unknown;
+    fogSettings?: unknown;
+    assetPackIds?: string[];
 }
 
 // ---- Initiative ----
