@@ -1,6 +1,14 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { wsClient } from '../net/wsClient';
 import { useGameStore } from '../store/gameStore';
+
+const STORAGE_KEYS = {
+    serverUrl: 'avalon.connection.serverUrl',
+    sessionId: 'avalon.connection.sessionId',
+    playerName: 'avalon.connection.playerName',
+    isDm: 'avalon.connection.isDm',
+    autoConnect: 'avalon.connection.autoConnect',
+};
 
 const s: Record<string, React.CSSProperties> = {
     overlay: {
@@ -97,8 +105,52 @@ const ConnectionPanel: React.FC = () => {
     const [isDm, setIsDm] = useState(false);
     const [isConnected, setIsConnected] = useState(false);
     const [status, setStatus] = useState('');
+    const autoConnectAttempted = useRef(false);
 
     const { myPlayerId } = useGameStore();
+
+    useEffect(() => {
+        try {
+            const savedServerUrl = localStorage.getItem(STORAGE_KEYS.serverUrl);
+            const savedSessionId = localStorage.getItem(STORAGE_KEYS.sessionId);
+            const savedPlayerName = localStorage.getItem(STORAGE_KEYS.playerName);
+            const savedIsDm = localStorage.getItem(STORAGE_KEYS.isDm);
+            if (savedServerUrl) setServerUrl(savedServerUrl);
+            if (savedSessionId) setSessionId(savedSessionId);
+            if (savedPlayerName) setPlayerName(savedPlayerName);
+            if (savedIsDm != null) setIsDm(savedIsDm === 'true');
+
+            const shouldAutoConnect = localStorage.getItem(STORAGE_KEYS.autoConnect) === 'true';
+            if (shouldAutoConnect && savedServerUrl && savedSessionId && savedPlayerName && !autoConnectAttempted.current) {
+                autoConnectAttempted.current = true;
+                setTimeout(() => {
+                    wsClient.connect(
+                        savedServerUrl,
+                        savedSessionId,
+                        savedPlayerName,
+                        savedIsDm === 'true',
+                        () => {
+                            setIsConnected(true);
+                            setStatus('');
+                        },
+                    );
+                }, 0);
+            }
+        } catch {
+            // ignore storage errors
+        }
+    }, []);
+
+    useEffect(() => {
+        try {
+            localStorage.setItem(STORAGE_KEYS.serverUrl, serverUrl);
+            localStorage.setItem(STORAGE_KEYS.sessionId, sessionId);
+            localStorage.setItem(STORAGE_KEYS.playerName, playerName);
+            localStorage.setItem(STORAGE_KEYS.isDm, String(isDm));
+        } catch {
+            // ignore storage errors
+        }
+    }, [serverUrl, sessionId, playerName, isDm]);
 
     const handleConnect = () => {
         if (!sessionId.trim() || !playerName.trim()) {
@@ -106,6 +158,11 @@ const ConnectionPanel: React.FC = () => {
             return;
         }
         setStatus('Подключение...');
+        try {
+            localStorage.setItem(STORAGE_KEYS.autoConnect, 'true');
+        } catch {
+            // ignore storage errors
+        }
         wsClient.connect(
             serverUrl.trim(),
             sessionId.trim(),
@@ -121,6 +178,11 @@ const ConnectionPanel: React.FC = () => {
     const handleDisconnect = () => {
         wsClient.disconnect();
         setIsConnected(false);
+        try {
+            localStorage.setItem(STORAGE_KEYS.autoConnect, 'false');
+        } catch {
+            // ignore storage errors
+        }
     };
 
     if (isConnected && myPlayerId) {

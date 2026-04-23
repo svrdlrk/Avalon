@@ -27,3 +27,11 @@ dependencies {
 
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
 }
+
+
+tasks.named('bootRun') {
+    def session = System.getenv('AVALON_LAUNCHER_SESSION') ?: System.getProperty('avalon.launcher.session')
+    if (session != null && !session.isBlank()) {
+        systemProperty 'avalon.launcher.session', session
+    }
+}

@@ -37,3 +37,10 @@ tasks.withType(JavaCompile) {
 
 compileJava.options.encoding = 'UTF-8'
 compileTestJava.options.encoding = 'UTF-8'
+
+tasks.named('run') {
+    def session = System.getenv('AVALON_LAUNCHER_SESSION') ?: System.getProperty('avalon.launcher.session')
+    if (session != null && !session.isBlank()) {
+        systemProperty 'avalon.launcher.session', session
+    }
+}

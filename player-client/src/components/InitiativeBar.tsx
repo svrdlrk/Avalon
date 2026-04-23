@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { useGameStore } from '../store/gameStore';
 import { wsClient } from '../net/wsClient';
+import { normalizeAssetUrl } from '../utils/assetUrl';
 
 /**
  * InitiativeBar — горизонтальная панель инициативы вверху экрана.
@@ -33,11 +34,7 @@ const InitiativeBar: React.FC = () => {
                     const token    = tokens[entry.tokenId];
                     const isMine   = token?.ownerId === myPlayerId;
                     const isActive = idx === initiative.currentIndex;
-                    const imgUrl   = token?.imageUrl
-                        ? (token.imageUrl.startsWith('http')
-                            ? token.imageUrl
-                            : wsClient.getServerBaseUrl() + token.imageUrl)
-                        : null;
+                    const imgUrl   = normalizeAssetUrl(token?.imageUrl ?? null, wsClient.getServerBaseUrl());
 
                     return (
                         <div

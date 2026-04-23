@@ -717,21 +717,21 @@ public class MapEditorPane extends BorderPane {
             if (syncingPlacementForm || newV == null) return;
             commitPlacementEdit(() -> {
                 MapPlacement selected = state.selectedPlacement();
-                if (selected != null) selected.setWidth(newV);
+                if (selected != null) syncPlacementSize(selected, newV);
             });
         });
         placementHeightSpinner.valueProperty().addListener((obs, oldV, newV) -> {
             if (syncingPlacementForm || newV == null) return;
             commitPlacementEdit(() -> {
                 MapPlacement selected = state.selectedPlacement();
-                if (selected != null) selected.setHeight(newV);
+                if (selected != null) syncPlacementSize(selected, newV);
             });
         });
         placementGridSizeSpinner.valueProperty().addListener((obs, oldV, newV) -> {
             if (syncingPlacementForm || newV == null) return;
             commitPlacementEdit(() -> {
                 MapPlacement selected = state.selectedPlacement();
-                if (selected != null) selected.setGridSize(newV);
+                if (selected != null) syncPlacementSize(selected, newV);
             });
         });
         placementRotationSpinner.valueProperty().addListener((obs, oldV, newV) -> {
@@ -1137,15 +1137,32 @@ public class MapEditorPane extends BorderPane {
             }
             placementColSpinner.getValueFactory().setValue(selected.getCol());
             placementRowSpinner.getValueFactory().setValue(selected.getRow());
-            placementWidthSpinner.getValueFactory().setValue(selected.getWidth());
-            placementHeightSpinner.getValueFactory().setValue(selected.getHeight());
-            placementGridSizeSpinner.getValueFactory().setValue(selected.getGridSize());
+            int size = Math.max(1, selected.getKind() == PlacementKind.TOKEN || selected.getKind() == PlacementKind.SPAWN
+                    ? selected.getGridSize()
+                    : Math.max(selected.getWidth(), selected.getHeight()));
+            placementWidthSpinner.getValueFactory().setValue(selected.getKind() == PlacementKind.TOKEN || selected.getKind() == PlacementKind.SPAWN ? size : selected.getWidth());
+            placementHeightSpinner.getValueFactory().setValue(selected.getKind() == PlacementKind.TOKEN || selected.getKind() == PlacementKind.SPAWN ? size : selected.getHeight());
+            placementGridSizeSpinner.getValueFactory().setValue(size);
             placementRotationSpinner.getValueFactory().setValue(selected.getRotation());
             placementBlocksMoveCheck.setSelected(selected.isBlocksMovement());
             placementBlocksSightCheck.setSelected(selected.isBlocksSight());
             placementLockedCheck.setSelected(selected.isLocked());
         } finally {
             syncingPlacementForm = false;
+        }
+    }
+
+    private void syncPlacementSize(MapPlacement placement, int size) {
+        if (placement == null) return;
+        if (placement.getKind() == PlacementKind.TOKEN || placement.getKind() == PlacementKind.SPAWN) {
+            int normalized = Math.max(1, Math.min(10, size));
+            placement.setGridSize(normalized);
+            placement.setWidth(normalized);
+            placement.setHeight(normalized);
+        } else {
+            int normalized = Math.max(1, size);
+            placement.setWidth(normalized);
+            placement.setHeight(normalized);
         }
     }
 

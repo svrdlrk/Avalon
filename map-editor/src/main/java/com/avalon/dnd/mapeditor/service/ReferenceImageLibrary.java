@@ -61,16 +61,46 @@ public final class ReferenceImageLibrary {
     }
 
     private static List<Path> candidateProjectRoots() {
-        List<Path> roots = new ArrayList<>();
+        java.util.LinkedHashSet<Path> roots = new java.util.LinkedHashSet<>();
+        addRoot(roots, System.getProperty("avalon.project.root"));
+        addRoot(roots, System.getenv("AVALON_PROJECT_ROOT"));
+
         Path cwd = Path.of("").toAbsolutePath().normalize();
-        roots.add(cwd);
-        if (cwd.getParent() != null) {
-            roots.add(cwd.getParent());
-            if (cwd.getParent().getParent() != null) {
-                roots.add(cwd.getParent().getParent());
+        Path current = cwd;
+        while (current != null) {
+            if (looksLikeProjectRoot(current)) {
+                roots.add(current);
             }
+            current = current.getParent();
         }
-        return roots;
+
+        if (roots.isEmpty()) {
+            roots.add(cwd);
+        }
+        return new ArrayList<>(roots);
+    }
+
+    private static void addRoot(java.util.Set<Path> roots, String raw) {
+        if (raw == null || raw.isBlank()) return;
+        try {
+            Path p = Path.of(raw).toAbsolutePath().normalize();
+            roots.add(p);
+            Path current = p;
+            while (current != null) {
+                if (looksLikeProjectRoot(current)) {
+                    roots.add(current);
+                }
+                current = current.getParent();
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static boolean looksLikeProjectRoot(Path dir) {
+        return Files.exists(dir.resolve("gradlew.bat"))
+                || Files.exists(dir.resolve("settings.gradle"))
+                || Files.exists(dir.resolve("build.gradle"))
+                || Files.exists(dir.resolve("uploads"));
     }
 
     private static boolean isImageFile(Path path) {

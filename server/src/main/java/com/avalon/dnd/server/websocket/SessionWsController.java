@@ -18,17 +18,31 @@ import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 
 @Controller
 public class SessionWsController {
 
+    private static final long RECONNECT_GRACE_SECONDS = 15L;
+
     private final SessionService           sessionService;
     private final SimpMessagingTemplate    messaging;
     private final SessionValidationService validationService;
+    private final ScheduledExecutorService cleanupExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread t = new Thread(r, "session-ws-cleanup");
+        t.setDaemon(true);
+        return t;
+    });
 
     /** WS-session-id → game player reference. Used for disconnect handling. */
     private final Map<String, PlayerRef> wsToPlayer = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, ScheduledFuture<?>> pendingDisconnects = new ConcurrentHashMap<>();
 
     private record PlayerRef(String gameSessionId, String playerId) {}
 
@@ -79,22 +93,24 @@ public class SessionWsController {
         Player player = sessionService.joinSession(
                 request.getSessionId(), request.getPlayerName(), request.isDm());
 
+        cancelPendingDisconnect(sessionId, player.getId());
+
         // Map WS session → game player for disconnect cleanup
         wsToPlayer.put(wsSessionId, new PlayerRef(sessionId, player.getId()));
 
         // Broadcast PLAYER_JOINED so DM refreshes its player list
         messaging.convertAndSend(
-                "/topic/session/" + request.getSessionId(),
+                "/topic/session/" + sessionId,
                 new WsMessage<>(WsEventType.PLAYER_JOINED,
-                        request.getSessionId(),
+                        sessionId,
                         session.incrementVersion(),
                         new PlayerDto(player.getId(), player.getName(), player.getRole().name())));
 
         // Send full state to the joining player
         messaging.convertAndSend(
-                joinTopic(request.getSessionId(), request.getJoinNonce()),
+                joinTopic(sessionId, request.getJoinNonce()),
                 new WsMessage<>(WsEventType.SESSION_STATE,
-                        request.getSessionId(),
+                        sessionId,
                         session.getVersion(),
                         buildState(session, player.getId())));
     }
@@ -117,9 +133,8 @@ public class SessionWsController {
 
     /**
      * Handles WebSocket disconnection.
-     * - Removes the player from the session.
-     * - Converts all their tokens to NPC (ownerId = null).
-     * - Broadcasts PLAYER_LEFT and TOKEN_ASSIGNED events.
+     * The player remains in the session during a reconnect grace period,
+     * and is only removed if they do not come back in time.
      */
     @EventListener
     public void handleDisconnect(SessionDisconnectEvent event) {
@@ -130,11 +145,46 @@ public class SessionWsController {
         PlayerRef ref = wsToPlayer.remove(wsId);
         if (ref == null) return;   // no record — maybe non-game connection
 
+        scheduleDisconnectCleanup(ref);
+    }
+
+    // ---- helpers ----
+
+    private void scheduleDisconnectCleanup(PlayerRef ref) {
+        String key = disconnectKey(ref.gameSessionId(), ref.playerId());
+        cancelPendingDisconnect(ref.gameSessionId(), ref.playerId());
+
+        ScheduledFuture<?> future = cleanupExecutor.schedule(() -> cleanupDisconnectedPlayer(ref),
+                RECONNECT_GRACE_SECONDS, TimeUnit.SECONDS);
+        pendingDisconnects.put(key, future);
+    }
+
+    private void cancelPendingDisconnect(String sessionId, String playerId) {
+        if (sessionId == null || playerId == null) return;
+        String key = disconnectKey(sessionId, playerId);
+        ScheduledFuture<?> future = pendingDisconnects.remove(key);
+        if (future != null) {
+            future.cancel(false);
+        }
+    }
+
+    private void cleanupDisconnectedPlayer(PlayerRef ref) {
+        String key = disconnectKey(ref.gameSessionId(), ref.playerId());
+        pendingDisconnects.remove(key);
+
         GameSession session = sessionService.getSession(ref.gameSessionId());
         if (session == null) return;
 
-        Player leaving = session.getPlayers().remove(ref.playerId());
+        Player leaving = session.getPlayers().get(ref.playerId());
         if (leaving == null) return;
+
+        // If the player has already reconnected, keep them in session.
+        if (wsToPlayer.values().stream().anyMatch(r -> Objects.equals(r.gameSessionId(), ref.gameSessionId())
+                && Objects.equals(r.playerId(), ref.playerId()))) {
+            return;
+        }
+
+        session.getPlayers().remove(ref.playerId());
 
         // Unassign tokens owned by the leaving player
         List<TokenDto> released = new ArrayList<>();
@@ -163,7 +213,9 @@ public class SessionWsController {
         }
     }
 
-    // ---- helpers ----
+    private static String disconnectKey(String sessionId, String playerId) {
+        return sessionId + "::" + playerId;
+    }
 
     private static String joinTopic(String sid, String nonce) {
         return "/topic/session/" + sid + "/join/" + nonce;

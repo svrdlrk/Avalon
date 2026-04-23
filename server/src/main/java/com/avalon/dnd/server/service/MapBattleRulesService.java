@@ -34,7 +34,7 @@ public class MapBattleRulesService {
             return false;
         }
 
-        boolean[][] blocked = buildBlockedCells(session);
+        boolean[][] blocked = buildBlockedCells(session, false);
         if (intersectsBlocked(blocked, toCol, toRow, size, size)) {
             return false;
         }
@@ -55,7 +55,7 @@ public class MapBattleRulesService {
         if (col < 0 || row < 0 || col + width > grid.getCols() || row + height > grid.getRows()) {
             return false;
         }
-        boolean[][] blocked = buildBlockedCells(session);
+        boolean[][] blocked = buildBlockedCells(session, false);
         return !intersectsBlocked(blocked, col, row, width, height);
     }
 
@@ -72,13 +72,13 @@ public class MapBattleRulesService {
             return visible;
         }
 
-        boolean[][] blockers = buildBlockedCells(session);
+        boolean[][] blockers = buildBlockedCells(session, true);
         List<Cell> sources = new ArrayList<>();
         session.getTokens().values().forEach(token -> {
             if (token == null) return;
-            if (viewerPlayerId == null || viewerPlayerId.equals(token.getOwnerId())) {
-                sources.add(new Cell(token.getCol() + Math.max(1, token.getGridSize()) / 2,
-                        token.getRow() + Math.max(1, token.getGridSize()) / 2));
+            if (token.getOwnerId() != null) {
+                int gs = Math.max(1, token.getGridSize());
+                sources.add(new Cell(token.getCol() + gs / 2, token.getRow() + gs / 2));
             }
         });
 
@@ -108,15 +108,17 @@ public class MapBattleRulesService {
         return visible;
     }
 
-    private boolean[][] buildBlockedCells(GameSession session) {
+    private boolean[][] buildBlockedCells(GameSession session, boolean forSight) {
         GridConfig grid = session.getGrid();
         int rows = Math.max(0, grid.getRows());
         int cols = Math.max(0, grid.getCols());
         boolean[][] blocked = new boolean[rows][cols];
 
-        // Props / objects that explicitly block movement.
+        // Props / objects that block movement or sight.
         for (var obj : session.getObjects().values()) {
-            if (obj == null || !obj.isBlocksMovement()) continue;
+            if (obj == null) continue;
+            boolean blocks = forSight ? obj.isBlocksSight() : obj.isBlocksMovement();
+            if (!blocks) continue;
             markRect(blocked, obj.getCol(), obj.getRow(), Math.max(1, obj.getWidth()), Math.max(1, obj.getHeight()));
         }
 
@@ -126,7 +128,10 @@ public class MapBattleRulesService {
             if (cells instanceof List<?> list) {
                 for (Object cellObj : list) {
                     if (!(cellObj instanceof Map<?, ?> cell)) continue;
-                    if (!readBoolean(cell.get("blocksMovement"), false)) continue;
+                    boolean blocks = forSight
+                            ? readBoolean(cell.get("blocksSight"), readBoolean(cell.get("blocksMovement"), false))
+                            : readBoolean(cell.get("blocksMovement"), false);
+                    if (!blocks) continue;
                     int col = readInt(cell.get("col"), 0);
                     int row = readInt(cell.get("row"), 0);
                     int width = Math.max(1, readInt(cell.get("width"), 1));
@@ -145,7 +150,10 @@ public class MapBattleRulesService {
                 double oy = grid.getOffsetY();
                 for (Object pathObj : list) {
                     if (!(pathObj instanceof Map<?, ?> path)) continue;
-                    if (!readBoolean(path.get("blocksMovement"), true)) continue;
+                    boolean blocks = forSight
+                            ? readBoolean(path.get("blocksSight"), readBoolean(path.get("blocksMovement"), true))
+                            : readBoolean(path.get("blocksMovement"), true);
+                    if (!blocks) continue;
                     double thickness = Math.max(0.5, readDouble(path.get("thickness"), 2.5));
                     int expand = Math.max(0, (int) Math.ceil(thickness / cellSize));
                     Object points = path.get("points");

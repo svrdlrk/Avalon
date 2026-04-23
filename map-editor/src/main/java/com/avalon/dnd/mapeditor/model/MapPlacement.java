@@ -44,14 +44,16 @@ public class MapPlacement {
         p.setLayerId(layerId);
         p.setCol(col);
         p.setRow(row);
-        p.setWidth(asset.getWidth());
-        p.setHeight(asset.getHeight());
+        if (asset.getKind() == PlacementKind.TOKEN || asset.getKind() == PlacementKind.SPAWN) {
+            int size = Math.max(asset.getWidth(), asset.getHeight());
+            p.setGridSize(size);
+        } else {
+            p.setWidth(asset.getWidth());
+            p.setHeight(asset.getHeight());
+        }
         p.setBlocksMovement(asset.isBlocksMovement());
         p.setBlocksSight(asset.isBlocksSight());
         p.setImageUrl(asset.getImageUrl());
-        if (asset.getKind() == PlacementKind.TOKEN || asset.getKind() == PlacementKind.SPAWN) {
-            p.setGridSize(Math.max(asset.getWidth(), asset.getHeight()));
-        }
         return p;
     }
 
@@ -84,11 +86,11 @@ public class MapPlacement {
     }
 
     public int effectiveWidth() {
-        return Math.max(1, kind == PlacementKind.TOKEN || kind == PlacementKind.SPAWN ? gridSize : width);
+        return Math.max(1, isTokenKind() ? gridSize : width);
     }
 
     public int effectiveHeight() {
-        return Math.max(1, kind == PlacementKind.TOKEN || kind == PlacementKind.SPAWN ? gridSize : height);
+        return Math.max(1, isTokenKind() ? gridSize : height);
     }
 
     public boolean containsCell(int testCol, int testRow) {
@@ -121,15 +123,38 @@ public class MapPlacement {
     public boolean isNpc() { return npc; }
 
     public void setId(String id) { this.id = id; }
-    public void setKind(PlacementKind kind) { this.kind = kind == null ? PlacementKind.OBJECT : kind; }
+
+    public void setKind(PlacementKind kind) {
+        this.kind = kind == null ? PlacementKind.OBJECT : kind;
+        if (isTokenKind()) {
+            syncTokenSize(Math.max(1, gridSize));
+        }
+    }
+
     public void setAssetId(String assetId) { this.assetId = assetId; }
     public void setName(String name) { this.name = name; }
     public void setLayerId(String layerId) { this.layerId = layerId; }
     public void setCol(int col) { this.col = col; }
     public void setRow(int row) { this.row = row; }
-    public void setWidth(int width) { this.width = Math.max(1, width); }
-    public void setHeight(int height) { this.height = Math.max(1, height); }
-    public void setGridSize(int gridSize) { this.gridSize = Math.max(1, Math.min(10, gridSize)); }
+
+    public void setWidth(int width) {
+        this.width = Math.max(1, width);
+        if (isTokenKind()) {
+            syncTokenSize(this.width);
+        }
+    }
+
+    public void setHeight(int height) {
+        this.height = Math.max(1, height);
+        if (isTokenKind()) {
+            syncTokenSize(this.height);
+        }
+    }
+
+    public void setGridSize(int gridSize) {
+        syncTokenSize(gridSize);
+    }
+
     public void setRotation(double rotation) { this.rotation = rotation; }
     public void setBlocksMovement(boolean blocksMovement) { this.blocksMovement = blocksMovement; }
     public void setBlocksSight(boolean blocksSight) { this.blocksSight = blocksSight; }
@@ -143,4 +168,17 @@ public class MapPlacement {
     public void setHidden(boolean hidden) { this.hidden = hidden; }
     public void setInitiativeOrder(int initiativeOrder) { this.initiativeOrder = initiativeOrder; }
     public void setNpc(boolean npc) { this.npc = npc; }
+
+    private void syncTokenSize(int size) {
+        int normalized = Math.max(1, Math.min(10, size));
+        this.gridSize = normalized;
+        if (isTokenKind()) {
+            this.width = normalized;
+            this.height = normalized;
+        }
+    }
+
+    private boolean isTokenKind() {
+        return kind == PlacementKind.TOKEN || kind == PlacementKind.SPAWN;
+    }
 }

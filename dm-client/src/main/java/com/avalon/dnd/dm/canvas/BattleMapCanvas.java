@@ -76,8 +76,8 @@ public class BattleMapCanvas extends Canvas {
 
             // Safety cap: JavaFX hardware renderer cannot handle textures larger
             // than ~8192 px in either dimension on most GPUs.
-            double safeW = Math.min(Math.max(width,  1), 16384);
-            double safeH = Math.min(Math.max(height, 1), 16384);
+            double safeW = Math.min(Math.max(width,  1), 8192);
+            double safeH = Math.min(Math.max(height, 1), 8192);
 
             setWidth(safeW);
             setHeight(safeH);
@@ -558,8 +558,25 @@ public class BattleMapCanvas extends Canvas {
 
     private String resolveServerUrl(String path) {
         if (path == null || path.isBlank()) return null;
-        if (path.startsWith("http://") || path.startsWith("https://")) return path;
 
+        String trimmed = path.trim();
+        if (trimmed.startsWith("http://") || trimmed.startsWith("https://") || trimmed.startsWith("data:")) {
+            return trimmed;
+        }
+
+        String relative = extractAssetPath(trimmed);
+        if (relative != null) {
+            return joinServerUrl(relative);
+        }
+
+        if (trimmed.startsWith("/")) {
+            return joinServerUrl(trimmed);
+        }
+
+        return joinServerUrl(trimmed);
+    }
+
+    private String joinServerUrl(String path) {
         boolean baseEndsWithSlash = serverBaseUrl.endsWith("/");
         boolean pathStartsWithSlash = path.startsWith("/");
 
@@ -570,6 +587,32 @@ public class BattleMapCanvas extends Canvas {
             return serverBaseUrl + "/" + path;
         }
         return serverBaseUrl + path;
+    }
+
+    private static String extractAssetPath(String raw) {
+        String normalized = raw.replace('\\', '/');
+        String lower = normalized.toLowerCase();
+        String[] markers = {"/uploads/", "uploads/", "/assets/", "assets/"};
+        for (String marker : markers) {
+            int idx = lower.indexOf(marker);
+            if (idx >= 0) {
+                String slice = normalized.substring(idx);
+                return slice.startsWith("/") ? slice : "/" + slice;
+            }
+        }
+        int bang = normalized.indexOf("!/");
+        if (bang >= 0) {
+            String tail = normalized.substring(bang + 2);
+            String tailLower = tail.toLowerCase();
+            for (String marker : markers) {
+                int idx = tailLower.indexOf(marker);
+                if (idx >= 0) {
+                    String slice = tail.substring(idx);
+                    return slice.startsWith("/") ? slice : "/" + slice;
+                }
+            }
+        }
+        return null;
     }
 
     /**

@@ -7,14 +7,12 @@ import type { TokenDto, MapObjectDto, GridConfig } from '../types/types';
 import { wsClient } from '../net/wsClient';
 import useImage from '../hooks/useImage';
 import type Konva from 'konva';
+import { normalizeAssetUrl } from '../utils/assetUrl';
 
 export const SERVER_BASE = 'http://localhost:8080';
 
 function useRemoteImage(imageUrl: string | null) {
-    const fullUrl = imageUrl
-        ? (imageUrl.startsWith('http') ? imageUrl : wsClient.getServerBaseUrl() + imageUrl)
-        : null;
-    return useImage(fullUrl);
+    return useImage(normalizeAssetUrl(imageUrl, wsClient.getServerBaseUrl()));
 }
 
 function hpColor(hp: number, maxHp: number): string {
@@ -43,11 +41,11 @@ function asMap(v: any): AnyMap | null {
     return v && typeof v === 'object' && !Array.isArray(v) ? v as AnyMap : null;
 }
 
-function buildBlockedCells(grid: GridConfig, terrainLayer: unknown, wallLayer: unknown, objects: Record<string, MapObjectDto>) {
+function buildBlockedCells(grid: GridConfig, terrainLayer: unknown, wallLayer: unknown, objects: Record<string, MapObjectDto>, forSight = false) {
     const blocked = Array.from({ length: grid.rows }, () => Array<boolean>(grid.cols).fill(false));
 
     Object.values(objects).forEach((obj) => {
-        if (!obj.blocksMovement) return;
+        if (!(forSight ? (obj.blocksSight ?? obj.blocksMovement) : obj.blocksMovement)) return;
         const w = Math.max(1, obj.width ?? 1);
         const h = Math.max(1, obj.height ?? 1);
         for (let r = obj.row; r < obj.row + h; r++) {
@@ -64,7 +62,9 @@ function buildBlockedCells(grid: GridConfig, terrainLayer: unknown, wallLayer: u
     if (Array.isArray(cells)) {
         cells.forEach((cell) => {
             const m = asMap(cell);
-            if (!m || !getBool(m.blocksMovement, false)) return;
+            if (!m) return;
+            const blocks = forSight ? getBool(m.blocksSight, getBool(m.blocksMovement, false)) : getBool(m.blocksMovement, false);
+            if (!blocks) return;
             const col = Math.floor(getNum(m.col));
             const row = Math.floor(getNum(m.row));
             const w = Math.max(1, Math.floor(getNum(m.width, 1)));
@@ -87,7 +87,9 @@ function buildBlockedCells(grid: GridConfig, terrainLayer: unknown, wallLayer: u
         const oy = grid.offsetY;
         paths.forEach((path) => {
             const pm = asMap(path);
-            if (!pm || !getBool(pm.blocksMovement, true)) return;
+            if (!pm) return;
+            const blocks = forSight ? getBool(pm.blocksSight, getBool(pm.blocksMovement, true)) : getBool(pm.blocksMovement, true);
+            if (!blocks) return;
             const thickness = Math.max(0.5, getNum(pm.thickness, 2.5));
             const expand = Math.max(0, Math.ceil(thickness / cellSize));
             const points = Array.isArray(pm.points) ? pm.points : [];
@@ -136,17 +138,17 @@ function bresenhamCells(x0: number, y0: number, x1: number, y1: number) {
     return cells;
 }
 
-function computeVisibleCells(grid: GridConfig, tokens: Record<string, TokenDto>, myPlayerId: string | null, fogSettings: unknown, terrainLayer: unknown, wallLayer: unknown, objects: Record<string, MapObjectDto>) {
+function computeVisibleCells(grid: GridConfig, tokens: Record<string, TokenDto>, _myPlayerId: string | null, fogSettings: unknown, terrainLayer: unknown, wallLayer: unknown, objects: Record<string, MapObjectDto>) {
     const fog = asMap(fogSettings);
     const enabled = fog ? getBool(fog.enabled, true) : true;
     const revealFromTokens = fog ? getBool(fog.revealFromTokens, true) : true;
     const revealRadius = fog ? Math.max(0, Math.floor(getNum(fog.revealRadius, 6))) : 6;
-    const blockers = buildBlockedCells(grid, terrainLayer, wallLayer, objects);
+    const blockers = buildBlockedCells(grid, terrainLayer, wallLayer, objects, true);
     const visible = Array.from({ length: grid.rows }, () => Array<boolean>(grid.cols).fill(!enabled));
 
     if (!enabled) return visible;
 
-    const sources = Object.values(tokens).filter((t) => revealFromTokens && t.ownerId === myPlayerId);
+    const sources = Object.values(tokens).filter((t) => revealFromTokens && (t.ownerId != null));
     if (sources.length === 0) return visible;
 
     const radiusSq = revealRadius * revealRadius;
@@ -316,10 +318,7 @@ const ObjectShape: React.FC<{
     const w = Math.max(1, obj.width ?? 1);
     const h = Math.max(1, obj.height ?? 1);
 
-    const baseUrl = wsClient.getServerBaseUrl();
-    const fullUrl = obj.imageUrl
-        ? (obj.imageUrl.startsWith('http') ? obj.imageUrl : baseUrl + obj.imageUrl)
-        : null;
+    const fullUrl = normalizeAssetUrl(obj.imageUrl, wsClient.getServerBaseUrl());
     const [objImage] = useImage(fullUrl);
 
     const px = offsetX + obj.col * cellSize;
@@ -371,10 +370,7 @@ const BattleMap: React.FC = () => {
     const myPlayer = myPlayerId ? players[myPlayerId] : null;
     const isDm     = myPlayer?.role === 'DM';
 
-    const baseUrl = wsClient.getServerBaseUrl();
-    const fullBgUrl = backgroundUrl
-        ? (backgroundUrl.startsWith('http') ? backgroundUrl : baseUrl + backgroundUrl)
-        : null;
+    const fullBgUrl = normalizeAssetUrl(backgroundUrl, wsClient.getServerBaseUrl());
     const [bgImage] = useImage(fullBgUrl);
     const visibleCells = useMemo(() => {
         if (!grid) return null;

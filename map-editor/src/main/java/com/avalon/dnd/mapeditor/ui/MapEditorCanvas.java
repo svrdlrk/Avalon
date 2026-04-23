@@ -27,6 +27,8 @@ import javafx.scene.text.TextAlignment;
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -544,31 +546,37 @@ public class MapEditorCanvas extends Canvas {
                 double y = oy + placement.getRow() * cell;
                 double w = placement.effectiveWidth() * cell;
                 double h = placement.effectiveHeight() * cell;
+                double rotation = placement.getRotation();
 
                 Image image = imageCache.computeIfAbsent("obj:" + placement.getImageUrl(), key -> loadImage(placement.getImageUrl()));
+
+                gc.save();
+                gc.translate(x + w / 2.0, y + h / 2.0);
+                gc.rotate(rotation);
+                gc.beginPath();
+                gc.rect(-w / 2.0, -h / 2.0, w, h);
+                gc.clip();
+
                 if (image != null && !image.isError()) {
-                    gc.save();
-                    gc.beginPath();
-                    gc.rect(x, y, w, h);
-                    gc.clip();
-                    gc.drawImage(image, x, y, w, h);
-                    gc.restore();
+                    gc.drawImage(image, -w / 2.0, -h / 2.0, w, h);
                 } else {
                     gc.setFill(colorFor(placement));
-                    gc.fillRoundRect(x + 1, y + 1, Math.max(1, w - 2), Math.max(1, h - 2), 4, 4);
+                    gc.fillRoundRect(-w / 2.0 + 1, -h / 2.0 + 1, Math.max(1, w - 2), Math.max(1, h - 2), 4, 4);
                 }
 
                 if (placement.isLocked()) {
                     gc.setStroke(Color.web("#9ca3af"));
                     gc.setLineWidth(1.5 / state.getZoom());
-                    gc.strokeRect(x + 2, y + 2, w - 4, h - 4);
+                    gc.strokeRect(-w / 2.0 + 2, -h / 2.0 + 2, Math.max(1, w - 4), Math.max(1, h - 4));
                 }
 
                 if (placement.isSelected()) {
                     gc.setStroke(Color.web("#f1c40f"));
                     gc.setLineWidth(2 / state.getZoom());
-                    gc.strokeRect(x + 1, y + 1, w - 2, h - 2);
+                    gc.strokeRect(-w / 2.0 + 1, -h / 2.0 + 1, Math.max(1, w - 2), Math.max(1, h - 2));
                 }
+
+                gc.restore();
             }
 
             gc.restore();
@@ -830,7 +838,8 @@ public class MapEditorCanvas extends Canvas {
 
     private Image loadImage(String url) {
         if (url == null || url.isBlank()) return null;
-        String resolved = url.startsWith("jar:") ? url : encodeUrl(url);
+        String resolved = resolveImageSource(url.trim());
+        if (resolved == null || resolved.isBlank()) return null;
         Image image = new Image(resolved, true);
         image.progressProperty().addListener((obs, oldValue, newValue) -> {
             if (newValue.doubleValue() >= 1.0) {
@@ -875,6 +884,50 @@ public class MapEditorCanvas extends Canvas {
             return url;
         }
     }
+
+    private String resolveImageSource(String url) {
+        if (url == null || url.isBlank()) return null;
+        if (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("jar:") || url.startsWith("file:") || url.startsWith("data:")) {
+            return encodeUrl(url);
+        }
+
+        String cleaned = url.replace('\\', '/');
+        if (cleaned.startsWith("/uploads/") || cleaned.startsWith("uploads/")) {
+            Path local = resolveProjectPath(cleaned.startsWith("/") ? cleaned.substring(1) : cleaned);
+            if (local != null) {
+                return local.toUri().toString();
+            }
+            return cleaned.startsWith("/") ? cleaned : "/" + cleaned;
+        }
+
+        Path local = resolveProjectPath(cleaned.startsWith("/") ? cleaned.substring(1) : cleaned);
+        if (local != null) {
+            return local.toUri().toString();
+        }
+
+        return encodeUrl(cleaned);
+    }
+
+    private Path resolveProjectPath(String relative) {
+        if (relative == null || relative.isBlank()) return null;
+        String cleaned = relative.startsWith("/") ? relative.substring(1) : relative;
+
+        Path cwd = Path.of("").toAbsolutePath().normalize();
+        Path current = cwd;
+        for (int i = 0; i < 6 && current != null; i++, current = current.getParent()) {
+            Path candidate = current.resolve(cleaned).normalize();
+            if (Files.exists(candidate)) {
+                return candidate.toAbsolutePath().normalize();
+            }
+        }
+
+        Path direct = Path.of(cleaned);
+        if (Files.exists(direct)) {
+            return direct.toAbsolutePath().normalize();
+        }
+        return null;
+    }
+
 
     private static String encodePathSegment(String segment) {
         if (segment == null || segment.isEmpty()) return segment == null ? "" : segment;
