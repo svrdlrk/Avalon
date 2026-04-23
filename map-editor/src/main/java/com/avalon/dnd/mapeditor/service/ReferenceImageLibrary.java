@@ -1,5 +1,8 @@
 package com.avalon.dnd.mapeditor.service;
 
+import com.avalon.dnd.mapeditor.model.AssetCatalog;
+import com.avalon.dnd.mapeditor.model.AssetDefinition;
+
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -25,12 +28,9 @@ public final class ReferenceImageLibrary {
                 continue;
             }
 
-            try (Stream<Path> walk = Files.walk(referenceRoot)) {
-                walk.filter(Files::isRegularFile)
-                        .filter(ReferenceImageLibrary::isImageFile)
-                        .sorted(Comparator.comparing(Path::toString))
-                        .forEach(image -> references.add(toProjectRelativePath(projectRoot, image)));
-            } catch (IOException ignored) {
+            collectFromCatalog(projectRoot, references);
+            if (references.isEmpty()) {
+                collectFromDirectory(projectRoot, referenceRoot, references);
             }
         }
         return new ArrayList<>(references);
@@ -44,20 +44,70 @@ public final class ReferenceImageLibrary {
                 continue;
             }
 
-            try (Stream<Path> walk = Files.walk(referenceRoot)) {
-                for (Path image : walk.filter(Files::isRegularFile).filter(ReferenceImageLibrary::isImageFile).toList()) {
-                    ReferenceCandidate candidate = new ReferenceCandidate(
-                            toProjectRelativePath(projectRoot, image),
-                            lastModified(image)
-                    );
-                    if (latest == null || candidate.isNewerThan(latest)) {
-                        latest = candidate;
-                    }
+            List<Path> images = referenceImagesFromCatalog(projectRoot);
+            if (images.isEmpty()) {
+                images = referenceImagesFromDirectory(referenceRoot);
+            }
+
+            for (Path image : images) {
+                ReferenceCandidate candidate = new ReferenceCandidate(
+                        toProjectRelativePath(projectRoot, image),
+                        lastModified(image)
+                );
+                if (latest == null || candidate.isNewerThan(latest)) {
+                    latest = candidate;
                 }
-            } catch (IOException ignored) {
             }
         }
         return latest == null ? null : latest.path();
+    }
+
+    private static void collectFromCatalog(Path projectRoot, Set<String> references) {
+        for (Path image : referenceImagesFromCatalog(projectRoot)) {
+            references.add(toProjectRelativePath(projectRoot, image));
+        }
+    }
+
+    private static List<Path> referenceImagesFromCatalog(Path projectRoot) {
+        Path catalog = projectRoot.resolve("uploads/maps/reference/catalog.json");
+        if (!Files.isRegularFile(catalog)) {
+            return List.of();
+        }
+        try {
+            AssetCatalog assetCatalog = AssetCatalogLoader.loadFromJson(catalog);
+            List<Path> images = new ArrayList<>();
+            for (AssetDefinition asset : assetCatalog.getAssets()) {
+                Path resolved = resolveReferencePath(projectRoot, asset.getImageUrl());
+                if (resolved != null && Files.isRegularFile(resolved)) {
+                    images.add(resolved);
+                }
+            }
+            images.sort(Comparator.comparing(Path::toString));
+            return images;
+        } catch (Exception ignored) {
+            return List.of();
+        }
+    }
+
+    private static void collectFromDirectory(Path projectRoot, Path referenceRoot, Set<String> references) {
+        try (Stream<Path> walk = Files.walk(referenceRoot)) {
+            walk.filter(Files::isRegularFile)
+                    .filter(ReferenceImageLibrary::isImageFile)
+                    .sorted(Comparator.comparing(Path::toString))
+                    .forEach(image -> references.add(toProjectRelativePath(projectRoot, image)));
+        } catch (IOException ignored) {
+        }
+    }
+
+    private static List<Path> referenceImagesFromDirectory(Path referenceRoot) {
+        try (Stream<Path> walk = Files.walk(referenceRoot)) {
+            return walk.filter(Files::isRegularFile)
+                    .filter(ReferenceImageLibrary::isImageFile)
+                    .sorted(Comparator.comparing(Path::toString))
+                    .toList();
+        } catch (IOException ignored) {
+            return List.of();
+        }
     }
 
     private static List<Path> candidateProjectRoots() {
@@ -111,6 +161,21 @@ public final class ReferenceImageLibrary {
             }
         }
         return false;
+    }
+
+    private static Path resolveReferencePath(Path projectRoot, String imageUrl) {
+        if (imageUrl == null || imageUrl.isBlank()) {
+            return null;
+        }
+        String normalized = imageUrl.trim().replace('\\', '/');
+        if (normalized.startsWith("http://") || normalized.startsWith("https://") || normalized.startsWith("jar:") || normalized.startsWith("file:")) {
+            return null;
+        }
+        if (normalized.startsWith("/")) {
+            normalized = normalized.substring(1);
+        }
+        Path local = projectRoot.resolve(normalized).normalize();
+        return Files.exists(local) ? local : null;
     }
 
     private static String toProjectRelativePath(Path projectRoot, Path image) {

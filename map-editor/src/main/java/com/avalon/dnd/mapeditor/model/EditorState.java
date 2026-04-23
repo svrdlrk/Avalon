@@ -17,6 +17,7 @@ public class EditorState {
     public static final String PROP_SELECTED_WALL_VERTEX = "selectedWallVertex";
     public static final String PROP_VIEW = "view";
     public static final String PROP_UI = "ui";
+    public static final String PROP_HISTORY = "history";
 
     private final PropertyChangeSupport pcs = new PropertyChangeSupport(this);
     private final ProjectHistory history = new ProjectHistory();
@@ -70,6 +71,7 @@ public class EditorState {
 
     public void recordHistory() {
         history.record(project);
+        pcs.firePropertyChange(PROP_HISTORY, null, project);
     }
 
     public boolean undo() {
@@ -86,6 +88,7 @@ public class EditorState {
         }
         clearSelection();
         pcs.firePropertyChange(PROP_PROJECT, null, project);
+        pcs.firePropertyChange(PROP_HISTORY, null, project);
         return true;
     }
 
@@ -103,6 +106,7 @@ public class EditorState {
         }
         clearSelection();
         pcs.firePropertyChange(PROP_PROJECT, null, project);
+        pcs.firePropertyChange(PROP_HISTORY, null, project);
         return true;
     }
 

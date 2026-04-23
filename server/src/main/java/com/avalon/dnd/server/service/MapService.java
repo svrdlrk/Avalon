@@ -25,7 +25,7 @@ public class MapService {
 
     public MapService(SessionService sessionService,
                       SimpMessagingTemplate messagingTemplate,
-                      @Value("${upload.path:./uploads/maps}") String uploadPath) {
+                      @Value("${upload.path:./uploads/maps/finished}") String uploadPath) {
         this.sessionService = sessionService;
         this.messagingTemplate = messagingTemplate;
         this.uploadDir = Paths.get(uploadPath).toAbsolutePath().normalize();
@@ -54,7 +54,7 @@ public class MapService {
         Path filePath = uploadDir.resolve(filename);
         file.transferTo(filePath.toFile());
 
-        String url = "/uploads/maps/" + filename;
+        String url = "/uploads/maps/finished/" + filename;
         session.setBackgroundUrl(url);
 
         long version = session.incrementVersion();

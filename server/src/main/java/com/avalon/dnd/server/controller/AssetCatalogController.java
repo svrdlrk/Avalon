@@ -60,6 +60,7 @@ public class AssetCatalogController {
                     Path.of("uploads/assets/tokens"),
                     Path.of("uploads/assets/objects"),
                     Path.of("uploads/assets"),
+                    Path.of("uploads/maps/reference/catalog.json"),
                     Path.of("uploads/maps/reference"),
                     Path.of("uploads")
             ))) {
@@ -92,6 +93,9 @@ public class AssetCatalogController {
 
         try (Stream<Path> walk = Files.walk(root)) {
             walk.filter(Files::isRegularFile).forEach(path -> {
+                if (isExcludedAssetPath(path)) {
+                    return;
+                }
                 String filename = path.getFileName().toString();
                 String lower = filename.toLowerCase(Locale.ROOT);
                 if (isNamesFile(filename)) {

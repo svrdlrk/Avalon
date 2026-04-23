@@ -16,6 +16,7 @@ import com.avalon.dnd.mapeditor.tool.TerrainBrushTool;
 import com.avalon.dnd.mapeditor.tool.WallBrushTool;
 import com.avalon.dnd.mapeditor.tool.WallEditTool;
 import com.avalon.dnd.mapeditor.tool.Tool;
+import javafx.animation.PauseTransition;
 import javafx.collections.FXCollections;
 import javafx.geometry.Insets;
 import javafx.geometry.Orientation;
@@ -30,25 +31,30 @@ import javafx.scene.control.Spinner;
 import javafx.scene.control.SpinnerValueFactory;
 import javafx.scene.control.ColorPicker;
 import javafx.stage.FileChooser;
+import javafx.util.Duration;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyCodeCombination;
 import javafx.scene.input.KeyCombination;
 
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 public class MapEditorPane extends BorderPane {
 
     private final EditorState state = new EditorState();
     private final Map<String, Tool> tools = new LinkedHashMap<>();
     private final MapEditorCanvas canvas;
+    private final AssetCatalog assetCatalog;
     private final ListView<AssetDefinition> assetList = new ListView<>();
     private final TextField assetSearch = new TextField();
     private final Label selectionLabel = new Label("Nothing selected");
     private final Label layerLabel = new Label("No layer selected");
     private final ListView<MapLayer> layerList = new ListView<>();
     private final ProjectRepository repository = new ProjectRepository();
+    private final PauseTransition backupAutosaveDebounce = new PauseTransition(Duration.millis(1200));
 
     private final TextField backgroundUrlField = new TextField();
     private final ComboBox<BackgroundMode> backgroundModeCombo = new ComboBox<>();
@@ -58,7 +64,7 @@ public class MapEditorPane extends BorderPane {
     private final Spinner<Integer> backgroundOffsetYSpinner = new Spinner<>();
     private final Slider backgroundOpacitySlider = new Slider(0.0, 1.0, 1.0);
 
-    private final TextField referenceUrlField = new TextField();
+    private final ComboBox<AssetDefinition> referenceAssetCombo = new ComboBox<>();
     private final CheckBox referenceVisibleCheck = new CheckBox("Visible");
     private final CheckBox referenceLockedCheck = new CheckBox("Locked");
     private final Slider referenceOpacitySlider = new Slider(0.0, 1.0, 0.65);
@@ -106,6 +112,7 @@ public class MapEditorPane extends BorderPane {
     private boolean syncingFogForm = false;
 
     public MapEditorPane(MapProject project, AssetCatalog catalog) {
+        this.assetCatalog = catalog;
         state.setAssetCatalog(catalog);
         state.setProject(project);
 
@@ -129,7 +136,13 @@ public class MapEditorPane extends BorderPane {
         setLeft(buildAssetPanel(catalog));
         setRight(buildRightPanel());
 
-        state.addListener(evt -> refreshSelection());
+        backupAutosaveDebounce.setOnFinished(e -> saveBackupSnapshot());
+        state.addListener(evt -> {
+            refreshSelection();
+            if (EditorState.PROP_HISTORY.equals(evt.getPropertyName())) {
+                scheduleBackupSave();
+            }
+        });
         sceneProperty().addListener((obs, oldScene, newScene) -> {
             if (newScene != null) {
                 installAccelerators(newScene);
@@ -406,7 +419,24 @@ public class MapEditorPane extends BorderPane {
     private VBox buildReferencePanel() {
         VBoxWrapper box = new VBoxWrapper("Reference", new Label("Reference overlay image"));
 
-        referenceUrlField.setPromptText("Reference image URL");
+        referenceAssetCombo.setPromptText("Select reference image");
+        referenceAssetCombo.setMaxWidth(Double.MAX_VALUE);
+        referenceAssetCombo.getItems().setAll(referenceAssets());
+        referenceAssetCombo.setCellFactory(list -> new ListCell<>() {
+            @Override
+            protected void updateItem(AssetDefinition item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty || item == null ? null : referenceAssetLabel(item));
+            }
+        });
+        referenceAssetCombo.setButtonCell(new ListCell<>() {
+            @Override
+            protected void updateItem(AssetDefinition item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty || item == null ? "Select reference image" : referenceAssetLabel(item));
+            }
+        });
+
         referenceVisibleCheck.setSelected(true);
         referenceLockedCheck.setSelected(false);
         referenceOpacitySlider.setShowTickLabels(true);
@@ -417,11 +447,9 @@ public class MapEditorPane extends BorderPane {
         referenceOffsetXSpinner.setValueFactory(new SpinnerValueFactory.IntegerSpinnerValueFactory(-100000, 100000, 0));
         referenceOffsetYSpinner.setValueFactory(new SpinnerValueFactory.IntegerSpinnerValueFactory(-100000, 100000, 0));
 
-        referenceUrlField.setOnAction(e -> commitReferenceEdit(() -> reference().setImageUrl(referenceUrlField.getText())));
-        referenceUrlField.focusedProperty().addListener((obs, oldV, newV) -> {
-            if (!newV) {
-                commitReferenceEdit(() -> reference().setImageUrl(referenceUrlField.getText()));
-            }
+        referenceAssetCombo.valueProperty().addListener((obs, oldV, newV) -> {
+            if (syncingReferenceForm || newV == null) return;
+            commitReferenceEdit(() -> reference().setImageUrl(newV.getImageUrl()));
         });
         referenceVisibleCheck.selectedProperty().addListener((obs, oldV, newV) -> {
             if (syncingReferenceForm) return;
@@ -454,8 +482,15 @@ public class MapEditorPane extends BorderPane {
 
         Button useSelectedAsset = new Button("Use selected asset");
         useSelectedAsset.setOnAction(e -> {
-            if (state.selectedAsset() != null) {
-                commitReferenceEdit(() -> reference().setImageUrl(state.selectedAsset().getImageUrl()));
+            AssetDefinition selected = state.selectedAsset();
+            if (selected != null) {
+                AssetDefinition matching = referenceAssets().stream()
+                        .filter(asset -> Objects.equals(asset.getImageUrl(), selected.getImageUrl()))
+                        .findFirst()
+                        .orElse(null);
+                if (matching != null) {
+                    referenceAssetCombo.getSelectionModel().select(matching);
+                }
             }
         });
 
@@ -474,7 +509,7 @@ public class MapEditorPane extends BorderPane {
         GridPane form = new GridPane();
         form.setHgap(8);
         form.setVgap(8);
-        form.addRow(0, new Label("Image URL"), referenceUrlField);
+        form.addRow(0, new Label("Reference"), referenceAssetCombo);
         form.addRow(1, new Label("Visible"), referenceVisibleCheck);
         form.addRow(2, new Label("Locked"), referenceLockedCheck);
         form.addRow(3, new Label("Opacity"), referenceOpacitySlider);
@@ -831,7 +866,14 @@ public class MapEditorPane extends BorderPane {
         syncingReferenceForm = true;
         try {
             ReferenceOverlay overlay = reference();
-            referenceUrlField.setText(overlay.getImageUrl() == null ? "" : overlay.getImageUrl());
+            AssetDefinition current = referenceAssets().stream()
+                    .filter(asset -> Objects.equals(asset.getImageUrl(), overlay.getImageUrl()))
+                    .findFirst()
+                    .orElse(null);
+            if (referenceAssetCombo.getItems().isEmpty()) {
+                referenceAssetCombo.getItems().setAll(referenceAssets());
+            }
+            referenceAssetCombo.getSelectionModel().select(current);
             referenceVisibleCheck.setSelected(overlay.isVisible());
             referenceLockedCheck.setSelected(overlay.isLocked());
             referenceOpacitySlider.setValue(overlay.getOpacity());
@@ -904,6 +946,40 @@ public class MapEditorPane extends BorderPane {
             state.getProject().setReferenceOverlay(new ReferenceOverlay());
         }
         return state.getProject().getReferenceOverlay();
+    }
+
+    private List<AssetDefinition> referenceAssets() {
+        if (assetCatalog == null) {
+            return List.of();
+        }
+        return assetCatalog.getAssets().stream()
+                .filter(this::isReferenceAsset)
+                .toList();
+    }
+
+    private boolean isReferenceAsset(AssetDefinition asset) {
+        if (asset == null) return false;
+        String category = asset.getCategory();
+        if (category != null && category.equalsIgnoreCase("reference")) {
+            return true;
+        }
+        String imageUrl = asset.getImageUrl();
+        return imageUrl != null && imageUrl.replace('\\', '/').contains("/maps/reference/");
+    }
+
+    private String referenceAssetLabel(AssetDefinition asset) {
+        if (asset == null) {
+            return "";
+        }
+        String name = asset.getName();
+        String imageUrl = asset.getImageUrl();
+        if (name == null || name.isBlank()) {
+            return imageUrl == null ? "Unnamed reference" : imageUrl;
+        }
+        if (imageUrl == null || imageUrl.isBlank()) {
+            return name;
+        }
+        return name + " — " + imageUrl;
     }
 
     private TerrainLayer terrain() {
@@ -1298,10 +1374,33 @@ public class MapEditorPane extends BorderPane {
         var file = chooser.showSaveDialog(getScene() == null ? null : getScene().getWindow());
         if (file == null) return;
         try {
-            repository.save(Path.of(file.toURI()), state.getProject());
+            MapProject snapshot = state.getProject() == null ? null : state.getProject().copy();
+            repository.save(Path.of(file.toURI()), snapshot);
+            repository.saveFinished(snapshot);
         } catch (Exception ex) {
             showError("Save failed", ex);
         }
+    }
+
+    private void scheduleBackupSave() {
+        backupAutosaveDebounce.playFromStart();
+    }
+
+    private void saveBackupSnapshot() {
+        MapProject project = state.getProject();
+        if (project == null) {
+            return;
+        }
+        MapProject snapshot = project.copy();
+        Thread t = new Thread(() -> {
+            try {
+                repository.saveBackup(snapshot);
+            } catch (Exception ex) {
+                System.err.println("Backup autosave failed: " + ex.getMessage());
+            }
+        }, "map-editor-autosave");
+        t.setDaemon(true);
+        t.start();
     }
 
     private void loadProject() {

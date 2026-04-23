@@ -25,7 +25,7 @@ spring:
       max-request-size: 50MB
 
 upload:
-  path: ./uploads/maps
+  path: ./uploads/maps/finished
 
 # Уровень логирования (убрать лишний шум)
 logging:

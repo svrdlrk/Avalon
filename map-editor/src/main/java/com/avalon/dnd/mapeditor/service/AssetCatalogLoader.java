@@ -43,6 +43,8 @@ public final class AssetCatalogLoader {
                 Path.of("uploads/assets/objects/catalog.json"),
                 Path.of("uploads/assets/catalog.json"),
                 Path.of("uploads/assets"),
+                Path.of("uploads/maps/reference/catalog.json"),
+                Path.of("uploads/maps/reference"),
                 Path.of("uploads"),
                 Path.of("map-editor/assets/catalog.json"),
                 Path.of("assets/catalog.json"),
@@ -123,6 +125,12 @@ public final class AssetCatalogLoader {
                 || Files.exists(dir.resolve("uploads"));
     }
 
+    private static boolean isExcludedAssetPath(Path path) {
+        String normalized = path.toAbsolutePath().normalize().toString().replace('\\', '/').toLowerCase(Locale.ROOT);
+        return normalized.contains("/uploads/maps/finished/")
+                || normalized.contains("/uploads/maps/backups/");
+    }
+
     private static Path resolveAgainstRoot(Path root, Path candidate) {
         if (candidate.isAbsolute()) {
             return candidate.toAbsolutePath().normalize();
@@ -172,6 +180,9 @@ public final class AssetCatalogLoader {
 
             try (Stream<Path> walk = Files.walk(root)) {
                 walk.filter(Files::isRegularFile).forEach(path -> {
+                    if (isExcludedAssetPath(path)) {
+                        return;
+                    }
                     String filename = path.getFileName().toString();
                     String lower = filename.toLowerCase(Locale.ROOT);
                     if (isNamesFile(filename)) {
