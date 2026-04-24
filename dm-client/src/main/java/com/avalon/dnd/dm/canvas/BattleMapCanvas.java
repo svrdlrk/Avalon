@@ -13,7 +13,7 @@ import javafx.scene.text.TextAlignment;
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -26,7 +26,12 @@ public class BattleMapCanvas extends Canvas {
     private Image backgroundImage;
     private String currentBackgroundUrl = null;
 
-    private final Map<String, Image> imageCache = new HashMap<>();
+    private final Map<String, Image> imageCache = new LinkedHashMap<>(128, 0.75f, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<String, Image> eldest) {
+            return size() > 100;
+        }
+    };
     private TokenDto hoveredToken = null;
 
     // FIX: guard flag — prevents renderAndResize from running while a previous

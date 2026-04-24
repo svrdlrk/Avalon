@@ -28,6 +28,7 @@ public class ClientState {
     private final Map<String, PlayerDto>    players = new ConcurrentHashMap<>();
 
     private final List<Runnable> changeListeners = new CopyOnWriteArrayList<>();
+    private final java.util.concurrent.atomic.AtomicBoolean notifyPending = new java.util.concurrent.atomic.AtomicBoolean(false);
 
     private int pendingPlaceCol;
     private int pendingPlaceRow;
@@ -97,8 +98,18 @@ public class ClientState {
     public void removeChangeListener(Runnable r) { changeListeners.remove(r); }
 
     public void notifyMapChanged() {
-        for (Runnable r : changeListeners)
-            javafx.application.Platform.runLater(r);
+        if (!notifyPending.compareAndSet(false, true)) {
+            return;
+        }
+        javafx.application.Platform.runLater(() -> {
+            try {
+                for (Runnable r : changeListeners) {
+                    r.run();
+                }
+            } finally {
+                notifyPending.set(false);
+            }
+        });
     }
 
     public String getSessionId()                 { return sessionId; }

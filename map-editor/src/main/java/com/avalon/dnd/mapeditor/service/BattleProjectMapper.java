@@ -1,6 +1,13 @@
 package com.avalon.dnd.mapeditor.service;
 
-import com.avalon.dnd.mapeditor.model.*;
+import com.avalon.dnd.mapeditor.model.BackgroundLayer;
+import com.avalon.dnd.mapeditor.model.FogSettings;
+import com.avalon.dnd.mapeditor.model.MapLayer;
+import com.avalon.dnd.mapeditor.model.MapPlacement;
+import com.avalon.dnd.mapeditor.model.MapProject;
+import com.avalon.dnd.mapeditor.model.ReferenceOverlayLayer;
+import com.avalon.dnd.mapeditor.model.TerrainLayer;
+import com.avalon.dnd.mapeditor.model.WallLayer;
 import com.avalon.dnd.shared.GridConfig;
 
 import java.util.ArrayList;
@@ -40,7 +47,7 @@ public final class BattleProjectMapper {
         return dto;
     }
 
-    public static MapProject fromDto(BattleProjectExportDto dto) {
+    public static MapProject fromDto(BattleProjectDto dto) {
         if (dto == null) {
             return MapProject.createBlank(null, "Untitled Map");
         }

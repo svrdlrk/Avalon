@@ -33,7 +33,7 @@ public class ProjectRepository {
 
     public MapProject load(Path path) throws IOException {
         try {
-            BattleProjectExportDto dto = mapper.readValue(path.toFile(), BattleProjectExportDto.class);
+            BattleProjectDto dto = mapper.readValue(path.toFile(), BattleProjectDto.class);
             return BattleProjectMapper.fromDto(dto);
         } catch (Exception ex) {
             return mapper.readValue(path.toFile(), MapProject.class);

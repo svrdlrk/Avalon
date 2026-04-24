@@ -43,6 +43,8 @@ public class MainStage {
     // and other ghost-update issues.
     private Runnable backgroundChangeListener = null;
     private Runnable selectorRefreshListener  = null;
+    private Runnable hpRefreshListener = null;
+    private Runnable initiativeRefreshListener = null;
 
     public MainStage(Stage stage) { this.stage = stage; }
 
@@ -206,6 +208,14 @@ public class MainStage {
         if (selectorRefreshListener != null) {
             ClientState.getInstance().removeChangeListener(selectorRefreshListener);
             selectorRefreshListener = null;
+        }
+        if (hpRefreshListener != null) {
+            ClientState.getInstance().removeChangeListener(hpRefreshListener);
+            hpRefreshListener = null;
+        }
+        if (initiativeRefreshListener != null) {
+            ClientState.getInstance().removeChangeListener(initiativeRefreshListener);
+            initiativeRefreshListener = null;
         }
 
         mapCanvas = new BattleMapCanvas();
@@ -452,13 +462,14 @@ public class MainStage {
         kill.setOnAction(e -> { TokenDto t = sel(hpCombo); if (t == null) return;
             ServerConnection.getInstance().updateTokenHp(t.getId(), 0, t.getMaxHp()); });
 
-        ClientState.getInstance().addChangeListener(() -> {
+        hpRefreshListener = () -> {
             String keep = selId(hpCombo, TokenDto::getId);
             hpCombo.getItems().setAll(ClientState.getInstance().getTokens().values());
             selById(hpCombo, keep, TokenDto::getId);
             TokenDto s = sel(hpCombo);
             if (s != null) curLbl.setText("HP: " + s.getHp() + " / " + s.getMaxHp());
-        });
+        };
+        ClientState.getInstance().addChangeListener(hpRefreshListener);
 
         HBox r1 = hbox(8, new Label("Токен:"), hpCombo, curLbl);
         HBox r2 = hbox(8, new Label("Урон/Лечение:"), dmg, delta, heal,
@@ -481,11 +492,12 @@ public class MainStage {
         publishBtn.setStyle("-fx-base: #2980b9;");
         Label curTurnLbl = new Label("Ход: —"); curTurnLbl.setStyle("-fx-font-weight: bold; -fx-font-size: 13px;");
 
-        ClientState.getInstance().addChangeListener(() -> {
+        initiativeRefreshListener = () -> {
             String keep = selId(addCombo, TokenDto::getId);
             addCombo.getItems().setAll(ClientState.getInstance().getTokens().values());
             selById(addCombo, keep, TokenDto::getId);
-        });
+        };
+        ClientState.getInstance().addChangeListener(initiativeRefreshListener);
 
         addBtn.setOnAction(e -> {
             TokenDto t = sel(addCombo); if (t == null) return;

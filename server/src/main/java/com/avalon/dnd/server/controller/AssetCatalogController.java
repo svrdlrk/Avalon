@@ -2,6 +2,7 @@ package com.avalon.dnd.server.controller;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.avalon.dnd.shared.uploads.AssetCatalogSupport;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.core.io.ClassPathResource;
@@ -358,18 +359,7 @@ public class AssetCatalogController {
     }
 
     private String normalizeImageUrl(String imageUrl, Path baseDir) {
-        String trimmed = imageUrl.trim().replace('\\', '/');
-        if (trimmed.startsWith("http://") || trimmed.startsWith("https://") || trimmed.startsWith("jar:") || trimmed.startsWith("file:")) {
-            return trimmed;
-        }
-        if (trimmed.startsWith("/uploads/") || trimmed.startsWith("uploads/")) {
-            return trimmed.startsWith("/") ? trimmed : "/" + trimmed;
-        }
-        Path local = resolveRelativePath(trimmed, baseDir);
-        if (local != null) {
-            return toWebUrl(local); 
-        }
-        return trimmed;
+        return AssetCatalogSupport.normalizeImageUrl(imageUrl, baseDir);
     }
 
     private Path resolveRelativePath(String relative, Path baseDir) {
@@ -547,6 +537,10 @@ public class AssetCatalogController {
         }
     }
 
+    private static boolean isExcludedAssetPath(Path path) {
+        return AssetCatalogSupport.isExcludedAssetPath(path);
+    }
+
     private boolean looksLikeNamesMap(JsonNode node) {
         int stringValues = 0;
         int total = 0;
@@ -654,6 +648,7 @@ public class AssetCatalogController {
 
             try (Stream<Path> walk = Files.walk(root)) {
                 walk.filter(Files::isRegularFile)
+                        .filter(path -> !isExcludedAssetPath(path))
                         .forEach(path -> {
                             String filename = path.getFileName().toString();
                             String lower = filename.toLowerCase(Locale.ROOT);
@@ -714,13 +709,11 @@ public class AssetCatalogController {
     }
 
     private boolean isImageFile(Path path) {
-        String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
-        return name.endsWith(".png") || name.endsWith(".jpg") || name.endsWith(".jpeg") || name.endsWith(".webp");
+        return AssetCatalogSupport.isImageFile(path);
     }
 
     private boolean isNamesFile(String filename) {
-        String lower = filename.toLowerCase(Locale.ROOT);
-        return lower.startsWith("names") && lower.endsWith(".json");
+        return AssetCatalogSupport.isNamesFile(filename);
     }
 
     private String toWebUrl(Path file) {
@@ -735,76 +728,30 @@ public class AssetCatalogController {
     }
 
     private String stripExtension(String fileName) {
-        if (fileName == null) return "";
-        int dot = fileName.lastIndexOf('.');
-        return dot < 0 ? fileName : fileName.substring(0, dot);
+        return AssetCatalogSupport.stripExtension(fileName);
     }
 
     private String lastPathSegment(String value) {
-        if (value == null || value.isBlank()) return "";
-        String normalized = value.replace('\\', '/');
-        int slash = normalized.lastIndexOf('/');
-        return slash < 0 ? normalized : normalized.substring(slash + 1);
+        return AssetCatalogSupport.lastPathSegment(value);
     }
 
     private int inferGridSizeFromPath(Path baseDir, String imageUrl) {
-        String probe = (imageUrl == null ? "" : imageUrl).replace('\\', '/').toLowerCase(Locale.ROOT);
-        if (probe.contains("/gargantuan/")) return 4;
-        if (probe.contains("/huge/")) return 3;
-        if (probe.contains("/large/")) return 2;
-        if (probe.contains("/small/") || probe.contains("/medium/") || probe.contains("/npc/")) return 1;
-        if (baseDir != null) {
-            try {
-                String path = baseDir.toAbsolutePath().normalize().toString().replace('\\', '/').toLowerCase(Locale.ROOT);
-                if (path.contains("/gargantuan/")) return 4;
-                if (path.contains("/huge/")) return 3;
-                if (path.contains("/large/")) return 2;
-                if (path.contains("/small/") || path.contains("/medium/") || path.contains("/npc/")) return 1;
-            } catch (Exception ignored) {
-            }
-        }
-        return 0;
+        return AssetCatalogSupport.inferGridSizeFromPath(baseDir, imageUrl);
     }
 
     private String deriveCategory(Path baseDir, String imageUrl) {
-        String path = imageUrl == null ? null : imageUrl.replace('\\', '/');
-        if (path != null) {
-            int uploadsIdx = path.toLowerCase(Locale.ROOT).indexOf("/uploads/");
-            if (uploadsIdx >= 0) {
-                String tail = path.substring(uploadsIdx + "/uploads/".length());
-                int slash = tail.indexOf('/');
-                if (slash > 0) {
-                    return tail.substring(0, slash).toLowerCase(Locale.ROOT);
-                }
-            }
-        }
-        if (baseDir != null) {
-            try {
-                Path normalized = baseDir.toAbsolutePath().normalize();
-                for (int i = 0; i < normalized.getNameCount(); i++) {
-                    if ("assets".equalsIgnoreCase(normalized.getName(i).toString()) && i + 1 < normalized.getNameCount()) {
-                        return normalized.getName(i + 1).toString().toLowerCase(Locale.ROOT);
-                    }
-                }
-            } catch (Exception ignored) {
-            }
-        }
-        return "misc";
+        return AssetCatalogSupport.deriveCategory(baseDir, imageUrl);
     }
 
     private String humanize(String text) {
-        if (text == null || text.isBlank()) return "Asset";
-        String cleaned = text.replace('_', ' ').replace('-', ' ').trim();
-        if (cleaned.isBlank()) return "Asset";
-        return Character.toUpperCase(cleaned.charAt(0)) + cleaned.substring(1);
+        return AssetCatalogSupport.humanize(text);
     }
 
     private String normalizeKey(String source) {
-        if (source == null) return "";
-        return stripExtension(source.replace('\\', '/').toLowerCase(Locale.ROOT)).replaceAll("[^a-z0-9а-яё]+", "");
+        return AssetCatalogSupport.normalizeKey(source);
     }
 
     private String toId(String source) {
-        return source == null ? "" : source.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "-").replaceAll("^-+|-+$", "");
+        return AssetCatalogSupport.toId(source);
     }
 }

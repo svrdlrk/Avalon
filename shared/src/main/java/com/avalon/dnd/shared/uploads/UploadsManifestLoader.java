@@ -222,13 +222,7 @@ public final class UploadsManifestLoader {
     }
 
     private static boolean isImageFile(Path path) {
-        String name = path.getFileName() == null ? "" : path.getFileName().toString().toLowerCase(Locale.ROOT);
-        for (String suffix : IMAGE_SUFFIXES) {
-            if (name.endsWith(suffix)) {
-                return true;
-            }
-        }
-        return false;
+        return AssetCatalogSupport.isImageFile(path);
     }
 
     private static Path resolveUploadsRoot(Path projectRoot) {
@@ -645,27 +639,7 @@ public final class UploadsManifestLoader {
     }
 
     private static String deriveCategory(Path projectRoot, Path path) {
-        if (path == null) {
-            return "misc";
-        }
-        Path relative = relativize(projectRoot, path);
-        if (relative == null || relative.getNameCount() < 2) {
-            return "misc";
-        }
-        if (relative.getNameCount() >= 3 && relative.getName(0).toString().equalsIgnoreCase("uploads")
-                && relative.getName(1).toString().equalsIgnoreCase("assets")) {
-            return relative.getName(2).toString().toLowerCase(Locale.ROOT);
-        }
-        Path parent = path.getParent();
-        if (parent != null) {
-            Path parentRelative = relativize(projectRoot, parent);
-            if (parentRelative != null && parentRelative.getNameCount() >= 3
-                    && parentRelative.getName(0).toString().equalsIgnoreCase("uploads")
-                    && parentRelative.getName(1).toString().equalsIgnoreCase("assets")) {
-                return parentRelative.getName(parentRelative.getNameCount() - 1).toString().toLowerCase(Locale.ROOT);
-            }
-        }
-        return relative.getName(0).toString().toLowerCase(Locale.ROOT);
+        return AssetCatalogSupport.deriveCategory(projectRoot, path);
     }
 
     private static Path relativize(Path root, Path path) {
@@ -699,17 +673,11 @@ public final class UploadsManifestLoader {
     }
 
     private static String stripExtension(String fileName) {
-        if (fileName == null) {
-            return "asset";
-        }
-        int dot = fileName.lastIndexOf('.');
-        return dot < 0 ? fileName : fileName.substring(0, dot);
+        return AssetCatalogSupport.stripExtension(fileName);
     }
 
     private static String toId(String source) {
-        return source == null ? "asset" : source.toLowerCase(Locale.ROOT)
-                .replaceAll("[^a-z0-9]+", "-")
-                .replaceAll("^-+|-+$", "");
+        return AssetCatalogSupport.toId(source);
     }
 
     public enum UploadAssetKind {

@@ -18,7 +18,20 @@ import java.util.Map;
 public class MapBattleRulesService {
 
     public boolean isTokenPlacementAllowed(GameSession session, int col, int row, int size) {
-        return isAreaClear(session, col, row, size, size);
+        if (session == null || session.getGrid() == null) {
+            return true;
+        }
+        int tokenSize = Math.max(1, size);
+        GridConfig grid = session.getGrid();
+        int maxCol = Math.max(0, grid.getCols() - tokenSize);
+        int maxRow = Math.max(0, grid.getRows() - tokenSize);
+        if (col < 0 || col > maxCol || row < 0 || row > maxRow) {
+            return false;
+        }
+        if (!isAreaClear(session, col, row, tokenSize, tokenSize)) {
+            return false;
+        }
+        return !intersectsAnyToken(session, null, col, row, tokenSize, tokenSize);
     }
 
     public boolean isTokenMoveAllowed(GameSession session, Token token, int toCol, int toRow) {
@@ -39,8 +52,15 @@ public class MapBattleRulesService {
             return false;
         }
 
+        if (intersectsAnyToken(session, token.getId(), toCol, toRow, size, size)) {
+            return false;
+        }
+
         for (Cell step : lineCells(token.getCol(), token.getRow(), toCol, toRow)) {
             if (intersectsBlocked(blocked, step.col, step.row, size, size)) {
+                return false;
+            }
+            if (intersectsAnyToken(session, token.getId(), step.col, step.row, size, size)) {
                 return false;
             }
         }
@@ -208,6 +228,27 @@ public class MapBattleRulesService {
         }
         return false;
     }
+
+    private boolean intersectsAnyToken(GameSession session, String ignoreTokenId, int col, int row, int width, int height) {
+        if (session == null) return false;
+        for (Token other : session.getTokens().values()) {
+            if (other == null) continue;
+            if (ignoreTokenId != null && ignoreTokenId.equals(other.getId())) continue;
+            int otherSize = Math.max(1, other.getGridSize());
+            if (intersects(col, row, width, height, other.getCol(), other.getRow(), otherSize, otherSize)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    private boolean intersects(int x1, int y1, int w1, int h1,
+                               int x2, int y2, int w2, int h2) {
+        return x1 < x2 + w2
+                && x1 + w1 > x2
+                && y1 < y2 + h2
+                && y1 + h1 > y2;
+    }
+
 
     private boolean hasLineOfSight(int startCol, int startRow, int endCol, int endRow, boolean[][] blocked) {
         for (Cell cell : lineCells(startCol, startRow, endCol, endRow)) {
