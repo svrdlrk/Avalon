@@ -250,8 +250,13 @@ public class AssetCatalogController {
         out.put("gridSize", Math.max(width, height));
         out.put("size", sizeLabelFor(kind, width, height));
         out.put("kind", kind.name());
+        int dayVision = readInt(node, 0, "dayVision", "visionDay", "visionRadiusDay", "daySight");
+        int nightVision = readInt(node, 0, "nightVision", "visionNight", "visionRadiusNight", "nightSight");
+
         out.put("blocksMovement", blocksMovement);
         out.put("blocksSight", blocksSight);
+        out.put("dayVision", dayVision);
+        out.put("nightVision", nightVision);
         return out;
     }
 
@@ -273,6 +278,10 @@ public class AssetCatalogController {
             }
         }
         return defaultValue;
+    }
+
+    private int readInt(JsonNode node, int defaultValue, String... fields) {
+        return readDimension(node, defaultValue, fields);
     }
 
     private int[] readSize(JsonNode node) {
@@ -412,7 +421,8 @@ public class AssetCatalogController {
                 || node.hasNonNull("defaultWidth") || node.hasNonNull("defaultHeight")
                 || node.hasNonNull("size") || node.hasNonNull("dimensions");
         boolean hasBehavior = node.hasNonNull("kind") || node.hasNonNull("blocksMovement") || node.hasNonNull("blocksSight")
-                || node.hasNonNull("movementBlock") || node.hasNonNull("visionBlock") || node.hasNonNull("solid") || node.hasNonNull("opaque");
+                || node.hasNonNull("movementBlock") || node.hasNonNull("visionBlock") || node.hasNonNull("solid") || node.hasNonNull("opaque")
+                || node.hasNonNull("dayVision") || node.hasNonNull("nightVision");
         return hasImage || hasSize || hasBehavior;
     }
 
@@ -449,7 +459,11 @@ public class AssetCatalogController {
         node.put("width", size[0]);
         node.put("height", size[1]);
         node.put("gridSize", Math.max(size[0], size[1]));
-        node.put("kind", isTokenLike(node) ? "TOKEN" : "OBJECT");
+        boolean tokenLike = isTokenLike(node);
+        node.put("kind", tokenLike ? "TOKEN" : "OBJECT");
+        int[] vision = inferVisionFromPath(root, imageUrl, tokenLike);
+        node.put("dayVision", vision[0]);
+        node.put("nightVision", vision[1]);
 
         String sig = signature(node);
         if (!seen.add(sig)) {
@@ -460,6 +474,31 @@ public class AssetCatalogController {
         } else {
             objects.add(node);
         }
+    }
+
+    private int[] inferVisionFromPath(Path root, String imageUrl, boolean tokenLike) {
+        if (!tokenLike) {
+            return new int[] { 0, 0 };
+        }
+        String probe = ((root == null ? "" : root.toString()) + " " + (imageUrl == null ? "" : imageUrl))
+                .replace('\\', '/')
+                .toLowerCase(Locale.ROOT);
+        boolean players = probe.contains("/players/") || probe.endsWith("/players") || probe.contains("player");
+        boolean creatures = probe.contains("/creatures/") || probe.endsWith("/creatures") || probe.contains("creature");
+        boolean npc = probe.contains("/npc/") || probe.endsWith("/npc") || probe.contains("npc");
+        boolean huge = probe.contains("/huge/") || probe.endsWith("/huge") || probe.contains("huge");
+        boolean large = probe.contains("/large/") || probe.endsWith("/large") || probe.contains("large");
+        boolean medium = probe.contains("/medium/") || probe.endsWith("/medium") || probe.contains("medium");
+        boolean small = probe.contains("/small/") || probe.endsWith("/small") || probe.contains("small");
+
+        if (npc) return new int[] { 6, 3 };
+        if (huge) return players ? new int[] { 12, 6 } : new int[] { 10, 5 };
+        if (large) return players ? new int[] { 10, 5 } : new int[] { 8, 4 };
+        if (medium) return players ? new int[] { 8, 4 } : new int[] { 6, 3 };
+        if (small) return players ? new int[] { 8, 4 } : new int[] { 6, 3 };
+        if (players) return new int[] { 8, 4 };
+        if (creatures) return new int[] { 6, 3 };
+        return new int[] { 6, 3 };
     }
 
     private int[] parseSizeFromName(String baseName) {

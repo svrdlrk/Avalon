@@ -1,16 +1,19 @@
 package com.avalon.dnd.mapeditor.ui;
 
 import com.avalon.dnd.mapeditor.model.*;
+import com.avalon.dnd.mapeditor.service.GridAlignmentService;
 import com.avalon.dnd.mapeditor.service.ProjectRepository;
 import com.avalon.dnd.mapeditor.service.SharedProjectMapper;
 import com.avalon.dnd.shared.MapLayoutUpdateDto;
 import com.avalon.dnd.shared.GridConfig;
+import com.avalon.dnd.shared.MicroLocationDto;
 import com.avalon.dnd.mapeditor.tool.BrushTool;
 import com.avalon.dnd.mapeditor.tool.EraseTool;
 import com.avalon.dnd.mapeditor.tool.PanTool;
 import com.avalon.dnd.mapeditor.tool.MoveTool;
 import com.avalon.dnd.mapeditor.tool.ReferenceOverlayTool;
 import com.avalon.dnd.mapeditor.tool.PlaceAssetTool;
+import com.avalon.dnd.mapeditor.tool.TokenPlaceTool;
 import com.avalon.dnd.mapeditor.tool.SelectTool;
 import com.avalon.dnd.mapeditor.tool.TerrainBrushTool;
 import com.avalon.dnd.mapeditor.tool.WallBrushTool;
@@ -30,17 +33,27 @@ import javafx.scene.layout.GridPane;
 import javafx.scene.control.Spinner;
 import javafx.scene.control.SpinnerValueFactory;
 import javafx.scene.control.ColorPicker;
+import javafx.stage.DirectoryChooser;
 import javafx.stage.FileChooser;
+import javafx.stage.Stage;
+import javafx.stage.Window;
 import javafx.util.Duration;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyCodeCombination;
 import javafx.scene.input.KeyCombination;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Consumer;
+
+import javafx.beans.property.ObjectProperty;
+import javafx.beans.property.ReadOnlyStringProperty;
+import javafx.beans.property.SimpleObjectProperty;
+import javafx.beans.property.SimpleStringProperty;
 
 public class MapEditorPane extends BorderPane {
 
@@ -48,13 +61,17 @@ public class MapEditorPane extends BorderPane {
     private final Map<String, Tool> tools = new LinkedHashMap<>();
     private final MapEditorCanvas canvas;
     private final AssetCatalog assetCatalog;
-    private final ListView<AssetDefinition> assetList = new ListView<>();
     private final TextField assetSearch = new TextField();
     private final Label selectionLabel = new Label("Nothing selected");
     private final Label layerLabel = new Label("No layer selected");
     private final ListView<MapLayer> layerList = new ListView<>();
     private final ProjectRepository repository = new ProjectRepository();
     private final PauseTransition backupAutosaveDebounce = new PauseTransition(Duration.millis(1200));
+    private final SimpleStringProperty documentTitle = new SimpleStringProperty("Untitled Map");
+
+    private final ObjectProperty<Path> documentRootProperty = new SimpleObjectProperty<>();
+    private Path documentRoot;
+    private Consumer<Path> openDocumentCallback = path -> {};
 
     private final TextField backgroundUrlField = new TextField();
     private final ComboBox<BackgroundMode> backgroundModeCombo = new ComboBox<>();
@@ -88,17 +105,37 @@ public class MapEditorPane extends BorderPane {
     private final CheckBox fogEnabledCheck = new CheckBox("Enabled");
     private final CheckBox fogRevealFromTokensCheck = new CheckBox("Reveal from tokens");
     private final CheckBox fogRevealFromSelectedCheck = new CheckBox("Reveal selected placement");
+    private final CheckBox fogRetainExploredCheck = new CheckBox("Keep explored");
     private final Slider fogOpacitySlider = new Slider(0.0, 1.0, 0.72);
     private final Spinner<Integer> fogRadiusSpinner = new Spinner<>();
 
+    private final ListView<MicroLocationDto> microLocationList = new ListView<>();
+    private final TextField microLocationIdField = new TextField();
+    private final TextField microLocationNameField = new TextField();
+    private final TextField microLocationHintField = new TextField();
+    private final TextField microLocationInteriorPathField = new TextField();
+    private final Spinner<Integer> microLocationColSpinner = new Spinner<>();
+    private final Spinner<Integer> microLocationRowSpinner = new Spinner<>();
+    private final Spinner<Integer> microLocationWidthSpinner = new Spinner<>();
+    private final Spinner<Integer> microLocationHeightSpinner = new Spinner<>();
+    private final CheckBox microLocationLockedCheck = new CheckBox("Locked");
+    private final Label microLocationStatusLabel = new Label();
+
     private final TextField placementNameField = new TextField();
     private final ComboBox<MapLayer> placementLayerCombo = new ComboBox<>();
+    private final TextField placementMicroLocationField = new TextField();
     private final Spinner<Integer> placementColSpinner = new Spinner<>();
     private final Spinner<Integer> placementRowSpinner = new Spinner<>();
     private final Spinner<Integer> placementWidthSpinner = new Spinner<>();
     private final Spinner<Integer> placementHeightSpinner = new Spinner<>();
     private final Spinner<Integer> placementGridSizeSpinner = new Spinner<>();
     private final Spinner<Double> placementRotationSpinner = new Spinner<>();
+
+    private final Spinner<Integer> gridCellSizeSpinner = new Spinner<>();
+    private final Spinner<Integer> gridColsSpinner = new Spinner<>();
+    private final Spinner<Integer> gridRowsSpinner = new Spinner<>();
+    private final Spinner<Integer> gridOffsetXSpinner = new Spinner<>();
+    private final Spinner<Integer> gridOffsetYSpinner = new Spinner<>();
     private final CheckBox placementBlocksMoveCheck = new CheckBox("Blocks movement");
     private final CheckBox placementBlocksSightCheck = new CheckBox("Blocks sight");
     private final CheckBox placementLockedCheck = new CheckBox("Locked");
@@ -108,11 +145,20 @@ public class MapEditorPane extends BorderPane {
     private boolean syncingBackgroundForm = false;
     private boolean syncingReferenceForm = false;
     private boolean syncingTerrainForm = false;
+    private boolean syncingGridForm = false;
     private boolean syncingWallForm = false;
     private boolean syncingFogForm = false;
+    private boolean syncingMicroLocationForm = false;
+    private String selectedMicroLocationId;
 
     public MapEditorPane(MapProject project, AssetCatalog catalog) {
+        this(project, catalog, null, null);
+    }
+
+    public MapEditorPane(MapProject project, AssetCatalog catalog, Path documentRoot, Consumer<Path> openDocumentCallback) {
         this.assetCatalog = catalog;
+        setDocumentRoot(documentRoot);
+        this.openDocumentCallback = openDocumentCallback == null ? path -> {} : openDocumentCallback;
         state.setAssetCatalog(catalog);
         state.setProject(project);
 
@@ -120,6 +166,7 @@ public class MapEditorPane extends BorderPane {
         tools.put("move", new MoveTool());
         tools.put("reference", new ReferenceOverlayTool());
         tools.put("place", new PlaceAssetTool());
+        tools.put("token", new TokenPlaceTool());
         tools.put("brush", new BrushTool());
         tools.put("terrain", new TerrainBrushTool());
         tools.put("wall", new WallBrushTool());
@@ -150,8 +197,40 @@ public class MapEditorPane extends BorderPane {
         });
         refreshSelection();
         refreshLayerList();
+        updateDocumentTitle();
     }
 
+    public ReadOnlyStringProperty documentTitleProperty() {
+        return documentTitle;
+    }
+
+    public ObjectProperty<Path> documentRootProperty() {
+        return documentRootProperty;
+    }
+
+    public void setDocumentRoot(Path documentRoot) {
+        this.documentRoot = documentRoot == null ? null : documentRoot.toAbsolutePath().normalize();
+        documentRootProperty.set(this.documentRoot);
+        updateDocumentTitle();
+    }
+
+    public void setOpenDocumentCallback(Consumer<Path> openDocumentCallback) {
+        this.openDocumentCallback = openDocumentCallback == null ? path -> {} : openDocumentCallback;
+    }
+
+    public Path getDocumentRoot() {
+        return documentRoot;
+    }
+
+    private void updateDocumentTitle() {
+        String title = state.getProject() != null && state.getProject().getName() != null && !state.getProject().getName().isBlank()
+                ? state.getProject().getName()
+                : "Untitled Map";
+        if (documentRoot != null && documentRoot.getFileName() != null) {
+            title = documentRoot.getFileName().toString();
+        }
+        documentTitle.set(title);
+    }
 
     private GridConfig grid() {
         return state.grid();
@@ -174,6 +253,7 @@ public class MapEditorPane extends BorderPane {
         ToggleButton move = buttonFor(tools.get("move"), toolGroup);
         ToggleButton reference = buttonFor(tools.get("reference"), toolGroup);
         ToggleButton place = buttonFor(tools.get("place"), toolGroup);
+        ToggleButton token = buttonFor(tools.get("token"), toolGroup);
         ToggleButton brush = buttonFor(tools.get("brush"), toolGroup);
         ToggleButton terrain = buttonFor(tools.get("terrain"), toolGroup);
         ToggleButton wall = buttonFor(tools.get("wall"), toolGroup);
@@ -185,8 +265,11 @@ public class MapEditorPane extends BorderPane {
 
         Button newProject = new Button("New");
         newProject.setOnAction(e -> {
+            setDocumentRoot(null);
             state.setProject(MapProject.createBlank(null, "Untitled Map"));
             state.selectAsset(null);
+            state.selectTokenAsset(null);
+            state.selectObjectAsset(null);
             canvas.requestRender();
             refreshSelection();
             refreshBackgroundForm();
@@ -194,7 +277,9 @@ public class MapEditorPane extends BorderPane {
             refreshTerrainForm();
             refreshWallForm();
             refreshFogForm();
+            refreshGridForm();
             refreshLayerList();
+            updateDocumentTitle();
         });
 
         Button undo = new Button("Undo");
@@ -203,10 +288,10 @@ public class MapEditorPane extends BorderPane {
         Button redo = new Button("Redo");
         redo.setOnAction(e -> redo());
 
-        Button save = new Button("Save");
+        Button save = new Button("Save workspace");
         save.setOnAction(e -> saveProject());
 
-        Button load = new Button("Load");
+        Button load = new Button("Load workspace");
         load.setOnAction(e -> loadProject());
 
         Button exportLayout = new Button("Export Layout");
@@ -235,7 +320,7 @@ public class MapEditorPane extends BorderPane {
         ToolBar bar = new ToolBar(
                 title,
                 new Separator(Orientation.VERTICAL),
-                select, move, reference, place, brush, terrain, wall, wallEdit, erase, pan,
+                select, move, reference, place, token, brush, terrain, wall, wallEdit, erase, pan,
                 new Separator(Orientation.VERTICAL),
                 newProject, undo, redo, save, load, exportLayout, importLayout, resetView,
                 new Separator(Orientation.VERTICAL),
@@ -246,38 +331,51 @@ public class MapEditorPane extends BorderPane {
     }
 
     private Node buildAssetPanel(AssetCatalog catalog) {
-        assetSearch.setPromptText("Search assets...");
-        assetSearch.textProperty().addListener((obs, oldText, newText) -> refreshAssetList(catalog, newText));
+        VBox content = new VBox(12);
+        content.setPadding(new Insets(12));
 
-        refreshAssetList(catalog, "");
-        if (!catalog.getAssets().isEmpty()) {
-            assetList.getSelectionModel().selectFirst();
-        }
+        Label title = new Label("Assets");
+        title.setStyle("-fx-font-size: 16px; -fx-font-weight: bold;");
 
-        assetList.setCellFactory(list -> new ListCell<>() {
-            @Override
-            protected void updateItem(AssetDefinition item, boolean empty) {
-                super.updateItem(item, empty);
-                setText(empty || item == null ? null : item.getName() + "  [" + item.getKind() + "]");
-            }
-        });
+        Label tokenLabel = new Label("Tokens: none selected");
+        Label objectLabel = new Label("Objects: none selected");
+        Label hint = new Label("Open the catalog windows to choose tokens and objects separately.");
+        hint.setWrapText(true);
 
-        assetList.getSelectionModel().selectedItemProperty().addListener((obs, oldV, newV) -> {
-            if (newV != null) {
-                state.selectAsset(newV.getId());
-                state.setActiveTool(activeTool(newV.getKind() == null ? "place" : (newV.getKind().name().equals("WALL") ? "wall" : "place")));
-                if (state.getProject() != null) {
-                    MapLayer suggested = state.getProject().defaultLayerFor(newV.getKind());
-                    if (suggested != null) {
-                        state.selectLayer(suggested.getId());
-                    }
-                }
-                canvas.requestRender();
+        Button openTokens = new Button("Open token explorer");
+        openTokens.setMaxWidth(Double.MAX_VALUE);
+        openTokens.setOnAction(e -> openTokenBrowser());
+
+        Button openObjects = new Button("Open object window");
+        openObjects.setMaxWidth(Double.MAX_VALUE);
+        openObjects.setOnAction(e -> openObjectBrowser());
+
+        Button useReferenceAsAsset = new Button("Use selected asset for reference");
+        useReferenceAsAsset.setMaxWidth(Double.MAX_VALUE);
+        useReferenceAsAsset.setOnAction(e -> {
+            if (state.selectedAsset() != null) {
+                state.selectAsset(state.selectedAsset().getId());
                 refreshSelection();
             }
         });
 
-        VBoxWrapper wrapper = new VBoxWrapper("Assets", new VBox(8, assetSearch, assetList));
+        state.addListener(evt -> {
+            if (EditorState.PROP_SELECTED_TOKEN_ASSET.equals(evt.getPropertyName()) || EditorState.PROP_SELECTED_ASSET.equals(evt.getPropertyName())) {
+                AssetDefinition asset = state.selectedTokenAsset();
+                tokenLabel.setText(asset == null ? "Tokens: none selected" : "Tokens: " + asset.getName());
+            }
+            if (EditorState.PROP_SELECTED_OBJECT_ASSET.equals(evt.getPropertyName()) || EditorState.PROP_SELECTED_ASSET.equals(evt.getPropertyName())) {
+                AssetDefinition asset = state.selectedObjectAsset();
+                objectLabel.setText(asset == null ? "Objects: none selected" : "Objects: " + asset.getName());
+            }
+        });
+
+        tokenLabel.setText(state.selectedTokenAsset() == null ? "Tokens: none selected" : "Tokens: " + state.selectedTokenAsset().getName());
+        objectLabel.setText(state.selectedObjectAsset() == null ? "Objects: none selected" : "Objects: " + state.selectedObjectAsset().getName());
+
+        content.getChildren().addAll(title, tokenLabel, objectLabel, hint, openTokens, openObjects, new Separator(), useReferenceAsAsset);
+        VBox.setVgrow(hint, Priority.NEVER);
+        VBoxWrapper wrapper = new VBoxWrapper("Asset selection", content);
         ScrollPane scroll = new ScrollPane(wrapper);
         scroll.setFitToWidth(true);
         scroll.setPrefWidth(280);
@@ -285,15 +383,18 @@ public class MapEditorPane extends BorderPane {
     }
 
     private Node buildRightPanel() {
+
         VBox backgroundBox = buildBackgroundPanel();
         VBox referenceBox = buildReferencePanel();
+        VBox gridBox = buildGridPanel();
         VBox terrainBox = buildTerrainPanel();
         VBox wallBox = buildWallPanel();
         VBox fogBox = buildFogPanel();
+        VBox microLocationBox = buildMicroLocationPanel();
         VBox selectionBox = buildPropertiesPanel();
         VBox layersBox = buildLayerPanel();
 
-        VBox outer = new VBox(12, backgroundBox, referenceBox, terrainBox, wallBox, fogBox, selectionBox, layersBox);
+        VBox outer = new VBox(12, backgroundBox, referenceBox, gridBox, terrainBox, wallBox, fogBox, microLocationBox, selectionBox, layersBox);
         outer.setPadding(new Insets(12));
         outer.setPrefWidth(320);
 
@@ -506,6 +607,10 @@ public class MapEditorPane extends BorderPane {
             overlay.setOffsetY(0.0);
         }));
 
+        Button fitGrid = new Button("Fit grid to reference");
+        fitGrid.setMaxWidth(Double.MAX_VALUE);
+        fitGrid.setOnAction(e -> fitGridToReference());
+
         GridPane form = new GridPane();
         form.setHgap(8);
         form.setVgap(8);
@@ -523,13 +628,63 @@ public class MapEditorPane extends BorderPane {
                 form,
                 useSelectedAsset,
                 clearReference,
-                resetTransform
+                resetTransform,
+                fitGrid
         );
 
         refreshReferenceForm();
         return box;
     }
 
+
+
+    private VBox buildGridPanel() {
+        VBoxWrapper box = new VBoxWrapper("Grid", new Label("Grid alignment and canvas size"));
+
+        gridCellSizeSpinner.setValueFactory(new SpinnerValueFactory.IntegerSpinnerValueFactory(4, 512, 64));
+        gridColsSpinner.setValueFactory(new SpinnerValueFactory.IntegerSpinnerValueFactory(1, 2000, 40));
+        gridRowsSpinner.setValueFactory(new SpinnerValueFactory.IntegerSpinnerValueFactory(1, 2000, 30));
+        gridOffsetXSpinner.setValueFactory(new SpinnerValueFactory.IntegerSpinnerValueFactory(-100000, 100000, 0));
+        gridOffsetYSpinner.setValueFactory(new SpinnerValueFactory.IntegerSpinnerValueFactory(-100000, 100000, 0));
+
+        gridCellSizeSpinner.valueProperty().addListener((obs, oldV, newV) -> {
+            if (syncingGridForm || newV == null) return;
+            commitGridEdit(() -> grid().setCellSize(newV));
+        });
+        gridColsSpinner.valueProperty().addListener((obs, oldV, newV) -> {
+            if (syncingGridForm || newV == null) return;
+            commitGridEdit(() -> grid().setCols(newV));
+        });
+        gridRowsSpinner.valueProperty().addListener((obs, oldV, newV) -> {
+            if (syncingGridForm || newV == null) return;
+            commitGridEdit(() -> grid().setRows(newV));
+        });
+        gridOffsetXSpinner.valueProperty().addListener((obs, oldV, newV) -> {
+            if (syncingGridForm || newV == null) return;
+            commitGridEdit(() -> grid().setOffsetX(newV));
+        });
+        gridOffsetYSpinner.valueProperty().addListener((obs, oldV, newV) -> {
+            if (syncingGridForm || newV == null) return;
+            commitGridEdit(() -> grid().setOffsetY(newV));
+        });
+
+        Button fitToReference = new Button("Fit to reference image");
+        fitToReference.setMaxWidth(Double.MAX_VALUE);
+        fitToReference.setOnAction(e -> fitGridToReference());
+
+        GridPane form = new GridPane();
+        form.setHgap(8);
+        form.setVgap(8);
+        form.addRow(0, new Label("Cell size"), gridCellSizeSpinner);
+        form.addRow(1, new Label("Columns"), gridColsSpinner);
+        form.addRow(2, new Label("Rows"), gridRowsSpinner);
+        form.addRow(3, new Label("Offset X"), gridOffsetXSpinner);
+        form.addRow(4, new Label("Offset Y"), gridOffsetYSpinner);
+
+        box.getChildren().addAll(new Label("Map grid"), form, fitToReference);
+        refreshGridForm();
+        return box;
+    }
 
     private VBox buildTerrainPanel() {
         VBoxWrapper box = new VBoxWrapper("Terrain", new Label("Paintable terrain layer"));
@@ -639,6 +794,7 @@ public class MapEditorPane extends BorderPane {
         fogEnabledCheck.setSelected(true);
         fogRevealFromTokensCheck.setSelected(true);
         fogRevealFromSelectedCheck.setSelected(true);
+        fogRetainExploredCheck.setSelected(true);
         fogOpacitySlider.setShowTickLabels(true);
         fogOpacitySlider.setShowTickMarks(true);
         fogOpacitySlider.setBlockIncrement(0.05);
@@ -655,6 +811,10 @@ public class MapEditorPane extends BorderPane {
         fogRevealFromSelectedCheck.selectedProperty().addListener((obs, oldV, newV) -> {
             if (syncingFogForm) return;
             commitFogEdit(() -> fog().setRevealFromSelectedPlacement(Boolean.TRUE.equals(newV)));
+        });
+        fogRetainExploredCheck.selectedProperty().addListener((obs, oldV, newV) -> {
+            if (syncingFogForm) return;
+            commitFogEdit(() -> fog().setRetainExploredCells(Boolean.TRUE.equals(newV)));
         });
         fogOpacitySlider.valueProperty().addListener((obs, oldV, newV) -> {
             if (syncingFogForm || newV == null) return;
@@ -683,6 +843,7 @@ public class MapEditorPane extends BorderPane {
         form.addRow(2, new Label("Reveal selected"), fogRevealFromSelectedCheck);
         form.addRow(3, new Label("Radius"), fogRadiusSpinner);
         form.addRow(4, new Label("Opacity"), fogOpacitySlider);
+        form.addRow(5, new Label("Keep explored"), fogRetainExploredCheck);
 
         box.getChildren().addAll(
                 new Label("Fog settings"),
@@ -698,6 +859,7 @@ public class MapEditorPane extends BorderPane {
         VBoxWrapper box = new VBoxWrapper("Selection", selectionLabel);
 
         placementNameField.setPromptText("Name");
+        placementMicroLocationField.setPromptText("Micro location id");
         placementNameField.setOnAction(e -> commitPlacementEdit(() -> {
             MapPlacement selected = state.selectedPlacement();
             if (selected != null) {
@@ -724,6 +886,25 @@ public class MapEditorPane extends BorderPane {
                 }
             });
             refreshLayerList();
+        });
+
+        placementMicroLocationField.setOnAction(e -> commitPlacementEdit(() -> {
+            MapPlacement selected = state.selectedPlacement();
+            if (selected != null) {
+                String value = placementMicroLocationField.getText();
+                selected.setMicroLocationId(value == null || value.isBlank() ? null : value.trim());
+            }
+        }));
+        placementMicroLocationField.focusedProperty().addListener((obs, oldV, newV) -> {
+            if (!newV) {
+                commitPlacementEdit(() -> {
+                    MapPlacement selected = state.selectedPlacement();
+                    if (selected != null) {
+                        String value = placementMicroLocationField.getText();
+                        selected.setMicroLocationId(value == null || value.isBlank() ? null : value.trim());
+                    }
+                });
+            }
         });
 
         placementColSpinner.setValueFactory(new SpinnerValueFactory.IntegerSpinnerValueFactory(0, 9999, 0));
@@ -819,12 +1000,13 @@ public class MapEditorPane extends BorderPane {
         form.setVgap(8);
         form.addRow(0, new Label("Name"), placementNameField);
         form.addRow(1, new Label("Layer"), placementLayerCombo);
-        form.addRow(2, new Label("Col"), placementColSpinner);
-        form.addRow(3, new Label("Row"), placementRowSpinner);
-        form.addRow(4, new Label("Width"), placementWidthSpinner);
-        form.addRow(5, new Label("Height"), placementHeightSpinner);
-        form.addRow(6, new Label("Grid size"), placementGridSizeSpinner);
-        form.addRow(7, new Label("Rotation"), placementRotationSpinner);
+        form.addRow(2, new Label("Micro location"), placementMicroLocationField);
+        form.addRow(3, new Label("Col"), placementColSpinner);
+        form.addRow(4, new Label("Row"), placementRowSpinner);
+        form.addRow(5, new Label("Width"), placementWidthSpinner);
+        form.addRow(6, new Label("Height"), placementHeightSpinner);
+        form.addRow(7, new Label("Grid size"), placementGridSizeSpinner);
+        form.addRow(8, new Label("Rotation"), placementRotationSpinner);
 
         VBox toggles = new VBox(6, placementBlocksMoveCheck, placementBlocksSightCheck, placementLockedCheck);
 
@@ -846,7 +1028,117 @@ public class MapEditorPane extends BorderPane {
         return box;
     }
 
+    private VBox buildMicroLocationPanel() {
+        VBox box = new VBox(8);
+        box.setPadding(new Insets(10));
+        box.setPrefWidth(280);
+
+        Label title = new Label("Micro locations");
+        title.setStyle("-fx-font-size: 15px; -fx-font-weight: bold;");
+
+        microLocationList.setPrefHeight(180);
+        microLocationList.setCellFactory(list -> new ListCell<>() {
+            @Override
+            protected void updateItem(MicroLocationDto item, boolean empty) {
+                super.updateItem(item, empty);
+                if (empty || item == null) {
+                    setText(null);
+                } else {
+                    String base = item.getName() == null || item.getName().isBlank() ? item.getId() : item.getName();
+                    String interior = item.getInteriorMapPath() == null || item.getInteriorMapPath().isBlank()
+                            ? ""
+                            : "  -> " + item.getInteriorMapPath();
+                    setText(base + "  [" + item.getId() + "]" + interior);
+                }
+            }
+        });
+        microLocationList.getSelectionModel().selectedItemProperty().addListener((obs, oldV, newV) -> {
+            selectedMicroLocationId = newV == null ? null : newV.getId();
+            state.setSelectedMicroLocationId(selectedMicroLocationId);
+            if (newV != null) {
+                populateMicroLocationForm(newV);
+            } else {
+                clearMicroLocationForm();
+            }
+            canvas.requestRender();
+        });
+
+        microLocationIdField.setPromptText("id");
+        microLocationNameField.setPromptText("Name");
+        microLocationHintField.setPromptText("Hint / notes");
+        microLocationInteriorPathField.setPromptText("interiors/<id>/map.json");
+        microLocationColSpinner.setValueFactory(new SpinnerValueFactory.IntegerSpinnerValueFactory(0, 9999, 0));
+        microLocationRowSpinner.setValueFactory(new SpinnerValueFactory.IntegerSpinnerValueFactory(0, 9999, 0));
+        microLocationWidthSpinner.setValueFactory(new SpinnerValueFactory.IntegerSpinnerValueFactory(1, 9999, 1));
+        microLocationHeightSpinner.setValueFactory(new SpinnerValueFactory.IntegerSpinnerValueFactory(1, 9999, 1));
+
+        Button newZone = new Button("New zone");
+        Button duplicateZone = new Button("Duplicate");
+        Button deleteZone = new Button("Delete");
+        Button assignSelectedPlacement = new Button("Assign selected placement");
+        Button createInteriorMap = new Button("Create interior map");
+        Button openInteriorMap = new Button("Open interior map");
+
+        newZone.setMaxWidth(Double.MAX_VALUE);
+        duplicateZone.setMaxWidth(Double.MAX_VALUE);
+        deleteZone.setMaxWidth(Double.MAX_VALUE);
+        assignSelectedPlacement.setMaxWidth(Double.MAX_VALUE);
+        createInteriorMap.setMaxWidth(Double.MAX_VALUE);
+        openInteriorMap.setMaxWidth(Double.MAX_VALUE);
+
+        newZone.setOnAction(e -> createMicroLocationFromSelection());
+        duplicateZone.setOnAction(e -> duplicateMicroLocation());
+        deleteZone.setOnAction(e -> deleteMicroLocation());
+        assignSelectedPlacement.setOnAction(e -> assignSelectedPlacementToMicroLocation());
+        createInteriorMap.setOnAction(e -> createSelectedMicroLocationInterior());
+        openInteriorMap.setOnAction(e -> openSelectedMicroLocationInterior());
+
+        microLocationIdField.setOnAction(e -> commitMicroLocationEdit(this::applyMicroLocationForm));
+        microLocationNameField.setOnAction(e -> commitMicroLocationEdit(this::applyMicroLocationForm));
+        microLocationHintField.setOnAction(e -> commitMicroLocationEdit(this::applyMicroLocationForm));
+        microLocationInteriorPathField.setOnAction(e -> commitMicroLocationEdit(this::applyMicroLocationForm));
+        microLocationIdField.focusedProperty().addListener((obs, oldV, newV) -> { if (!newV) commitMicroLocationEdit(this::applyMicroLocationForm); });
+        microLocationNameField.focusedProperty().addListener((obs, oldV, newV) -> { if (!newV) commitMicroLocationEdit(this::applyMicroLocationForm); });
+        microLocationHintField.focusedProperty().addListener((obs, oldV, newV) -> { if (!newV) commitMicroLocationEdit(this::applyMicroLocationForm); });
+        microLocationInteriorPathField.focusedProperty().addListener((obs, oldV, newV) -> { if (!newV) commitMicroLocationEdit(this::applyMicroLocationForm); });
+        microLocationLockedCheck.selectedProperty().addListener((obs, oldV, newV) -> { if (!syncingMicroLocationForm) commitMicroLocationEdit(this::applyMicroLocationForm); });
+        microLocationColSpinner.valueProperty().addListener((obs, oldV, newV) -> { if (!syncingMicroLocationForm && newV != null) commitMicroLocationEdit(this::applyMicroLocationForm); });
+        microLocationRowSpinner.valueProperty().addListener((obs, oldV, newV) -> { if (!syncingMicroLocationForm && newV != null) commitMicroLocationEdit(this::applyMicroLocationForm); });
+        microLocationWidthSpinner.valueProperty().addListener((obs, oldV, newV) -> { if (!syncingMicroLocationForm && newV != null) commitMicroLocationEdit(this::applyMicroLocationForm); });
+        microLocationHeightSpinner.valueProperty().addListener((obs, oldV, newV) -> { if (!syncingMicroLocationForm && newV != null) commitMicroLocationEdit(this::applyMicroLocationForm); });
+
+        GridPane form = new GridPane();
+        form.setHgap(8);
+        form.setVgap(8);
+        form.addRow(0, new Label("Id"), microLocationIdField);
+        form.addRow(1, new Label("Name"), microLocationNameField);
+        form.addRow(2, new Label("Col"), microLocationColSpinner);
+        form.addRow(3, new Label("Row"), microLocationRowSpinner);
+        form.addRow(4, new Label("Width"), microLocationWidthSpinner);
+        form.addRow(5, new Label("Height"), microLocationHeightSpinner);
+        form.addRow(6, new Label("Hint"), microLocationHintField);
+        form.addRow(7, new Label("Interior"), microLocationInteriorPathField);
+        form.addRow(8, new Label(""), microLocationLockedCheck);
+
+        box.getChildren().addAll(
+                title,
+                microLocationList,
+                form,
+                microLocationStatusLabel,
+                newZone,
+                duplicateZone,
+                deleteZone,
+                assignSelectedPlacement,
+                createInteriorMap,
+                openInteriorMap
+        );
+        VBox.setVgrow(microLocationList, Priority.ALWAYS);
+        refreshMicroLocationPanel();
+        return box;
+    }
+
     private void refreshBackgroundForm() {
+
         syncingBackgroundForm = true;
         try {
             BackgroundLayer bg = background();
@@ -899,6 +1191,20 @@ public class MapEditorPane extends BorderPane {
         }
     }
 
+    private void refreshGridForm() {
+        syncingGridForm = true;
+        try {
+            GridConfig grid = grid();
+            gridCellSizeSpinner.getValueFactory().setValue(grid.getCellSize());
+            gridColsSpinner.getValueFactory().setValue(grid.getCols());
+            gridRowsSpinner.getValueFactory().setValue(grid.getRows());
+            gridOffsetXSpinner.getValueFactory().setValue(grid.getOffsetX());
+            gridOffsetYSpinner.getValueFactory().setValue(grid.getOffsetY());
+        } finally {
+            syncingGridForm = false;
+        }
+    }
+
     private void refreshWallForm() {
         syncingWallForm = true;
         try {
@@ -923,6 +1229,7 @@ public class MapEditorPane extends BorderPane {
             fogRevealFromSelectedCheck.setSelected(fog.isRevealFromSelectedPlacement());
             fogRadiusSpinner.getValueFactory().setValue(fog.getRevealRadius());
             fogOpacitySlider.setValue(fog.getOpacity());
+        fogRetainExploredCheck.setSelected(fog.isRetainExploredCells());
         } finally {
             syncingFogForm = false;
         }
@@ -1041,6 +1348,29 @@ public class MapEditorPane extends BorderPane {
         refreshReferenceForm();
     }
 
+    private void fitGridToReference() {
+        if (state.getProject() == null) {
+            return;
+        }
+        ReferenceOverlay overlay = reference();
+        if (overlay.getImageUrl() == null || overlay.getImageUrl().isBlank()) {
+            showError("Grid fit", new IllegalStateException("Reference image is not selected"));
+            return;
+        }
+        try {
+            state.recordHistory();
+            var fitted = GridAlignmentService.fitToReference(state.getProject(), overlay);
+            if (fitted.isEmpty()) {
+                showError("Grid fit", new IllegalStateException("Could not detect a repeating grid pattern in the reference image"));
+                return;
+            }
+            canvas.requestRender();
+            refreshGridForm();
+        } catch (Exception ex) {
+            showError("Grid fit", ex);
+        }
+    }
+
     private void commitTerrainEdit(Runnable action) {
         if (state.getProject() == null) {
             return;
@@ -1049,6 +1379,16 @@ public class MapEditorPane extends BorderPane {
         action.run();
         canvas.requestRender();
         refreshTerrainForm();
+    }
+
+    private void commitGridEdit(Runnable action) {
+        if (state.getProject() == null) {
+            return;
+        }
+        state.recordHistory();
+        action.run();
+        canvas.requestRender();
+        refreshGridForm();
     }
 
     private void commitWallEdit(Runnable action) {
@@ -1160,6 +1500,40 @@ public class MapEditorPane extends BorderPane {
 
     private record WallMergeCandidate(String otherPathId, boolean appendToEnd, boolean reverseOther) {}
 
+    private void openTokenBrowser() {
+        Window owner = getScene() == null ? null : getScene().getWindow();
+        AssetBrowserWindow.showTokenBrowser(owner, assetCatalog, asset -> {
+            if (asset == null) return;
+            state.selectTokenAsset(asset.getId());
+            if (state.getProject() != null) {
+                MapLayer suggested = state.getProject().defaultLayerFor(asset.getKind());
+                if (suggested != null) {
+                    state.selectLayer(suggested.getId());
+                }
+            }
+            state.setActiveTool(activeTool("token"));
+            refreshSelection();
+            canvas.requestRender();
+        });
+    }
+
+    private void openObjectBrowser() {
+        Window owner = getScene() == null ? null : getScene().getWindow();
+        AssetBrowserWindow.showObjectWindow(owner, assetCatalog, asset -> {
+            if (asset == null) return;
+            state.selectObjectAsset(asset.getId());
+            if (state.getProject() != null) {
+                MapLayer suggested = state.getProject().defaultLayerFor(asset.getKind());
+                if (suggested != null) {
+                    state.selectLayer(suggested.getId());
+                }
+            }
+            state.setActiveTool(activeTool("place"));
+            refreshSelection();
+            canvas.requestRender();
+        });
+    }
+
     private void refreshSelection() {
         if (state.selectedPlacement() != null) {
             selectionLabel.setText("Selected: " + displayName(state.selectedPlacement().getName(), state.selectedPlacement().getAssetId()));
@@ -1169,6 +1543,11 @@ public class MapEditorPane extends BorderPane {
             String vertexInfo = state.getSelectedWallVertexIndex() >= 0 ? " | Vertex: " + state.getSelectedWallVertexIndex() : "";
             selectionLabel.setText("Wall: " + wallName + vertexInfo);
             layerLabel.setText("Layer: Walls");
+        } else if (state.getSelectedMicroLocationId() != null && state.getProject() != null && state.getProject().findMicroLocation(state.getSelectedMicroLocationId()).isPresent()) {
+            MicroLocationDto zone = state.getProject().findMicroLocation(state.getSelectedMicroLocationId()).orElse(null);
+            String zoneName = zone == null ? state.getSelectedMicroLocationId() : displayName(zone.getName(), zone.getId());
+            selectionLabel.setText("Micro location: " + zoneName + " @ " + (zone == null ? "?" : zone.getCol() + "," + zone.getRow()) + " " + (zone == null ? "" : zone.getWidth() + "x" + zone.getHeight()));
+            layerLabel.setText("Layer: map zones");
         } else if (state.selectedAsset() != null) {
             selectionLabel.setText("Asset: " + state.selectedAsset().getName());
             layerLabel.setText("Layer: " + safeLayerName(state.getSelectedLayerId()));
@@ -1180,8 +1559,10 @@ public class MapEditorPane extends BorderPane {
         refreshBackgroundForm();
         refreshReferenceForm();
         refreshTerrainForm();
+        refreshGridForm();
         refreshWallForm();
         refreshFogForm();
+        refreshMicroLocationPanel();
         refreshLayerList();
     }
 
@@ -1203,10 +1584,12 @@ public class MapEditorPane extends BorderPane {
                 placementBlocksMoveCheck.setSelected(false);
                 placementBlocksSightCheck.setSelected(false);
                 placementLockedCheck.setSelected(false);
+                placementMicroLocationField.setText("");
                 return;
             }
 
             placementNameField.setText(selected.getName() == null ? selected.getAssetId() : selected.getName());
+            placementMicroLocationField.setText(selected.getMicroLocationId() == null ? "" : selected.getMicroLocationId());
             if (state.getProject() != null) {
                 placementLayerCombo.getItems().setAll(state.getProject().getLayers());
                 placementLayerCombo.getSelectionModel().select(state.selectedLayer() != null ? state.selectedLayer() : state.getProject().findLayer(selected.getLayerId()).orElse(null));
@@ -1245,6 +1628,7 @@ public class MapEditorPane extends BorderPane {
     private void setInspectorEnabled(boolean enabled) {
         placementNameField.setDisable(!enabled);
         placementLayerCombo.setDisable(!enabled);
+        placementMicroLocationField.setDisable(!enabled);
         placementColSpinner.setDisable(!enabled);
         placementRowSpinner.setDisable(!enabled);
         placementWidthSpinner.setDisable(!enabled);
@@ -1254,6 +1638,14 @@ public class MapEditorPane extends BorderPane {
         placementBlocksMoveCheck.setDisable(!enabled);
         placementBlocksSightCheck.setDisable(!enabled);
         placementLockedCheck.setDisable(!enabled);
+    }
+
+    private void commitMicroLocationEdit(Runnable action) {
+        if (state.getProject() == null) return;
+        state.recordHistory();
+        action.run();
+        canvas.requestRender();
+        refreshMicroLocationPanel();
     }
 
     private void commitPlacementEdit(Runnable action) {
@@ -1266,6 +1658,308 @@ public class MapEditorPane extends BorderPane {
         action.run();
         canvas.requestRender();
         refreshSelection();
+    }
+
+    private void refreshMicroLocationPanel() {
+        MapProject project = state.getProject();
+        if (project == null) {
+            microLocationList.getItems().clear();
+            clearMicroLocationForm();
+            state.setSelectedMicroLocationId(null);
+            microLocationStatusLabel.setText("No project loaded");
+            return;
+        }
+        syncingMicroLocationForm = true;
+        try {
+            MicroLocationDto selected = getSelectedMicroLocation();
+            if (selected == null && selectedMicroLocationId != null) {
+                selectedMicroLocationId = null;
+                state.setSelectedMicroLocationId(null);
+            }
+
+            microLocationList.getItems().setAll(project.getMicroLocations());
+            if (selected != null) {
+                int idx = microLocationList.getItems().indexOf(selected);
+                if (idx >= 0) {
+                    microLocationList.getSelectionModel().select(idx);
+                }
+                state.setSelectedMicroLocationId(selected.getId());
+                populateMicroLocationForm(selected);
+                String selectedIdText = selected.getId() == null ? "" : selected.getId();
+                microLocationStatusLabel.setText("Zones: " + project.getMicroLocations().size() + " | selected: " + selectedIdText);
+            } else {
+                if (microLocationList.getItems().isEmpty()) {
+                    microLocationStatusLabel.setText("No micro locations yet");
+                } else if (microLocationList.getSelectionModel().getSelectedItem() == null) {
+                    microLocationList.getSelectionModel().selectFirst();
+                }
+                if (microLocationList.getSelectionModel().getSelectedItem() == null) {
+                    clearMicroLocationForm();
+                    state.setSelectedMicroLocationId(null);
+                } else {
+                    state.setSelectedMicroLocationId(microLocationList.getSelectionModel().getSelectedItem().getId());
+                }
+                microLocationStatusLabel.setText("Zones: " + project.getMicroLocations().size());
+            }
+        } finally {
+            syncingMicroLocationForm = false;
+        }
+    }
+
+    private void populateMicroLocationForm(MicroLocationDto zone) {
+        if (zone == null) {
+            clearMicroLocationForm();
+            return;
+        }
+        microLocationIdField.setText(zone.getId() == null ? "" : zone.getId());
+        microLocationNameField.setText(zone.getName() == null ? "" : zone.getName());
+        microLocationHintField.setText(zone.getHint() == null ? "" : zone.getHint());
+        microLocationInteriorPathField.setText(zone.getInteriorMapPath() == null ? "" : zone.getInteriorMapPath());
+        microLocationColSpinner.getValueFactory().setValue(zone.getCol());
+        microLocationRowSpinner.getValueFactory().setValue(zone.getRow());
+        microLocationWidthSpinner.getValueFactory().setValue(zone.getWidth());
+        microLocationHeightSpinner.getValueFactory().setValue(zone.getHeight());
+        microLocationLockedCheck.setSelected(zone.isLocked());
+    }
+
+    private void clearMicroLocationForm() {
+        microLocationIdField.setText("");
+        microLocationNameField.setText("");
+        microLocationHintField.setText("");
+        microLocationInteriorPathField.setText("");
+        microLocationColSpinner.getValueFactory().setValue(0);
+        microLocationRowSpinner.getValueFactory().setValue(0);
+        microLocationWidthSpinner.getValueFactory().setValue(1);
+        microLocationHeightSpinner.getValueFactory().setValue(1);
+        microLocationLockedCheck.setSelected(false);
+    }
+
+    private void createMicroLocationFromSelection() {
+        if (state.getProject() == null) return;
+        MicroLocationDto zone = new MicroLocationDto();
+        zone.setId(java.util.UUID.randomUUID().toString());
+        zone.setName("New zone");
+        int col = 0;
+        int row = 0;
+        int width = 1;
+        int height = 1;
+
+        MapPlacement selectedPlacement = state.selectedPlacement();
+        if (selectedPlacement != null) {
+            col = Math.max(0, selectedPlacement.getCol());
+            row = Math.max(0, selectedPlacement.getRow());
+            width = Math.max(1, selectedPlacement.effectiveWidth());
+            height = Math.max(1, selectedPlacement.effectiveHeight());
+        }
+
+        zone.setCol(col);
+        zone.setRow(row);
+        zone.setWidth(width);
+        zone.setHeight(height);
+        zone.setLocked(false);
+        zone.setHint("");
+        zone.setInteriorMapPath(defaultInteriorPath(zone.getId()));
+        state.recordHistory();
+        state.getProject().addMicroLocation(zone);
+        selectedMicroLocationId = zone.getId();
+        state.setSelectedMicroLocationId(selectedMicroLocationId);
+        refreshMicroLocationPanel();
+        canvas.requestRender();
+    }
+
+    private void duplicateMicroLocation() {
+        MapProject project = state.getProject();
+        if (project == null) return;
+        MicroLocationDto selected = getSelectedMicroLocation();
+        if (selected == null) return;
+        MicroLocationDto copy = copyMicroLocation(selected);
+        copy.setId(java.util.UUID.randomUUID().toString());
+        copy.setName((selected.getName() == null || selected.getName().isBlank() ? "Zone" : selected.getName()) + " copy");
+        copy.setCol(selected.getCol() + 1);
+        copy.setRow(selected.getRow() + 1);
+        copy.setInteriorMapPath(defaultInteriorPath(copy.getId()));
+        state.recordHistory();
+        project.addMicroLocation(copy);
+        selectedMicroLocationId = copy.getId();
+        state.setSelectedMicroLocationId(selectedMicroLocationId);
+        refreshMicroLocationPanel();
+        canvas.requestRender();
+    }
+
+    private void deleteMicroLocation() {
+        MapProject project = state.getProject();
+        if (project == null) return;
+        MicroLocationDto selected = getSelectedMicroLocation();
+        if (selected == null) return;
+        state.recordHistory();
+        project.removeMicroLocationById(selected.getId());
+        for (MapPlacement placement : project.getPlacements()) {
+            if (selected.getId() != null && selected.getId().equals(placement.getMicroLocationId())) {
+                placement.setMicroLocationId(null);
+            }
+        }
+        selectedMicroLocationId = null;
+        state.setSelectedMicroLocationId(null);
+        canvas.requestRender();
+        refreshMicroLocationPanel();
+        refreshPlacementForm();
+    }
+
+    private void assignSelectedPlacementToMicroLocation() {
+        MapPlacement placement = state.selectedPlacement();
+        MicroLocationDto zone = getSelectedMicroLocation();
+        if (placement == null || zone == null) return;
+        commitPlacementEdit(() -> placement.setMicroLocationId(zone.getId()));
+    }
+
+    private void createSelectedMicroLocationInterior() {
+        MicroLocationDto zone = getSelectedMicroLocation();
+        if (zone == null) {
+            return;
+        }
+        if (microLocationInteriorPathField.getText() == null || microLocationInteriorPathField.getText().isBlank()) {
+            microLocationInteriorPathField.setText(defaultInteriorPath(zone.getId()));
+            commitMicroLocationEdit(this::applyMicroLocationForm);
+        }
+        openSelectedMicroLocationInterior(true);
+    }
+
+    private void openSelectedMicroLocationInterior() {
+        openSelectedMicroLocationInterior(false);
+    }
+
+    private void openSelectedMicroLocationInterior(boolean createIfMissing) {
+        MapProject project = state.getProject();
+        MicroLocationDto zone = getSelectedMicroLocation();
+        if (project == null || zone == null) {
+            return;
+        }
+        Path interiorPath = resolveInteriorPath(zone);
+        if (interiorPath == null) {
+            showError("Interior map", new IllegalStateException("Interior map path is not set"));
+            return;
+        }
+        try {
+            if (!Files.exists(interiorPath)) {
+                if (!createIfMissing) {
+                    showError("Interior map", new IllegalStateException("Interior map does not exist yet"));
+                    return;
+                }
+                MapProject interior = MapProject.createBlank(zone.getId(), zone.getName() == null || zone.getName().isBlank() ? zone.getId() : zone.getName());
+                repository.saveWorkspace(interiorPath.getParent(), interior);
+            }
+            openDocumentCallback.accept(interiorPath);
+        } catch (Exception ex) {
+            showError("Interior map", ex);
+        }
+    }
+
+    private MicroLocationDto getSelectedMicroLocation() {
+        MapProject project = state.getProject();
+        if (project == null) return null;
+        if (selectedMicroLocationId != null) {
+            MicroLocationDto zone = project.findMicroLocation(selectedMicroLocationId).orElse(null);
+            if (zone != null) return zone;
+        }
+        return microLocationList.getSelectionModel().getSelectedItem();
+    }
+
+    private void applyMicroLocationForm() {
+        MapProject project = state.getProject();
+        if (project == null) return;
+        MicroLocationDto selected = getSelectedMicroLocation();
+        if (selected == null) return;
+
+        String id = microLocationIdField.getText() == null ? "" : microLocationIdField.getText().trim();
+        if (id.isBlank()) {
+            id = selected.getId();
+        }
+
+        MicroLocationDto updated = new MicroLocationDto();
+        updated.setId(id);
+        updated.setName(safeTrim(microLocationNameField.getText()));
+        updated.setHint(safeTrim(microLocationHintField.getText()));
+        updated.setInteriorMapPath(normalizeInteriorField(id));
+        updated.setCol(safeSpinnerInt(microLocationColSpinner, selected.getCol()));
+        updated.setRow(safeSpinnerInt(microLocationRowSpinner, selected.getRow()));
+        updated.setWidth(safeSpinnerInt(microLocationWidthSpinner, selected.getWidth()));
+        updated.setHeight(safeSpinnerInt(microLocationHeightSpinner, selected.getHeight()));
+        updated.setLocked(microLocationLockedCheck.isSelected());
+
+        String oldId = selected.getId();
+        state.recordHistory();
+        project.updateMicroLocation(oldId, updated);
+        if (!java.util.Objects.equals(oldId, updated.getId())) {
+            for (MapPlacement placement : project.getPlacements()) {
+                if (java.util.Objects.equals(oldId, placement.getMicroLocationId())) {
+                    placement.setMicroLocationId(updated.getId());
+                }
+            }
+        }
+        selectedMicroLocationId = updated.getId();
+        state.setSelectedMicroLocationId(selectedMicroLocationId);
+        canvas.requestRender();
+        refreshMicroLocationPanel();
+        refreshPlacementForm();
+    }
+
+    private String normalizeInteriorField(String zoneId) {
+        String raw = microLocationInteriorPathField.getText();
+        if (raw == null || raw.isBlank()) {
+            return defaultInteriorPath(zoneId);
+        }
+        String trimmed = raw.trim();
+        if (documentRoot == null) {
+            return trimmed;
+        }
+        Path resolved = repository.resolveChild(documentRoot, trimmed);
+        Path root = documentRoot.toAbsolutePath().normalize();
+        try {
+            Path relative = root.relativize(resolved);
+            return relative.toString().replace('\\', '/');
+        } catch (Exception ex) {
+            return trimmed;
+        }
+    }
+
+    private String defaultInteriorPath(String zoneId) {
+        if (zoneId == null || zoneId.isBlank()) {
+            return "interiors/map.json";
+        }
+        return "interiors/" + zoneId + "/map.json";
+    }
+
+    private Path resolveInteriorPath(MicroLocationDto zone) {
+        String path = zone == null ? null : zone.getInteriorMapPath();
+        if (path == null || path.isBlank()) {
+            path = defaultInteriorPath(zone == null ? null : zone.getId());
+        }
+        return documentRoot == null ? Path.of(path) : repository.resolveChild(documentRoot, path);
+    }
+
+    private static MicroLocationDto copyMicroLocation(MicroLocationDto source) {
+        if (source == null) return null;
+        MicroLocationDto copy = new MicroLocationDto();
+        copy.setId(source.getId());
+        copy.setName(source.getName());
+        copy.setCol(source.getCol());
+        copy.setRow(source.getRow());
+        copy.setWidth(source.getWidth());
+        copy.setHeight(source.getHeight());
+        copy.setLocked(source.isLocked());
+        copy.setHint(source.getHint());
+        copy.setInteriorMapPath(source.getInteriorMapPath());
+        return copy;
+    }
+
+    private static String safeTrim(String value) {
+
+        return value == null ? null : (value.isBlank() ? null : value.trim());
+    }
+
+    private static int safeSpinnerInt(Spinner<Integer> spinner, int fallback) {
+        Integer value = spinner == null ? null : spinner.getValue();
+        return value == null ? fallback : value;
     }
 
     private void duplicateSelected() {
@@ -1368,15 +2062,24 @@ public class MapEditorPane extends BorderPane {
     }
 
     private void saveProject() {
-        FileChooser chooser = new FileChooser();
-        chooser.setTitle("Save map project");
-        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("JSON", "*.json"));
-        var file = chooser.showSaveDialog(getScene() == null ? null : getScene().getWindow());
-        if (file == null) return;
+        MapProject project = state.getProject();
+        if (project == null) {
+            return;
+        }
         try {
-            MapProject snapshot = state.getProject() == null ? null : state.getProject().copy();
-            repository.save(Path.of(file.toURI()), snapshot);
-            repository.saveFinished(snapshot);
+            MapProject snapshot = project.copy();
+            Path targetRoot = documentRoot;
+            if (targetRoot == null) {
+                DirectoryChooser chooser = new DirectoryChooser();
+                chooser.setTitle("Save map workspace");
+                var dir = chooser.showDialog(getScene() == null ? null : getScene().getWindow());
+                if (dir == null) {
+                    return;
+                }
+                targetRoot = dir.toPath();
+            }
+            repository.saveWorkspace(targetRoot, snapshot);
+            setDocumentRoot(targetRoot);
         } catch (Exception ex) {
             showError("Save failed", ex);
         }
@@ -1404,13 +2107,15 @@ public class MapEditorPane extends BorderPane {
     }
 
     private void loadProject() {
-        FileChooser chooser = new FileChooser();
-        chooser.setTitle("Load map project");
-        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("JSON", "*.json"));
-        var file = chooser.showOpenDialog(getScene() == null ? null : getScene().getWindow());
-        if (file == null) return;
+        DirectoryChooser chooser = new DirectoryChooser();
+        chooser.setTitle("Load map workspace");
+        var dir = chooser.showDialog(getScene() == null ? null : getScene().getWindow());
+        if (dir == null) return;
         try {
-            state.setProject(repository.load(Path.of(file.toURI())));
+            Path loadedRoot = dir.toPath();
+            MapProject loaded = repository.loadWorkspace(loadedRoot);
+            setDocumentRoot(loadedRoot);
+            state.setProject(loaded);
             canvas.requestRender();
             refreshSelection();
             refreshBackgroundForm();
@@ -1418,7 +2123,9 @@ public class MapEditorPane extends BorderPane {
             refreshTerrainForm();
             refreshWallForm();
             refreshFogForm();
+            refreshGridForm();
             refreshLayerList();
+            updateDocumentTitle();
         } catch (Exception ex) {
             showError("Load failed", ex);
         }
@@ -1454,32 +2161,13 @@ public class MapEditorPane extends BorderPane {
             refreshTerrainForm();
             refreshWallForm();
             refreshFogForm();
+            refreshGridForm();
             refreshLayerList();
         } catch (Exception ex) {
             showError("Import failed", ex);
         }
     }
 
-    private void refreshAssetList(AssetCatalog catalog, String filterText) {
-        String filter = filterText == null ? "" : filterText.trim().toLowerCase();
-        if (filter.isBlank()) {
-            assetList.setItems(FXCollections.observableArrayList(catalog.getAssets()));
-        } else {
-            assetList.setItems(FXCollections.observableArrayList(
-                    catalog.getAssets().stream()
-                            .filter(a -> matchesAsset(a, filter))
-                            .toList()
-            ));
-        }
-    }
-
-    private boolean matchesAsset(AssetDefinition asset, String filter) {
-        if (asset == null) return false;
-        return contains(asset.getName(), filter)
-                || contains(asset.getCategory(), filter)
-                || contains(asset.getId(), filter)
-                || contains(asset.getKind() == null ? null : asset.getKind().name(), filter);
-    }
 
     private boolean contains(String value, String filter) {
         return value != null && value.toLowerCase().contains(filter);
@@ -1494,6 +2182,7 @@ public class MapEditorPane extends BorderPane {
             refreshTerrainForm();
             refreshWallForm();
             refreshFogForm();
+            refreshGridForm();
             refreshLayerList();
         }
     }
@@ -1507,6 +2196,7 @@ public class MapEditorPane extends BorderPane {
             refreshTerrainForm();
             refreshWallForm();
             refreshFogForm();
+            refreshGridForm();
             refreshLayerList();
         }
     }

@@ -1,15 +1,13 @@
-import React, { useRef, useCallback, useState, useMemo } from 'react';
+import React, { useRef, useCallback, useState, useMemo, useEffect } from 'react';
 import {
     Stage, Layer, Rect, Line, Circle, Text, Group, Image as KonvaImage,
 } from 'react-konva';
 import { useGameStore } from '../store/gameStore';
-import type { TokenDto, MapObjectDto, GridConfig } from '../types/types';
+import type { TokenDto, MapObjectDto, GridConfig, MicroLocationDto } from '../types/types';
 import { wsClient } from '../net/wsClient';
 import useImage from '../hooks/useImage';
 import type Konva from 'konva';
 import { normalizeAssetUrl } from '../utils/assetUrl';
-
-export const SERVER_BASE = 'http://localhost:8080';
 
 function useRemoteImage(imageUrl: string | null) {
     return useImage(normalizeAssetUrl(imageUrl, wsClient.getServerBaseUrl()));
@@ -35,6 +33,30 @@ function getBool(v: any, def = false): boolean {
 function getNum(v: any, def = 0): number {
     const n = typeof v === 'number' ? v : Number(v);
     return Number.isFinite(n) ? n : def;
+}
+
+function isNightMode(fogSettings: unknown): boolean {
+    const fog = asMap(fogSettings);
+    if (!fog) return false;
+
+    const mode = fog.timeOfDay ?? fog.dayNight ?? fog.mode;
+    if (typeof mode === 'string') {
+        const normalized = mode.trim().toLowerCase();
+        if (normalized === 'night' || normalized === 'dark') return true;
+        if (normalized === 'day' || normalized === 'light') return false;
+    }
+
+    return getBool(fog.nightMode ?? fog.isNightMode ?? fog.night ?? fog.isNight ?? fog.darkness, false);
+}
+
+function resolveVisionRadius(token: TokenDto, fogSettings: unknown): number {
+    const fog = asMap(fogSettings);
+    const fallback = fog ? Math.max(0, Math.floor(getNum(fog.revealRadius, 6))) : 6;
+    const night = isNightMode(fogSettings);
+    const preferred = night ? getNum(token.nightVision, 0) : getNum(token.dayVision, 0);
+    const alternate = night ? getNum(token.dayVision, 0) : getNum(token.nightVision, 0);
+    const radius = preferred > 0 ? preferred : (alternate > 0 ? alternate : fallback);
+    return Math.max(0, Math.floor(radius));
 }
 
 function asMap(v: any): AnyMap | null {
@@ -142,7 +164,6 @@ function computeVisibleCells(grid: GridConfig, tokens: Record<string, TokenDto>,
     const fog = asMap(fogSettings);
     const enabled = fog ? getBool(fog.enabled, true) : true;
     const revealFromTokens = fog ? getBool(fog.revealFromTokens, true) : true;
-    const revealRadius = fog ? Math.max(0, Math.floor(getNum(fog.revealRadius, 6))) : 6;
     const blockers = buildBlockedCells(grid, terrainLayer, wallLayer, objects, true);
     const visible = Array.from({ length: grid.rows }, () => Array<boolean>(grid.cols).fill(!enabled));
 
@@ -151,11 +172,13 @@ function computeVisibleCells(grid: GridConfig, tokens: Record<string, TokenDto>,
     const sources = Object.values(tokens).filter((t) => revealFromTokens && (t.ownerId != null));
     if (sources.length === 0) return visible;
 
-    const radiusSq = revealRadius * revealRadius;
     for (const source of sources) {
         const gs = Math.max(1, source.gridSize ?? 1);
         const sx = source.col + Math.floor(gs / 2);
         const sy = source.row + Math.floor(gs / 2);
+        const revealRadius = resolveVisionRadius(source, fogSettings);
+        if (revealRadius <= 0) continue;
+        const radiusSq = revealRadius * revealRadius;
         for (let row = Math.max(0, sy - revealRadius); row <= Math.min(grid.rows - 1, sy + revealRadius); row++) {
             for (let col = Math.max(0, sx - revealRadius); col <= Math.min(grid.cols - 1, sx + revealRadius); col++) {
                 const dx = col - sx, dy = row - sy;
@@ -175,6 +198,77 @@ function hasLineOfSight(x0: number, y0: number, x1: number, y1: number, blocked:
         if (cell.row >= 0 && cell.row < blocked.length && cell.col >= 0 && cell.col < blocked[cell.row].length && blocked[cell.row][cell.col]) return false;
     }
     return true;
+}
+
+function cellKey(row: number, col: number): string {
+    return `${row}:${col}`;
+}
+
+function isAnyCellVisible(visible: boolean[][], col: number, row: number, width: number, height: number) {
+    for (let r = row; r < row + height; r++) {
+        if (r < 0 || r >= visible.length) continue;
+        for (let c = col; c < col + width; c++) {
+            if (c < 0 || c >= visible[r].length) continue;
+            if (visible[r][c]) return true;
+        }
+    }
+    return false;
+}
+
+function isAnyCellExplored(explored: Set<string>, col: number, row: number, width: number, height: number) {
+    for (let r = row; r < row + height; r++) {
+        for (let c = col; c < col + width; c++) {
+            if (explored.has(cellKey(r, c))) return true;
+        }
+    }
+    return false;
+}
+
+function findMicroLocationIdAtCell(microLocations: MicroLocationDto[], col: number, row: number): string | null {
+    for (const zone of microLocations) {
+        if (!zone) continue;
+        const w = Math.max(1, zone.width ?? 1);
+        const h = Math.max(1, zone.height ?? 1);
+        if (col >= zone.col && col < zone.col + w && row >= zone.row && row < zone.row + h) {
+            return zone.id;
+        }
+    }
+    return null;
+}
+
+function findMicroLocationIdForToken(token: TokenDto, microLocations: MicroLocationDto[]): string | null {
+    const gs = Math.max(1, token.gridSize ?? 1);
+    for (let r = token.row; r < token.row + gs; r++) {
+        for (let c = token.col; c < token.col + gs; c++) {
+            const zoneId = findMicroLocationIdAtCell(microLocations, c, r);
+            if (zoneId) return zoneId;
+        }
+    }
+    return null;
+}
+
+function getActiveMicroLocationId(tokens: Record<string, TokenDto>, microLocations: MicroLocationDto[], myPlayerId: string | null): string | null {
+    if (!myPlayerId) return null;
+    for (const token of Object.values(tokens)) {
+        if (token.ownerId !== myPlayerId) continue;
+        const zoneId = findMicroLocationIdForToken(token, microLocations);
+        if (zoneId) return zoneId;
+    }
+    return null;
+}
+
+function shouldRenderScene(entityZoneId: string | null, activeZoneId: string | null, isDm: boolean) {
+    if (isDm) return true;
+    if (!activeZoneId) return !entityZoneId;
+    return entityZoneId === activeZoneId;
+}
+
+function cloneToken(token: TokenDto): TokenDto {
+    return { ...token };
+}
+
+function cloneObject(obj: MapObjectDto): MapObjectDto {
+    return { ...obj };
 }
 
 // ================================================================ TokenShape
@@ -361,7 +455,7 @@ ObjectShape.displayName = 'ObjectShape';
 // ================================================================ BattleMap
 
 const BattleMap: React.FC = () => {
-    const { grid, tokens, objects, myPlayerId, backgroundUrl, players, terrainLayer, wallLayer, fogSettings } = useGameStore();
+    const { grid, tokens, objects, myPlayerId, backgroundUrl, players, terrainLayer, wallLayer, fogSettings, microLocations } = useGameStore();
     const stageRef = useRef<Konva.Stage>(null);
 
     // FIX: use a React state for stageDraggable so JSX prop stays in sync
@@ -379,6 +473,109 @@ const BattleMap: React.FC = () => {
         }
         return computeVisibleCells(grid, tokens, myPlayerId, fogSettings, terrainLayer, wallLayer, objects);
     }, [grid, tokens, myPlayerId, fogSettings, terrainLayer, wallLayer, objects, isDm]);
+
+    const fogEnabled = !isDm && visibleCells !== null;
+    const retainExploredCells = useMemo(() => {
+        const fog = fogSettings && typeof fogSettings === 'object' ? (fogSettings as Record<string, any>) : null;
+        return fog ? Boolean(fog.retainExploredCells ?? true) : true;
+    }, [fogSettings]);
+
+    const activeMicroLocationId = useMemo(() => getActiveMicroLocationId(tokens, microLocations, myPlayerId), [tokens, microLocations, myPlayerId]);
+
+    const fogMemoryRef = useRef<{
+        explored: Set<string>;
+        tokens: Record<string, TokenDto>;
+        objects: Record<string, MapObjectDto>;
+    }>({ explored: new Set<string>(), tokens: {}, objects: {} });
+
+    useEffect(() => {
+        fogMemoryRef.current = { explored: new Set<string>(), tokens: {}, objects: {} };
+    }, [backgroundUrl, grid?.cols, grid?.rows, terrainLayer, wallLayer, fogSettings]);
+
+    useEffect(() => {
+        if (!fogEnabled || !grid || !visibleCells) return;
+        const memory = fogMemoryRef.current;
+        if (!retainExploredCells) {
+            memory.explored.clear();
+            memory.tokens = {};
+            memory.objects = {};
+        }
+        for (let r = 0; r < visibleCells.length; r++) {
+            for (let c = 0; c < visibleCells[r].length; c++) {
+                if (visibleCells[r][c]) memory.explored.add(cellKey(r, c));
+            }
+        }
+        Object.values(tokens).forEach((token) => {
+            const gs = Math.max(1, token.gridSize ?? 1);
+            if (isAnyCellVisible(visibleCells, token.col, token.row, gs, gs)) {
+                memory.tokens[token.id] = cloneToken(token);
+            }
+        });
+        Object.values(objects).forEach((obj) => {
+            const w = Math.max(1, obj.width ?? 1);
+            const h = Math.max(1, obj.height ?? 1);
+            if (isAnyCellVisible(visibleCells, obj.col, obj.row, w, h)) {
+                memory.objects[obj.id] = cloneObject(obj);
+            }
+        });
+    }, [fogEnabled, grid, visibleCells, tokens, objects, retainExploredCells]);
+
+    const fogExplored = retainExploredCells ? fogMemoryRef.current.explored : new Set<string>();
+
+    const renderObjects = useMemo(() => {
+        const allObjects = Object.values(objects).filter((obj) => shouldRenderScene(obj.microLocationId ?? null, activeMicroLocationId, isDm));
+        if (!fogEnabled || !visibleCells) return allObjects;
+        if (!retainExploredCells) {
+            return allObjects.filter((obj) => {
+                const w = Math.max(1, obj.width ?? 1);
+                const h = Math.max(1, obj.height ?? 1);
+                return isAnyCellVisible(visibleCells, obj.col, obj.row, w, h);
+            });
+        }
+        const memory = fogMemoryRef.current.objects;
+        const result: MapObjectDto[] = [];
+        allObjects.forEach((obj) => {
+            const w = Math.max(1, obj.width ?? 1);
+            const h = Math.max(1, obj.height ?? 1);
+            if (isAnyCellVisible(visibleCells, obj.col, obj.row, w, h)) {
+                result.push(obj);
+                return;
+            }
+            const snap = memory[obj.id];
+            if (snap && isAnyCellExplored(fogExplored, snap.col, snap.row, w, h)) {
+                result.push(snap);
+            }
+        });
+        return result;
+    }, [objects, visibleCells, fogEnabled, fogExplored, retainExploredCells, activeMicroLocationId, isDm]);
+
+    const renderTokens = useMemo(() => {
+        const sceneTokens = Object.values(tokens).filter((token) => {
+            const zoneId = findMicroLocationIdForToken(token, microLocations);
+            return shouldRenderScene(zoneId, activeMicroLocationId, isDm);
+        });
+        if (!fogEnabled || !visibleCells) return sceneTokens;
+        if (!retainExploredCells) {
+            return sceneTokens.filter((token) => {
+                const gs = Math.max(1, token.gridSize ?? 1);
+                return isAnyCellVisible(visibleCells, token.col, token.row, gs, gs);
+            });
+        }
+        const memory = fogMemoryRef.current.tokens;
+        const result: TokenDto[] = [];
+        sceneTokens.forEach((token) => {
+            const gs = Math.max(1, token.gridSize ?? 1);
+            if (isAnyCellVisible(visibleCells, token.col, token.row, gs, gs)) {
+                result.push(token);
+                return;
+            }
+            const snap = memory[token.id];
+            if (snap && isAnyCellExplored(fogExplored, snap.col, snap.row, gs, gs)) {
+                result.push(snap);
+            }
+        });
+        return result;
+    }, [tokens, microLocations, visibleCells, fogEnabled, fogExplored, retainExploredCells, activeMicroLocationId, isDm]);
 
     // FIX: set React state, not imperative Konva call, so re-renders respect it
     const handleTokenDragStart = useCallback(() => {
@@ -558,9 +755,7 @@ const BattleMap: React.FC = () => {
                         const thickness = Math.max(1.5, getNum(path?.thickness, 2.5));
                         return <Line key={`wall-${idx}`} points={flat} stroke={path?.blocksSight === false ? 'rgba(189,195,199,0.75)' : 'rgba(236,240,241,0.85)'} strokeWidth={thickness} lineCap="round" lineJoin="round" listening={false} />;
                     })}
-                    {visibleCells && visibleCells.map((row, r) => row.map((v, c) => v ? null : (
-                        <Rect key={`fog-${r}-${c}`} x={grid.offsetX + c * grid.cellSize} y={grid.offsetY + r * grid.cellSize} width={grid.cellSize} height={grid.cellSize} fill="rgba(0,0,0,0.55)" listening={false} />
-                    )))}
+                    {/* Unseen cells are left as the base map; explored memory is restored via token/object snapshots. */}
                 </Layer>
 
                 {/* Grid */}
@@ -568,7 +763,7 @@ const BattleMap: React.FC = () => {
 
                 {/* Objects */}
                 <Layer>
-                    {Object.values(objects).map((obj: MapObjectDto) => (
+                    {renderObjects.map((obj: MapObjectDto) => (
                         <ObjectShape
                             key={obj.id}
                             obj={obj}
@@ -581,7 +776,7 @@ const BattleMap: React.FC = () => {
 
                 {/* Tokens */}
                 <Layer>
-                    {Object.values(tokens).map((token: TokenDto) => (
+                    {renderTokens.map((token: TokenDto) => (
                         <TokenShape
                             key={token.id}
                             token={token}

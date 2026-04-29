@@ -11,7 +11,10 @@ public class EditorState {
     public static final String PROP_PROJECT = "project";
     public static final String PROP_ACTIVE_TOOL = "activeTool";
     public static final String PROP_SELECTED_ASSET = "selectedAsset";
+    public static final String PROP_SELECTED_TOKEN_ASSET = "selectedTokenAsset";
+    public static final String PROP_SELECTED_OBJECT_ASSET = "selectedObjectAsset";
     public static final String PROP_SELECTED_PLACEMENT = "selectedPlacement";
+    public static final String PROP_SELECTED_MICRO_LOCATION = "selectedMicroLocation";
     public static final String PROP_SELECTED_LAYER = "selectedLayer";
     public static final String PROP_SELECTED_WALL = "selectedWall";
     public static final String PROP_SELECTED_WALL_VERTEX = "selectedWallVertex";
@@ -27,8 +30,11 @@ public class EditorState {
     private Tool activeTool;
 
     private String selectedAssetId;
+    private String selectedTokenAssetId;
+    private String selectedObjectAssetId;
     private String selectedPlacementId;
     private String selectedLayerId;
+    private String selectedMicroLocationId;
     private String selectedWallPathId;
     private int selectedWallVertexIndex = -1;
 
@@ -64,6 +70,7 @@ public class EditorState {
             }
         }
         clearSelection();
+        setSelectedMicroLocationId(null);
         history.clear();
         pcs.firePropertyChange(PROP_PROJECT, old, project);
         pcs.firePropertyChange(PROP_SELECTED_LAYER, null, selectedLayerId);
@@ -87,6 +94,7 @@ public class EditorState {
             }
         }
         clearSelection();
+        setSelectedMicroLocationId(null);
         pcs.firePropertyChange(PROP_PROJECT, null, project);
         pcs.firePropertyChange(PROP_HISTORY, null, project);
         return true;
@@ -105,6 +113,7 @@ public class EditorState {
             }
         }
         clearSelection();
+        setSelectedMicroLocationId(null);
         pcs.firePropertyChange(PROP_PROJECT, null, project);
         pcs.firePropertyChange(PROP_HISTORY, null, project);
         return true;
@@ -128,6 +137,27 @@ public class EditorState {
         pcs.firePropertyChange(PROP_SELECTED_ASSET, old, selectedAssetId);
     }
 
+    public String getSelectedTokenAssetId() { return selectedTokenAssetId; }
+    public String getSelectedObjectAssetId() { return selectedObjectAssetId; }
+
+    public void setSelectedTokenAssetId(String selectedTokenAssetId) {
+        String old = this.selectedTokenAssetId;
+        this.selectedTokenAssetId = selectedTokenAssetId;
+        if (selectedTokenAssetId != null) {
+            setSelectedAssetId(selectedTokenAssetId);
+        }
+        pcs.firePropertyChange(PROP_SELECTED_TOKEN_ASSET, old, selectedTokenAssetId);
+    }
+
+    public void setSelectedObjectAssetId(String selectedObjectAssetId) {
+        String old = this.selectedObjectAssetId;
+        this.selectedObjectAssetId = selectedObjectAssetId;
+        if (selectedObjectAssetId != null) {
+            setSelectedAssetId(selectedObjectAssetId);
+        }
+        pcs.firePropertyChange(PROP_SELECTED_OBJECT_ASSET, old, selectedObjectAssetId);
+    }
+
     public String getSelectedPlacementId() { return selectedPlacementId; }
     public void setSelectedPlacementId(String selectedPlacementId) {
         String old = this.selectedPlacementId;
@@ -146,6 +176,13 @@ public class EditorState {
         String old = this.selectedLayerId;
         this.selectedLayerId = selectedLayerId;
         pcs.firePropertyChange(PROP_SELECTED_LAYER, old, selectedLayerId);
+    }
+
+    public String getSelectedMicroLocationId() { return selectedMicroLocationId; }
+    public void setSelectedMicroLocationId(String selectedMicroLocationId) {
+        String old = this.selectedMicroLocationId;
+        this.selectedMicroLocationId = selectedMicroLocationId;
+        pcs.firePropertyChange(PROP_SELECTED_MICRO_LOCATION, old, selectedMicroLocationId);
     }
 
     public double getViewOffsetX() { return viewOffsetX; }
@@ -191,6 +228,7 @@ public class EditorState {
 
     public void clearSelection() {
         setSelectedPlacementId(null);
+        setSelectedMicroLocationId(null);
         setSelectedWallPathId(null);
         setSelectedWallVertexIndex(-1);
     }
@@ -202,6 +240,16 @@ public class EditorState {
 
     public void selectAsset(String assetId) {
         setSelectedAssetId(assetId);
+        this.selectedTokenAssetId = null;
+        this.selectedObjectAssetId = null;
+    }
+
+    public void selectTokenAsset(String assetId) {
+        setSelectedTokenAssetId(assetId);
+    }
+
+    public void selectObjectAsset(String assetId) {
+        setSelectedObjectAssetId(assetId);
     }
 
     public void selectLayer(String layerId) {
@@ -279,6 +327,16 @@ public class EditorState {
     public AssetDefinition selectedAsset() {
         if (assetCatalog == null || selectedAssetId == null) return null;
         return assetCatalog.findById(selectedAssetId).orElse(null);
+    }
+
+    public AssetDefinition selectedTokenAsset() {
+        if (assetCatalog == null || selectedTokenAssetId == null) return null;
+        return assetCatalog.findById(selectedTokenAssetId).orElse(null);
+    }
+
+    public AssetDefinition selectedObjectAsset() {
+        if (assetCatalog == null || selectedObjectAssetId == null) return null;
+        return assetCatalog.findById(selectedObjectAssetId).orElse(null);
     }
 
     public MapPlacement selectedPlacement() {

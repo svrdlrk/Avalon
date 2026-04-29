@@ -18,6 +18,7 @@ public class SessionStateDto {
     private Object terrainLayer;
     private Object wallLayer;
     private Object fogSettings;
+    private List<MicroLocationDto> microLocations = new ArrayList<>();
     private List<String> assetPackIds = new ArrayList<>();
 
     public SessionStateDto() {}
@@ -28,7 +29,7 @@ public class SessionStateDto {
                            List<PlayerDto> players,
                            List<MapObjectDto> objects,
                            String backgroundUrl) {
-        this(myPlayerId, grid, tokens, players, objects, backgroundUrl, null, null, null, null, null, null);
+        this(myPlayerId, grid, tokens, players, objects, backgroundUrl, null, null, null, null, null, null, null);
     }
 
     public SessionStateDto(String myPlayerId,
@@ -38,7 +39,7 @@ public class SessionStateDto {
                            List<MapObjectDto> objects,
                            String backgroundUrl,
                            InitiativeStateDto initiative) {
-        this(myPlayerId, grid, tokens, players, objects, backgroundUrl, initiative, null, null, null, null, null);
+        this(myPlayerId, grid, tokens, players, objects, backgroundUrl, initiative, null, null, null, null, null, null);
     }
 
     public SessionStateDto(String myPlayerId,
@@ -52,6 +53,7 @@ public class SessionStateDto {
                            Object terrainLayer,
                            Object wallLayer,
                            Object fogSettings,
+                           List<MicroLocationDto> microLocations,
                            List<String> assetPackIds) {
         this.myPlayerId = myPlayerId;
         this.grid = grid;
@@ -64,6 +66,7 @@ public class SessionStateDto {
         this.terrainLayer = terrainLayer;
         this.wallLayer = wallLayer;
         this.fogSettings = fogSettings;
+        setMicroLocations(microLocations);
         setAssetPackIds(assetPackIds);
     }
 
@@ -78,6 +81,7 @@ public class SessionStateDto {
     public Object getTerrainLayer() { return terrainLayer; }
     public Object getWallLayer() { return wallLayer; }
     public Object getFogSettings() { return fogSettings; }
+    public List<MicroLocationDto> getMicroLocations() { return microLocations; }
     public List<String> getAssetPackIds() { return assetPackIds; }
 
     public void setMyPlayerId(String v) { this.myPlayerId = v; }
@@ -91,6 +95,10 @@ public class SessionStateDto {
     public void setTerrainLayer(Object v) { this.terrainLayer = v; }
     public void setWallLayer(Object v) { this.wallLayer = v; }
     public void setFogSettings(Object v) { this.fogSettings = v; }
+    public void setMicroLocations(List<MicroLocationDto> microLocations) {
+        this.microLocations.clear();
+        if (microLocations != null) this.microLocations.addAll(microLocations);
+    }
     public void setAssetPackIds(List<String> assetPackIds) {
         this.assetPackIds.clear();
         if (assetPackIds != null) this.assetPackIds.addAll(assetPackIds);

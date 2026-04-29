@@ -70,6 +70,8 @@ public class SessionSnapshot {
         public String imageUrl;
         public boolean blocksMovement;
         public boolean blocksSight;
+        public int dayVision;
+        public int nightVision;
 
         public TokenSnapshot() {}
 
@@ -85,6 +87,8 @@ public class SessionSnapshot {
             s.maxHp = t.getMaxHp();
             s.gridSize = t.getGridSize();
             s.imageUrl = t.getImageUrl();
+            s.dayVision = t.getDayVision();
+            s.nightVision = t.getNightVision();
             return s;
         }
 
@@ -94,6 +98,8 @@ public class SessionSnapshot {
             t.setMaxHp(maxHp);
             t.setGridSize(gridSize);
             t.setImageUrl(imageUrl);
+            t.setDayVision(dayVision);
+            t.setNightVision(nightVision);
             return t;
         }
     }
@@ -111,6 +117,8 @@ public class SessionSnapshot {
         public String imageUrl;
         public boolean blocksMovement;
         public boolean blocksSight;
+        public int dayVision;
+        public int nightVision;
 
         public MapObjectSnapshot() {}
 

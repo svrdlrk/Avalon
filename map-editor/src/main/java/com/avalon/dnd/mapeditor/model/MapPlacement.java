@@ -18,6 +18,9 @@ public class MapPlacement {
     private boolean blocksMovement;
     private boolean blocksSight;
     private String imageUrl;
+    private String microLocationId;
+    private int dayVision;
+    private int nightVision;
 
     private boolean selected;
     private boolean locked;
@@ -47,6 +50,8 @@ public class MapPlacement {
         if (asset.getKind() == PlacementKind.TOKEN || asset.getKind() == PlacementKind.SPAWN) {
             int size = Math.max(asset.getWidth(), asset.getHeight());
             p.setGridSize(size);
+            p.setDayVision(asset.getDayVision());
+            p.setNightVision(asset.getNightVision());
         } else {
             p.setWidth(asset.getWidth());
             p.setHeight(asset.getHeight());
@@ -73,6 +78,9 @@ public class MapPlacement {
         copy.blocksMovement = this.blocksMovement;
         copy.blocksSight = this.blocksSight;
         copy.imageUrl = this.imageUrl;
+        copy.microLocationId = this.microLocationId;
+        copy.dayVision = this.dayVision;
+        copy.nightVision = this.nightVision;
         copy.selected = this.selected;
         copy.locked = this.locked;
         copy.ownerId = this.ownerId;
@@ -112,6 +120,9 @@ public class MapPlacement {
     public boolean isBlocksMovement() { return blocksMovement; }
     public boolean isBlocksSight() { return blocksSight; }
     public String getImageUrl() { return imageUrl; }
+    public String getMicroLocationId() { return microLocationId; }
+    public int getDayVision() { return dayVision; }
+    public int getNightVision() { return nightVision; }
     public boolean isSelected() { return selected; }
     public boolean isLocked() { return locked; }
     public String getOwnerId() { return ownerId; }
@@ -159,6 +170,9 @@ public class MapPlacement {
     public void setBlocksMovement(boolean blocksMovement) { this.blocksMovement = blocksMovement; }
     public void setBlocksSight(boolean blocksSight) { this.blocksSight = blocksSight; }
     public void setImageUrl(String imageUrl) { this.imageUrl = imageUrl; }
+    public void setMicroLocationId(String microLocationId) { this.microLocationId = microLocationId; }
+    public void setDayVision(int dayVision) { this.dayVision = Math.max(0, dayVision); }
+    public void setNightVision(int nightVision) { this.nightVision = Math.max(0, nightVision); }
     public void setSelected(boolean selected) { this.selected = selected; }
     public void setLocked(boolean locked) { this.locked = locked; }
     public void setOwnerId(String ownerId) { this.ownerId = ownerId; }

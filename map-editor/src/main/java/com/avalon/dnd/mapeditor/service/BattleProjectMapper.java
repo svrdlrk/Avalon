@@ -9,6 +9,7 @@ import com.avalon.dnd.mapeditor.model.ReferenceOverlayLayer;
 import com.avalon.dnd.mapeditor.model.TerrainLayer;
 import com.avalon.dnd.mapeditor.model.WallLayer;
 import com.avalon.dnd.shared.GridConfig;
+import com.avalon.dnd.shared.MicroLocationDto;
 
 import java.util.ArrayList;
 
@@ -31,6 +32,7 @@ public final class BattleProjectMapper {
         dto.setTerrainLayer(copyTerrain(project.getTerrainLayer()));
         dto.setWallLayer(copyWall(project.getWallLayer()));
         dto.setFogSettings(copyFog(project.getFogSettings()));
+        dto.setMicroLocations(new ArrayList<>(project.getMicroLocations()));
         dto.setAssetPackIds(new ArrayList<>(project.getAssetPackIds()));
 
         ArrayList<MapLayer> layers = new ArrayList<>();
@@ -60,6 +62,7 @@ public final class BattleProjectMapper {
         project.setTerrainLayer(copyTerrain(dto.getTerrainLayer()));
         project.setWallLayer(copyWall(dto.getWallLayer()));
         project.setFogSettings(copyFog(dto.getFogSettings()));
+        project.setMicroLocations(dto.getMicroLocations());
         project.setAssetPackIds(dto.getAssetPackIds());
 
         project.mutableLayers().clear();

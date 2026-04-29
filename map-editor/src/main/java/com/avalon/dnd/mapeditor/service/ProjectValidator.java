@@ -1,5 +1,4 @@
 package com.avalon.dnd.mapeditor.service;
-
 import com.avalon.dnd.mapeditor.model.AssetCatalog;
 import com.avalon.dnd.mapeditor.model.MapLayer;
 import com.avalon.dnd.mapeditor.model.MapPlacement;

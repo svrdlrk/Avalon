@@ -198,7 +198,7 @@ public final class AssetCatalogLoader {
 
             manifests.sort(Comparator.comparing(Path::toString));
             for (Path manifest : manifests) {
-                mergeInto(catalog, loadFromJson(manifest));
+                mergeInto(catalog, loadManifest(manifest));
             }
 
             images.sort(Comparator.comparing(Path::toString));
@@ -209,6 +209,178 @@ public final class AssetCatalogLoader {
         }
 
         return catalog;
+    }
+
+    private static AssetCatalog loadManifest(Path jsonPath) {
+        try {
+            JsonNode root = MAPPER.readTree(Files.newInputStream(jsonPath));
+            if (root != null && root.isObject() && root.has("folders")) {
+                return loadFromFolderManifest(jsonPath, root);
+            }
+            return loadFromJson(jsonPath);
+        } catch (Exception ignored) {
+            return new AssetCatalog();
+        }
+    }
+
+    private static AssetCatalog loadFromFolderManifest(Path jsonPath, JsonNode manifestRoot) throws IOException {
+        AssetCatalog catalog = new AssetCatalog();
+        Path baseDir = jsonPath.getParent();
+
+        Map<String, String> names = new HashMap<>();
+        if (baseDir != null && Files.isDirectory(baseDir)) {
+            collectNamesFromDirectory(baseDir, names);
+        }
+        collectNames(manifestRoot, names);
+
+        JsonNode defaults = manifestRoot.path("defaults");
+        JsonNode folders = manifestRoot.path("folders");
+        if (folders != null && folders.isArray()) {
+            for (JsonNode folderNode : folders) {
+                if (folderNode == null || folderNode.isNull() || !folderNode.isObject()) {
+                    continue;
+                }
+                String folderPath = firstText(folderNode, "path", "folder", "name", "directory");
+                if (folderPath == null || folderPath.isBlank()) {
+                    continue;
+                }
+                Path resolvedFolder = resolveRelativePath(folderPath, baseDir);
+                if (resolvedFolder == null || !Files.exists(resolvedFolder)) {
+                    continue;
+                }
+
+                try (Stream<Path> walk = Files.walk(resolvedFolder)) {
+                    walk.filter(Files::isRegularFile)
+                            .filter(AssetCatalogLoader::isImageFile)
+                            .forEach(image -> {
+                                AssetDefinition asset = fromFolderImage(baseDir, image, names, defaults, folderNode);
+                                addIfMissing(catalog, asset);
+                            });
+                }
+            }
+        }
+
+        if (catalog.getAssets().isEmpty() && baseDir != null && Files.isDirectory(baseDir)) {
+            try (Stream<Path> walk = Files.walk(baseDir)) {
+                walk.filter(Files::isRegularFile)
+                        .filter(AssetCatalogLoader::isImageFile)
+                        .forEach(image -> addIfMissing(catalog, fromImageFile(baseDir, image, toWebUrl(image), names)));
+            }
+        }
+
+        return catalog;
+    }
+
+    private static AssetDefinition fromFolderImage(Path baseDir,
+                                                   Path image,
+                                                   Map<String, String> names,
+                                                   JsonNode defaults,
+                                                   JsonNode folderNode) {
+        String imageUrl = toWebUrl(image);
+        String category = relativeCategory(baseDir, image);
+        if (category == null || category.isBlank()) {
+            String folderCategory = firstText(folderNode, "category");
+            if (folderCategory != null && !folderCategory.isBlank()) {
+                category = normalizeCategoryPath(folderCategory);
+            }
+        }
+
+        String fileName = image.getFileName().toString();
+        String baseName = stripExtension(fileName);
+        String name = resolveName(null, baseName, imageUrl, names);
+        if (name == null) {
+            name = humanize(baseName);
+        }
+
+        PlacementKind kind = parseKind(folderNode, category, name, imageUrl);
+        int[] size = readFolderSize(folderNode, defaults);
+        boolean blocksMovement = readFolderBoolean(folderNode, defaults, kind == PlacementKind.WALL || kind == PlacementKind.DOOR,
+                "blocksMovement", "blocksMove", "movementBlock", "solid");
+        boolean blocksSight = readFolderBoolean(folderNode, defaults, blocksMovement,
+                "blocksSight", "blocksVision", "visionBlock", "opaque");
+
+        if ((kind == PlacementKind.TOKEN || kind == PlacementKind.SPAWN) && size[0] == 1 && size[1] == 1) {
+            int inferred = inferGridSizeFromPath(baseDir, imageUrl);
+            if (inferred > 1) {
+                size = new int[] { inferred, inferred };
+            }
+        }
+
+        String idPrefix = category == null || category.isBlank() ? "asset" : category;
+        String id = toId(idPrefix + "-" + baseName + "-" + lastPathSegment(imageUrl));
+        if (id.isBlank()) {
+            id = toId(imageUrl);
+        }
+
+        return new AssetDefinition(id, name, category, imageUrl, size[0], size[1], blocksMovement, blocksSight, kind);
+    }
+
+    private static int[] readFolderSize(JsonNode folderNode, JsonNode defaults) {
+        int defaultWidth = readDimension(defaults, 1, "defaultWidth", "width", "w", "sizeX", "gridWidth", "tileWidth", "cellWidth");
+        int defaultHeight = readDimension(defaults, 1, "defaultHeight", "height", "h", "sizeY", "gridHeight", "tileHeight", "cellHeight");
+        int width = readDimension(folderNode, defaultWidth, "defaultWidth", "width", "w", "sizeX", "gridWidth", "tileWidth", "cellWidth");
+        int height = readDimension(folderNode, defaultHeight, "defaultHeight", "height", "h", "sizeY", "gridHeight", "tileHeight", "cellHeight");
+        int gridSize = readDimension(folderNode, readDimension(defaults, 1, "gridSize", "grid", "size"), "gridSize", "grid", "size");
+        if (width <= 1 && height <= 1 && gridSize > 1) {
+            width = gridSize;
+            height = gridSize;
+        }
+        return new int[] { Math.max(1, width), Math.max(1, height) };
+    }
+
+    private static int readFolderInt(JsonNode folderNode, JsonNode defaults, int defaultValue, String... fields) {
+        if (hasAnyField(folderNode, fields)) {
+            return readDimension(folderNode, defaultValue, fields);
+        }
+        if (hasAnyField(defaults, fields)) {
+            return readDimension(defaults, defaultValue, fields);
+        }
+        return defaultValue;
+    }
+
+    private static boolean readFolderBoolean(JsonNode folderNode, JsonNode defaults, boolean defaultValue, String... fields) {
+        if (hasAnyField(folderNode, fields)) {
+            return readBoolean(folderNode, defaultValue, fields);
+        }
+        if (hasAnyField(defaults, fields)) {
+            return readBoolean(defaults, defaultValue, fields);
+        }
+        return defaultValue;
+    }
+
+    private static boolean hasAnyField(JsonNode node, String... fields) {
+        if (node == null) return false;
+        for (String field : fields) {
+            JsonNode value = node.get(field);
+            if (value != null && !value.isNull()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String normalizeCategoryPath(String category) {
+        if (category == null) return null;
+        return category.replace('\\', '/').replaceAll("^/+", "").replaceAll("/+$", "").toLowerCase(Locale.ROOT);
+    }
+
+    private static String relativeCategory(Path baseDir, Path image) {
+        if (baseDir != null && image != null) {
+            try {
+                Path normalizedBase = baseDir.toAbsolutePath().normalize();
+                Path normalizedImage = image.toAbsolutePath().normalize();
+                Path parent = normalizedImage.getParent();
+                if (parent != null && parent.startsWith(normalizedBase)) {
+                    Path relative = normalizedBase.relativize(parent);
+                    String text = relative.toString().replace('\\', '/').trim();
+                    if (!text.isBlank()) {
+                        return text.toLowerCase(Locale.ROOT);
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        return deriveCategory(baseDir, image == null ? null : image.toString());
     }
 
     public static AssetCatalog scanZip(Path zipPath) {
@@ -238,7 +410,7 @@ public final class AssetCatalogLoader {
 
             manifests.sort(Comparator.comparing(Path::toString));
             for (Path manifest : manifests) {
-                mergeInto(catalog, loadFromJson(manifest));
+                mergeInto(catalog, loadManifest(manifest));
             }
 
             images.sort(Comparator.comparing(Path::toString));
@@ -268,7 +440,10 @@ public final class AssetCatalogLoader {
         if (inferred > 0 && size[0] == 1 && size[1] == 1) {
             size = new int[] { inferred, inferred };
         }
-        String category = deriveCategory(root, imageUrl);
+        String category = relativeCategory(root, image);
+        if (category == null || category.isBlank()) {
+            category = deriveCategory(root, imageUrl);
+        }
         PlacementKind kind = inferKind(baseName, category);
         boolean blocksMovement = kind == PlacementKind.WALL || kind == PlacementKind.DOOR
                 || containsAny(baseName, "wall", "fence", "rampart", "door", "hatch");
@@ -277,8 +452,9 @@ public final class AssetCatalogLoader {
         if (name == null) {
             name = humanize(baseName);
         }
+        int[] vision = inferVisionFromPath(root, imageUrl, kind);
         String id = toId((category == null ? "asset" : category) + "-" + baseName);
-        return new AssetDefinition(id, name, category, imageUrl, size[0], size[1], blocksMovement, blocksSight, kind);
+        return new AssetDefinition(id, name, category, imageUrl, size[0], size[1], blocksMovement, blocksSight, kind, vision[0], vision[1]);
     }
 
     private static String toWebUrl(Path file) {
@@ -411,7 +587,7 @@ public final class AssetCatalogLoader {
                 || node.hasNonNull("size") || node.hasNonNull("dimensions");
         boolean hasBehavior = node.hasNonNull("kind") || node.hasNonNull("blocksMovement") || node.hasNonNull("blocksSight")
                 || node.hasNonNull("movementBlock") || node.hasNonNull("visionBlock") || node.hasNonNull("solid") || node.hasNonNull("opaque")
-                || node.hasNonNull("category");
+                || node.hasNonNull("dayVision") || node.hasNonNull("nightVision") || node.hasNonNull("category");
         return hasImage || hasSize || hasBehavior;
     }
 
@@ -474,7 +650,10 @@ public final class AssetCatalogLoader {
             blocksSight = true;
         }
 
-        return new AssetDefinition(id, resolvedName, category, imageUrl, width, height, blocksMovement, blocksSight, kind);
+        int dayVision = readFolderInt(node, node, 0, "dayVision", "visionDay", "visionRadiusDay", "daySight");
+        int nightVision = readFolderInt(node, node, 0, "nightVision", "visionNight", "visionRadiusNight", "nightSight");
+
+        return new AssetDefinition(id, resolvedName, category, imageUrl, width, height, blocksMovement, blocksSight, kind, dayVision, nightVision);
     }
 
     private static String normalizeImageUrl(String imageUrl, Path baseDir) {
@@ -723,7 +902,59 @@ public final class AssetCatalogLoader {
     }
 
     private static String deriveCategory(Path baseDir, String imageUrl) {
+        if (imageUrl != null && !imageUrl.isBlank()) {
+            try {
+                Path resolved = resolveRelativePath(imageUrl, baseDir);
+                if (resolved != null) {
+                    Path normalized = resolved.toAbsolutePath().normalize();
+                    Path parent = normalized.getParent();
+                    if (parent != null) {
+                        if (baseDir != null) {
+                            Path base = baseDir.toAbsolutePath().normalize();
+                            if (parent.startsWith(base)) {
+                                Path rel = base.relativize(parent);
+                                String text = rel.toString().replace('\\', '/').trim();
+                                if (!text.isBlank()) {
+                                    return text.toLowerCase(Locale.ROOT);
+                                }
+                            }
+                        }
+                        String text = parent.toString().replace('\\', '/').trim();
+                        if (!text.isBlank()) {
+                            return text.toLowerCase(Locale.ROOT);
+                        }
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+        }
         return AssetCatalogSupport.deriveCategory(baseDir, imageUrl);
+    }
+
+    private static int[] inferVisionFromPath(Path root, String imageUrl, PlacementKind kind) {
+        boolean tokenLike = kind == PlacementKind.TOKEN || kind == PlacementKind.SPAWN;
+        if (!tokenLike) {
+            return new int[] { 0, 0 };
+        }
+        String probe = ((root == null ? "" : root.toString()) + " " + (imageUrl == null ? "" : imageUrl))
+                .replace('\\', '/')
+                .toLowerCase(Locale.ROOT);
+        boolean players = probe.contains("/players/") || probe.endsWith("/players") || probe.contains("player");
+        boolean creatures = probe.contains("/creatures/") || probe.endsWith("/creatures") || probe.contains("creature");
+        boolean npc = probe.contains("/npc/") || probe.endsWith("/npc") || probe.contains("npc");
+        boolean huge = probe.contains("/huge/") || probe.endsWith("/huge") || probe.contains("huge");
+        boolean large = probe.contains("/large/") || probe.endsWith("/large") || probe.contains("large");
+        boolean medium = probe.contains("/medium/") || probe.endsWith("/medium") || probe.contains("medium");
+        boolean small = probe.contains("/small/") || probe.endsWith("/small") || probe.contains("small");
+
+        if (npc) return new int[] { 6, 3 };
+        if (huge) return players ? new int[] { 12, 6 } : new int[] { 10, 5 };
+        if (large) return players ? new int[] { 10, 5 } : new int[] { 8, 4 };
+        if (medium) return players ? new int[] { 8, 4 } : new int[] { 6, 3 };
+        if (small) return players ? new int[] { 8, 4 } : new int[] { 6, 3 };
+        if (players) return new int[] { 8, 4 };
+        if (creatures) return new int[] { 6, 3 };
+        return new int[] { 6, 3 };
     }
 
     private static PlacementKind inferKind(String baseName, String category) {

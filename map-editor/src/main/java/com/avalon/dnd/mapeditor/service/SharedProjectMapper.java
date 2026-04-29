@@ -6,6 +6,7 @@ import com.avalon.dnd.mapeditor.model.PlacementKind;
 import com.avalon.dnd.shared.GridConfig;
 import com.avalon.dnd.shared.MapLayoutUpdateDto;
 import com.avalon.dnd.shared.MapObjectDto;
+import com.avalon.dnd.shared.MicroLocationDto;
 import com.avalon.dnd.shared.TokenDto;
 
 import java.util.ArrayList;
@@ -30,7 +31,9 @@ public final class SharedProjectMapper {
                         10,
                         10,
                         placement.getGridSize(),
-                        placement.getImageUrl()
+                        placement.getImageUrl(),
+                        placement.getDayVision(),
+                        placement.getNightVision()
                 ));
             } else {
                 objects.add(new MapObjectDto(
@@ -58,6 +61,7 @@ public final class SharedProjectMapper {
                 project.getTerrainLayer(),
                 project.getWallLayer(),
                 project.getFogSettings(),
+                new java.util.ArrayList<>(project.getMicroLocations()),
                 project.getAssetPackIds()
         );
     }
@@ -70,6 +74,7 @@ public final class SharedProjectMapper {
         project.setTerrainLayer(dto.getTerrainLayer() instanceof com.avalon.dnd.mapeditor.model.TerrainLayer tl ? tl : null);
         project.setWallLayer(dto.getWallLayer() instanceof com.avalon.dnd.mapeditor.model.WallLayer wl ? wl : null);
         project.setFogSettings(dto.getFogSettings() instanceof com.avalon.dnd.mapeditor.model.FogSettings fs ? fs : null);
+        project.setMicroLocations(dto.getMicroLocations());
         project.setAssetPackIds(dto.getAssetPackIds());
 
         if (dto.getObjects() != null) {
@@ -87,6 +92,7 @@ public final class SharedProjectMapper {
                 placement.setImageUrl(objectDto.getImageUrl());
                 placement.setBlocksMovement(objectDto.isBlocksMovement());
                 placement.setBlocksSight(objectDto.isBlocksSight());
+                placement.setMicroLocationId(objectDto.getMicroLocationId());
                 project.addPlacement(placement);
             }
         }
@@ -104,6 +110,8 @@ public final class SharedProjectMapper {
                 placement.setWidth(tokenDto.getGridSize());
                 placement.setHeight(tokenDto.getGridSize());
                 placement.setImageUrl(tokenDto.getImageUrl());
+                placement.setDayVision(tokenDto.getDayVision());
+                placement.setNightVision(tokenDto.getNightVision());
                 project.addPlacement(placement);
             }
         }

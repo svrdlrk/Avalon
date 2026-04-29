@@ -2,6 +2,7 @@ package com.avalon.dnd.mapeditor.tool;
 
 import com.avalon.dnd.mapeditor.model.EditorState;
 import com.avalon.dnd.mapeditor.model.MapPlacement;
+import com.avalon.dnd.shared.MicroLocationDto;
 import com.avalon.dnd.mapeditor.model.WallPath;
 import com.avalon.dnd.mapeditor.ui.MapEditorCanvas;
 import com.avalon.dnd.shared.GridConfig;
@@ -20,6 +21,17 @@ public class MoveTool implements Tool {
     private double lastWorldX;
     private double lastWorldY;
 
+    private boolean draggingMicroLocation;
+    private boolean microLocationHistoryRecorded;
+    private String microLocationId;
+    private MapEditorCanvas.MicroLocationHandle microLocationHandle = MapEditorCanvas.MicroLocationHandle.NONE;
+    private int microLocationStartCol;
+    private int microLocationStartRow;
+    private int microLocationStartWidth;
+    private int microLocationStartHeight;
+    private int microLocationGrabOffsetCol;
+    private int microLocationGrabOffsetRow;
+
     @Override
     public String getId() { return "move"; }
 
@@ -37,12 +49,29 @@ public class MoveTool implements Tool {
                 return;
             }
 
+            resetMicroLocationDrag();
             dragging = true;
             historyRecorded = false;
             draggingWall = false;
             wallHistoryRecorded = false;
             grabOffsetCol = cell[0] - hit.getCol();
             grabOffsetRow = cell[1] - hit.getRow();
+            canvas.requestRender();
+            return;
+        }
+
+        MapEditorCanvas.MicroLocationHit microHit = canvas.findMicroLocationHitAt(event.getX(), event.getY());
+        if (microHit != null && microHit.zone != null && !microHit.zone.isLocked()) {
+            state.setSelectedMicroLocationId(microHit.zone.getId());
+            if (microHit.handle != MapEditorCanvas.MicroLocationHandle.NONE) {
+                startMicroLocationResize(microHit.zone, microHit.handle);
+            } else {
+                startMicroLocationDrag(microHit.zone, canvas, event);
+            }
+            dragging = false;
+            historyRecorded = false;
+            draggingWall = false;
+            wallHistoryRecorded = false;
             canvas.requestRender();
             return;
         }
@@ -62,6 +91,7 @@ public class MoveTool implements Tool {
         }
 
         state.selectWallPath(wallHit.getId());
+        resetMicroLocationDrag();
         dragging = false;
         historyRecorded = false;
         draggingWall = true;
@@ -74,7 +104,7 @@ public class MoveTool implements Tool {
 
     @Override
     public void onMouseDragged(MouseEvent event, MapEditorCanvas canvas, EditorState state) {
-        if (!dragging && !draggingWall || state.getProject() == null) {
+        if (state.getProject() == null) {
             return;
         }
 
@@ -99,6 +129,22 @@ public class MoveTool implements Tool {
             int newRow = clamp(cell[1] - grabOffsetRow, 0, Math.max(0, grid.getRows() - selected.effectiveHeight()));
             selected.setCol(newCol);
             selected.setRow(newRow);
+            canvas.requestRender();
+            return;
+        }
+
+        if (draggingMicroLocation) {
+            MicroLocationDto zone = state.getProject().findMicroLocation(microLocationId).orElse(null);
+            if (zone == null || zone.isLocked()) {
+                return;
+            }
+
+            if (!microLocationHistoryRecorded) {
+                state.recordHistory();
+                microLocationHistoryRecorded = true;
+            }
+
+            applyMicroLocationDrag(zone, canvas, event, state);
             canvas.requestRender();
             return;
         }
@@ -147,6 +193,95 @@ public class MoveTool implements Tool {
         draggingWall = false;
         wallHistoryRecorded = false;
         wallPathId = null;
+        resetMicroLocationDrag();
+    }
+
+    private void resetMicroLocationDrag() {
+        draggingMicroLocation = false;
+        microLocationHistoryRecorded = false;
+        microLocationId = null;
+        microLocationHandle = MapEditorCanvas.MicroLocationHandle.NONE;
+        microLocationStartCol = 0;
+        microLocationStartRow = 0;
+        microLocationStartWidth = 0;
+        microLocationStartHeight = 0;
+        microLocationGrabOffsetCol = 0;
+        microLocationGrabOffsetRow = 0;
+    }
+
+    private void startMicroLocationDrag(MicroLocationDto zone, MapEditorCanvas canvas, MouseEvent event) {
+        if (zone == null) return;
+        draggingMicroLocation = true;
+        microLocationId = zone.getId();
+        microLocationHandle = MapEditorCanvas.MicroLocationHandle.MOVE;
+        microLocationStartCol = zone.getCol();
+        microLocationStartRow = zone.getRow();
+        microLocationStartWidth = Math.max(1, zone.getWidth());
+        microLocationStartHeight = Math.max(1, zone.getHeight());
+        int[] cell = canvas.screenToCell(event.getX(), event.getY());
+        if (cell != null) {
+            microLocationGrabOffsetCol = cell[0] - zone.getCol();
+            microLocationGrabOffsetRow = cell[1] - zone.getRow();
+        }
+    }
+
+    private void startMicroLocationResize(MicroLocationDto zone, MapEditorCanvas.MicroLocationHandle handle) {
+        if (zone == null) return;
+        draggingMicroLocation = true;
+        microLocationId = zone.getId();
+        microLocationHandle = handle == null ? MapEditorCanvas.MicroLocationHandle.NONE : handle;
+        microLocationStartCol = zone.getCol();
+        microLocationStartRow = zone.getRow();
+        microLocationStartWidth = Math.max(1, zone.getWidth());
+        microLocationStartHeight = Math.max(1, zone.getHeight());
+    }
+
+    private void applyMicroLocationDrag(MicroLocationDto zone, MapEditorCanvas canvas, MouseEvent event, EditorState state) {
+        GridConfig grid = state.grid();
+        int[] cell = canvas.screenToCell(event.getX(), event.getY());
+        if (cell == null) return;
+
+        switch (microLocationHandle) {
+            case MOVE -> {
+                int newCol = clamp(cell[0] - microLocationGrabOffsetCol, 0, Math.max(0, grid.getCols() - microLocationStartWidth));
+                int newRow = clamp(cell[1] - microLocationGrabOffsetRow, 0, Math.max(0, grid.getRows() - microLocationStartHeight));
+                zone.setCol(newCol);
+                zone.setRow(newRow);
+            }
+            case NW, N, NE, E, SE, S, SW, W, NONE -> {
+                int anchorCol = microLocationStartCol;
+                int anchorRow = microLocationStartRow;
+                int anchorRight = microLocationStartCol + microLocationStartWidth;
+                int anchorBottom = microLocationStartRow + microLocationStartHeight;
+
+                int newCol = microLocationStartCol;
+                int newRow = microLocationStartRow;
+                int newWidth = microLocationStartWidth;
+                int newHeight = microLocationStartHeight;
+
+                if (microLocationHandle == MapEditorCanvas.MicroLocationHandle.W || microLocationHandle == MapEditorCanvas.MicroLocationHandle.NW || microLocationHandle == MapEditorCanvas.MicroLocationHandle.SW) {
+                    newCol = clamp(cell[0], 0, anchorRight - 1);
+                    newWidth = anchorRight - newCol;
+                }
+                if (microLocationHandle == MapEditorCanvas.MicroLocationHandle.E || microLocationHandle == MapEditorCanvas.MicroLocationHandle.NE || microLocationHandle == MapEditorCanvas.MicroLocationHandle.SE) {
+                    newWidth = clamp(cell[0] - anchorCol + 1, 1, grid.getCols() - anchorCol);
+                }
+                if (microLocationHandle == MapEditorCanvas.MicroLocationHandle.N || microLocationHandle == MapEditorCanvas.MicroLocationHandle.NW || microLocationHandle == MapEditorCanvas.MicroLocationHandle.NE) {
+                    newRow = clamp(cell[1], 0, anchorBottom - 1);
+                    newHeight = anchorBottom - newRow;
+                }
+                if (microLocationHandle == MapEditorCanvas.MicroLocationHandle.S || microLocationHandle == MapEditorCanvas.MicroLocationHandle.SW || microLocationHandle == MapEditorCanvas.MicroLocationHandle.SE) {
+                    newHeight = clamp(cell[1] - anchorRow + 1, 1, grid.getRows() - anchorRow);
+                }
+
+                newWidth = Math.max(1, Math.min(newWidth, grid.getCols() - newCol));
+                newHeight = Math.max(1, Math.min(newHeight, grid.getRows() - newRow));
+                zone.setCol(newCol);
+                zone.setRow(newRow);
+                zone.setWidth(newWidth);
+                zone.setHeight(newHeight);
+            }
+        }
     }
 
     private double snapX(EditorState state, double worldX) {

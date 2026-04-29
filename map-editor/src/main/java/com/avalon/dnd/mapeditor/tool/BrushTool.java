@@ -83,7 +83,7 @@ public class BrushTool implements Tool {
     }
 
     private void paintCell(int col, int row, MapEditorCanvas canvas, EditorState state) {
-        AssetDefinition asset = state.selectedAsset();
+        AssetDefinition asset = state.selectedObjectAsset();
         if (asset == null || state.getProject() == null) return;
 
         MapLayer layer = state.selectedLayer();

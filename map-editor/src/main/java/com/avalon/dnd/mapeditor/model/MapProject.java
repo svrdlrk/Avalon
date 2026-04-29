@@ -1,6 +1,7 @@
 package com.avalon.dnd.mapeditor.model;
 
 import com.avalon.dnd.shared.GridConfig;
+import com.avalon.dnd.shared.MicroLocationDto;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -21,6 +22,7 @@ public class MapProject {
     private FogSettings fogSettings = new FogSettings();
     private GridConfig grid = new GridConfig(64, 40, 30);
     private final List<String> assetPackIds = new ArrayList<>();
+    private final List<MicroLocationDto> microLocations = new ArrayList<>();
 
     private final List<MapLayer> layers = new ArrayList<>();
     private final List<MapPlacement> placements = new ArrayList<>();
@@ -47,6 +49,9 @@ public class MapProject {
         copy.fogSettings = this.fogSettings == null ? new FogSettings() : this.fogSettings.copy();
         copy.backgroundUrl = copy.backgroundLayer.getImageUrl();
         copy.assetPackIds.addAll(this.assetPackIds);
+        for (MicroLocationDto zone : microLocations) {
+            if (zone != null) copy.microLocations.add(copyMicroLocation(zone));
+        }
 
         GridConfig gridCopy = new GridConfig();
         if (this.grid != null) {
@@ -171,6 +176,43 @@ public class MapProject {
     public FogSettings getFogSettings() { return fogSettings; }
     public GridConfig getGrid() { return grid; }
     public List<String> getAssetPackIds() { return Collections.unmodifiableList(assetPackIds); }
+    public List<MicroLocationDto> getMicroLocations() { return Collections.unmodifiableList(microLocations); }
+    public List<MicroLocationDto> mutableMicroLocations() { return microLocations; }
+
+    public Optional<MicroLocationDto> findMicroLocation(String id) {
+        if (id == null || id.isBlank()) return Optional.empty();
+        return microLocations.stream().filter(z -> id.equals(z.getId())).findFirst();
+    }
+
+    public void addMicroLocation(MicroLocationDto microLocation) {
+        if (microLocation == null) return;
+        MicroLocationDto copy = copyMicroLocation(microLocation);
+        if (copy.getId() == null || copy.getId().isBlank()) {
+            copy.setId(UUID.randomUUID().toString());
+        }
+        microLocations.add(copy);
+    }
+
+    public boolean removeMicroLocationById(String id) {
+        if (id == null || id.isBlank()) return false;
+        return microLocations.removeIf(zone -> id.equals(zone.getId()));
+    }
+
+    public boolean updateMicroLocation(String id, MicroLocationDto updated) {
+        if (id == null || id.isBlank() || updated == null) return false;
+        for (int i = 0; i < microLocations.size(); i++) {
+            MicroLocationDto current = microLocations.get(i);
+            if (current != null && id.equals(current.getId())) {
+                MicroLocationDto copy = copyMicroLocation(updated);
+                if (copy.getId() == null || copy.getId().isBlank()) {
+                    copy.setId(id);
+                }
+                microLocations.set(i, copy);
+                return true;
+            }
+        }
+        return false;
+    }
 
     public void setId(String id) { this.id = id; }
     public void setName(String name) { this.name = name; }
@@ -205,5 +247,28 @@ public class MapProject {
         this.assetPackIds.clear();
         if (assetPackIds != null) this.assetPackIds.addAll(assetPackIds);
     }
+    public void setMicroLocations(List<MicroLocationDto> microLocations) {
+        this.microLocations.clear();
+        if (microLocations != null) {
+            for (MicroLocationDto zone : microLocations) {
+                if (zone != null) this.microLocations.add(copyMicroLocation(zone));
+            }
+        }
+    }
     public void setGrid(GridConfig grid) { this.grid = grid == null ? new GridConfig(64, 40, 30) : grid; }
+
+    private static MicroLocationDto copyMicroLocation(MicroLocationDto source) {
+        if (source == null) return null;
+        MicroLocationDto copy = new MicroLocationDto();
+        copy.setId(source.getId());
+        copy.setName(source.getName());
+        copy.setCol(source.getCol());
+        copy.setRow(source.getRow());
+        copy.setWidth(source.getWidth());
+        copy.setHeight(source.getHeight());
+        copy.setLocked(source.isLocked());
+        copy.setHint(source.getHint());
+        copy.setInteriorMapPath(source.getInteriorMapPath());
+        return copy;
+    }
 }

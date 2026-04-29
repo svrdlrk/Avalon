@@ -19,12 +19,13 @@ public class MapLayoutUpdateDto {
     private Object terrainLayer;
     private Object wallLayer;
     private Object fogSettings;
+    private List<MicroLocationDto> microLocations = new ArrayList<>();
     private List<String> assetPackIds = new ArrayList<>();
 
     public MapLayoutUpdateDto() {}
 
     public MapLayoutUpdateDto(GridConfig grid, List<TokenDto> tokens, List<MapObjectDto> objects, String backgroundUrl) {
-        this(grid, tokens, objects, backgroundUrl, null, null, null, null, null);
+        this(grid, tokens, objects, backgroundUrl, null, null, null, null, null, null);
     }
 
     public MapLayoutUpdateDto(GridConfig grid,
@@ -35,6 +36,7 @@ public class MapLayoutUpdateDto {
                               Object terrainLayer,
                               Object wallLayer,
                               Object fogSettings,
+                              List<MicroLocationDto> microLocations,
                               List<String> assetPackIds) {
         this.grid = grid;
         this.tokens = tokens;
@@ -44,6 +46,7 @@ public class MapLayoutUpdateDto {
         this.terrainLayer = terrainLayer;
         this.wallLayer = wallLayer;
         this.fogSettings = fogSettings;
+        setMicroLocations(microLocations);
         setAssetPackIds(assetPackIds);
     }
 
@@ -70,6 +73,12 @@ public class MapLayoutUpdateDto {
 
     public Object getFogSettings() { return fogSettings; }
     public void setFogSettings(Object fogSettings) { this.fogSettings = fogSettings; }
+
+    public List<MicroLocationDto> getMicroLocations() { return microLocations; }
+    public void setMicroLocations(List<MicroLocationDto> microLocations) {
+        this.microLocations.clear();
+        if (microLocations != null) this.microLocations.addAll(microLocations);
+    }
 
     public List<String> getAssetPackIds() { return assetPackIds; }
     public void setAssetPackIds(List<String> assetPackIds) {

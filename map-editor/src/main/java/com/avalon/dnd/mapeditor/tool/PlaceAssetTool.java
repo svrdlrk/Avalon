@@ -19,7 +19,7 @@ public class PlaceAssetTool implements Tool {
 
     @Override
     public void onMousePressed(MouseEvent event, MapEditorCanvas canvas, EditorState state) {
-        AssetDefinition asset = state.selectedAsset();
+        AssetDefinition asset = state.selectedObjectAsset();
         if (asset == null || state.getProject() == null) return;
 
         int[] cell = canvas.screenToCell(event.getX(), event.getY());

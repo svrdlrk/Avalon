@@ -8,6 +8,7 @@ import com.avalon.dnd.mapeditor.model.ReferenceOverlayLayer;
 import com.avalon.dnd.mapeditor.model.TerrainLayer;
 import com.avalon.dnd.mapeditor.model.WallLayer;
 import com.avalon.dnd.shared.GridConfig;
+import com.avalon.dnd.shared.MicroLocationDto;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -24,6 +25,7 @@ public class BattleProjectDto {
     private TerrainLayer terrainLayer;
     private WallLayer wallLayer;
     private FogSettings fogSettings;
+    private List<MicroLocationDto> microLocations = new ArrayList<>();
     private List<String> assetPackIds = new ArrayList<>();
     private List<MapLayer> layers = new ArrayList<>();
     private List<MapPlacement> placements = new ArrayList<>();
@@ -40,6 +42,7 @@ public class BattleProjectDto {
     public TerrainLayer getTerrainLayer() { return terrainLayer; }
     public WallLayer getWallLayer() { return wallLayer; }
     public FogSettings getFogSettings() { return fogSettings; }
+    public List<MicroLocationDto> getMicroLocations() { return microLocations; }
     public List<String> getAssetPackIds() { return assetPackIds; }
     public List<MapLayer> getLayers() { return layers; }
     public List<MapPlacement> getPlacements() { return placements; }
@@ -54,6 +57,9 @@ public class BattleProjectDto {
     public void setTerrainLayer(TerrainLayer terrainLayer) { this.terrainLayer = terrainLayer; }
     public void setWallLayer(WallLayer wallLayer) { this.wallLayer = wallLayer; }
     public void setFogSettings(FogSettings fogSettings) { this.fogSettings = fogSettings; }
+    public void setMicroLocations(List<MicroLocationDto> microLocations) {
+        this.microLocations = microLocations == null ? new ArrayList<>() : new ArrayList<>(microLocations);
+    }
     public void setAssetPackIds(List<String> assetPackIds) {
         this.assetPackIds = assetPackIds == null ? new ArrayList<>() : new ArrayList<>(assetPackIds);
     }

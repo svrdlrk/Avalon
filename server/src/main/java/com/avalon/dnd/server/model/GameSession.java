@@ -2,6 +2,7 @@ package com.avalon.dnd.server.model;
 
 import com.avalon.dnd.shared.GridConfig;
 import com.avalon.dnd.shared.InitiativeStateDto;
+import com.avalon.dnd.shared.MicroLocationDto;
 
 import java.util.List;
 import java.util.Map;
@@ -21,6 +22,7 @@ public class GameSession {
     private Object terrainLayer;
     private Object wallLayer;
     private Object fogSettings;
+    private List<MicroLocationDto> microLocations = new CopyOnWriteArrayList<>();
     private List<String> assetPackIds = new CopyOnWriteArrayList<>();
 
     /** Текущее состояние инициативы (null = не активна). */
@@ -57,6 +59,11 @@ public class GameSession {
 
     public Object getFogSettings() { return fogSettings; }
     public void setFogSettings(Object fogSettings) { this.fogSettings = fogSettings; }
+
+    public List<MicroLocationDto> getMicroLocations() { return microLocations; }
+    public void setMicroLocations(List<MicroLocationDto> microLocations) {
+        this.microLocations = microLocations == null ? new CopyOnWriteArrayList<>() : new CopyOnWriteArrayList<>(microLocations);
+    }
 
     public List<String> getAssetPackIds() { return assetPackIds; }
     public void setAssetPackIds(List<String> assetPackIds) {

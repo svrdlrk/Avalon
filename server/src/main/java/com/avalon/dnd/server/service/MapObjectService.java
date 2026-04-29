@@ -41,6 +41,7 @@ public class MapObjectService {
                 request.isBlocksMovement(),
                 request.isBlocksSight()
         );
+        obj.setMicroLocationId(request.getMicroLocationId());
 
         session.getObjects().put(id, obj);
 
@@ -69,7 +70,7 @@ public class MapObjectService {
 
 
     public static MapObjectDto toDto(MapObject o) {
-        return new MapObjectDto(
+        MapObjectDto dto = new MapObjectDto(
                 o.getId(), o.getType(),
                 o.getCol(), o.getRow(),
                 o.getWidth(), o.getHeight(),
@@ -78,5 +79,7 @@ public class MapObjectService {
                 o.isBlocksMovement(),
                 o.isBlocksSight()
         );
+        dto.setMicroLocationId(o.getMicroLocationId());
+        return dto;
     }
 }

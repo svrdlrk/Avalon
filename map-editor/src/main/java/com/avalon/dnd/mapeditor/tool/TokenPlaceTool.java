@@ -24,7 +24,7 @@ public class TokenPlaceTool implements Tool {
 
     @Override
     public void onMousePressed(MouseEvent event, MapEditorCanvas canvas, EditorState state) {
-        AssetDefinition asset = state.selectedAsset();
+        AssetDefinition asset = state.selectedTokenAsset();
         if (asset == null || state.getProject() == null) {
             return;
         }

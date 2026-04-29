@@ -584,15 +584,17 @@ public class MainStage {
     private void addToken(String name, JsonNode ce, int hp) {
         int col = ClientState.getInstance().getPendingPlaceCol();
         int row = ClientState.getInstance().getPendingPlaceRow();
-        int gs = 1; String img = null;
+        int gs = 1; String img = null; int dayVision = 0; int nightVision = 0;
         if (ce != null) {
             gs = ce.path("gridSize").asInt(1);
+            dayVision = ce.path("dayVision").asInt(0);
+            nightVision = ce.path("nightVision").asInt(0);
             String ip = ce.path("imagePath").asText(null);
             if (ip != null && !ip.equals("null")) img = "/" + ip;
         }
         PlayerDto p = playerAssignCombo.getSelectionModel().getSelectedItem();
         String ownerId = (p != null) ? p.getId() : null;
-        ServerConnection.getInstance().createToken(name, col, row, hp, hp, gs, img, ownerId);
+        ServerConnection.getInstance().createToken(name, col, row, hp, hp, gs, img, ownerId, dayVision, nightVision);
     }
 
     private void placeObject(JsonNode ce, int col, int row, int w, int h) {

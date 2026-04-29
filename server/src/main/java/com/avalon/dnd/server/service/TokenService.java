@@ -29,7 +29,8 @@ public class TokenService {
         String tokenId = UUID.randomUUID().toString();
         Token token = new Token(
                 tokenId, request.getName(), request.getCol(),
-                request.getRow(), request.getOwnerId(), player.getSessionId()
+                request.getRow(), request.getOwnerId(), player.getSessionId(),
+                request.getDayVision(), request.getNightVision()
         );
         token.setHp(Math.max(1, request.getHp()));
         token.setMaxHp(Math.max(1, request.getMaxHp()));
@@ -141,7 +142,8 @@ public class TokenService {
                 t.getCol(), t.getRow(),
                 t.getOwnerId(),
                 t.getHp(), t.getMaxHp(),
-                t.getGridSize(), t.getImageUrl()
+                t.getGridSize(), t.getImageUrl(),
+                t.getDayVision(), t.getNightVision()
         );
     }
 

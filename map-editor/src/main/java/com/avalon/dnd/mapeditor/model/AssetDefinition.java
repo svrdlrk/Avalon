@@ -10,6 +10,8 @@ public class AssetDefinition {
     private int height = 1;
     private boolean blocksMovement;
     private boolean blocksSight;
+    private int dayVision;
+    private int nightVision;
     private PlacementKind kind = PlacementKind.OBJECT;
 
     public AssetDefinition() {}
@@ -18,6 +20,14 @@ public class AssetDefinition {
                            int width, int height,
                            boolean blocksMovement, boolean blocksSight,
                            PlacementKind kind) {
+        this(id, name, category, imageUrl, width, height, blocksMovement, blocksSight, kind, 0, 0);
+    }
+
+    public AssetDefinition(String id, String name, String category, String imageUrl,
+                           int width, int height,
+                           boolean blocksMovement, boolean blocksSight,
+                           PlacementKind kind,
+                           int dayVision, int nightVision) {
         this.id = id;
         this.name = name;
         this.category = category;
@@ -26,6 +36,8 @@ public class AssetDefinition {
         this.height = Math.max(1, height);
         this.blocksMovement = blocksMovement;
         this.blocksSight = blocksSight;
+        this.dayVision = Math.max(0, dayVision);
+        this.nightVision = Math.max(0, nightVision);
         this.kind = kind == null ? PlacementKind.OBJECT : kind;
     }
 
@@ -37,6 +49,8 @@ public class AssetDefinition {
     public int getHeight() { return height; }
     public boolean isBlocksMovement() { return blocksMovement; }
     public boolean isBlocksSight() { return blocksSight; }
+    public int getDayVision() { return dayVision; }
+    public int getNightVision() { return nightVision; }
     public PlacementKind getKind() { return kind; }
 
     public void setId(String id) { this.id = id; }
@@ -47,6 +61,8 @@ public class AssetDefinition {
     public void setHeight(int height) { this.height = Math.max(1, height); }
     public void setBlocksMovement(boolean blocksMovement) { this.blocksMovement = blocksMovement; }
     public void setBlocksSight(boolean blocksSight) { this.blocksSight = blocksSight; }
+    public void setDayVision(int dayVision) { this.dayVision = Math.max(0, dayVision); }
+    public void setNightVision(int nightVision) { this.nightVision = Math.max(0, nightVision); }
     public void setKind(PlacementKind kind) { this.kind = kind == null ? PlacementKind.OBJECT : kind; }
 
     @Override

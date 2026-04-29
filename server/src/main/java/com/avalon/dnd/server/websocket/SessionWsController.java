@@ -71,6 +71,7 @@ public class SessionWsController {
                 session.getTerrainLayer(),
                 session.getWallLayer(),
                 session.getFogSettings(),
+                session.getMicroLocations(),
                 session.getAssetPackIds()
         );
     }

@@ -1,6 +1,7 @@
 package com.avalon.dnd.mapeditor.model;
 
 import com.avalon.dnd.shared.GridConfig;
+import com.avalon.dnd.shared.MicroLocationDto;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -23,6 +24,7 @@ public class BattleProjectExportDto {
     private FogSettings fogSettings = new FogSettings();
     private final List<MapLayer> layers = new ArrayList<>();
     private final List<MapPlacement> placements = new ArrayList<>();
+    private final List<MicroLocationDto> microLocations = new ArrayList<>();
     private final List<String> assetPackIds = new ArrayList<>();
 
     public BattleProjectExportDto() {}
@@ -39,6 +41,7 @@ public class BattleProjectExportDto {
     public FogSettings getFogSettings() { return fogSettings; }
     public List<MapLayer> getLayers() { return layers; }
     public List<MapPlacement> getPlacements() { return placements; }
+    public List<MicroLocationDto> getMicroLocations() { return microLocations; }
     public List<String> getAssetPackIds() { return assetPackIds; }
 
     public void setSchemaVersion(int schemaVersion) { this.schemaVersion = schemaVersion; }
@@ -53,5 +56,6 @@ public class BattleProjectExportDto {
     public void setFogSettings(FogSettings fogSettings) { this.fogSettings = fogSettings == null ? new FogSettings() : fogSettings; }
     public void setLayers(List<MapLayer> layers) { this.layers.clear(); if (layers != null) this.layers.addAll(layers); }
     public void setPlacements(List<MapPlacement> placements) { this.placements.clear(); if (placements != null) this.placements.addAll(placements); }
+    public void setMicroLocations(List<MicroLocationDto> microLocations) { this.microLocations.clear(); if (microLocations != null) this.microLocations.addAll(microLocations); }
     public void setAssetPackIds(List<String> assetPackIds) { this.assetPackIds.clear(); if (assetPackIds != null) this.assetPackIds.addAll(assetPackIds); }
 }

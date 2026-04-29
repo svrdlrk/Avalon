@@ -301,8 +301,15 @@ public class ServerConnection {
     public void createToken(String name, int col, int row,
                             int hp, int maxHp, int gridSize,
                             String imageUrl, String ownerId) {
+        createToken(name, col, row, hp, maxHp, gridSize, imageUrl, ownerId, 0, 0);
+    }
+
+    public void createToken(String name, int col, int row,
+                            int hp, int maxHp, int gridSize,
+                            String imageUrl, String ownerId,
+                            int dayVision, int nightVision) {
         send("/token.create",
-                new TokenCreateRequest(name, col, row, ownerId, hp, maxHp, gridSize, imageUrl));
+                new TokenCreateRequest(name, col, row, ownerId, hp, maxHp, gridSize, imageUrl, dayVision, nightVision));
     }
 
     public void updateTokenHp(String tokenId, int hp, int maxHp) {

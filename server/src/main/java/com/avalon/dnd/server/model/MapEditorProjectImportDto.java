@@ -1,6 +1,7 @@
 package com.avalon.dnd.server.model;
 
 import com.avalon.dnd.shared.GridConfig;
+import com.avalon.dnd.shared.MicroLocationDto;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -22,6 +23,7 @@ public class MapEditorProjectImportDto {
     private Object terrainLayer;
     private Object wallLayer;
     private Object fogSettings;
+    private List<MicroLocationDto> microLocations = new ArrayList<>();
     private List<String> assetPackIds = new ArrayList<>();
     private List<Object> layers = new ArrayList<>();
     private List<PlacementDto> placements = new ArrayList<>();
@@ -48,6 +50,10 @@ public class MapEditorProjectImportDto {
     public void setWallLayer(Object wallLayer) { this.wallLayer = wallLayer; }
     public Object getFogSettings() { return fogSettings; }
     public void setFogSettings(Object fogSettings) { this.fogSettings = fogSettings; }
+    public List<MicroLocationDto> getMicroLocations() { return microLocations; }
+    public void setMicroLocations(List<MicroLocationDto> microLocations) {
+        this.microLocations = microLocations == null ? new ArrayList<>() : new ArrayList<>(microLocations);
+    }
     public List<String> getAssetPackIds() { return assetPackIds; }
     public void setAssetPackIds(List<String> assetPackIds) {
         this.assetPackIds = assetPackIds == null ? new ArrayList<>() : new ArrayList<>(assetPackIds);
@@ -76,6 +82,9 @@ public class MapEditorProjectImportDto {
         private boolean blocksMovement;
         private boolean blocksSight;
         private String imageUrl;
+        private String microLocationId;
+        private int dayVision;
+        private int nightVision;
         private boolean selected;
         private boolean locked;
 
@@ -109,6 +118,12 @@ public class MapEditorProjectImportDto {
         public void setBlocksSight(boolean blocksSight) { this.blocksSight = blocksSight; }
         public String getImageUrl() { return imageUrl; }
         public void setImageUrl(String imageUrl) { this.imageUrl = imageUrl; }
+        public String getMicroLocationId() { return microLocationId; }
+        public void setMicroLocationId(String microLocationId) { this.microLocationId = microLocationId; }
+        public int getDayVision() { return dayVision; }
+        public void setDayVision(int dayVision) { this.dayVision = dayVision; }
+        public int getNightVision() { return nightVision; }
+        public void setNightVision(int nightVision) { this.nightVision = nightVision; }
         public boolean isSelected() { return selected; }
         public void setSelected(boolean selected) { this.selected = selected; }
         public boolean isLocked() { return locked; }

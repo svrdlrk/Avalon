@@ -4,6 +4,7 @@ import type {
     InitiativeStateDto,
     MapLayoutUpdateDto,
     MapObjectDto,
+    MicroLocationDto,
     PlayerDto,
     SessionStateDto,
     TokenDto,
@@ -22,6 +23,7 @@ interface GameState {
     terrainLayer: unknown | null;
     wallLayer: unknown | null;
     fogSettings: unknown | null;
+    microLocations: MicroLocationDto[];
     assetPackIds: string[];
 
     applyState:           (state: SessionStateDto, sessionId: string) => void;
@@ -49,6 +51,7 @@ export const useGameStore = create<GameState>((set) => ({
     terrainLayer: null,
     wallLayer: null,
     fogSettings: null,
+    microLocations: [],
     assetPackIds: [],
 
     applyState: (state, sessionId) =>
@@ -65,6 +68,7 @@ export const useGameStore = create<GameState>((set) => ({
             terrainLayer: state.terrainLayer ?? null,
             wallLayer: state.wallLayer ?? null,
             fogSettings: state.fogSettings ?? null,
+            microLocations: state.microLocations ?? [],
             assetPackIds: state.assetPackIds ?? [],
         }),
 
@@ -80,6 +84,7 @@ export const useGameStore = create<GameState>((set) => ({
             terrainLayer: dto.terrainLayer ?? s.terrainLayer,
             wallLayer: dto.wallLayer ?? s.wallLayer,
             fogSettings: dto.fogSettings ?? s.fogSettings,
+            microLocations: dto.microLocations ?? s.microLocations,
             assetPackIds: dto.assetPackIds ?? s.assetPackIds,
         })),
 

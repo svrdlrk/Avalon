@@ -12,11 +12,21 @@ public class TokenCreateRequest {
     private int gridSize = 1;
     /** Относительный URL изображения или null. */
     private String imageUrl;
+    /** Радиус обзора днём. */
+    private int dayVision;
+    /** Радиус обзора ночью. */
+    private int nightVision;
 
     public TokenCreateRequest() {}
 
     public TokenCreateRequest(String name, int col, int row, String ownerId,
                               int hp, int maxHp, int gridSize, String imageUrl) {
+        this(name, col, row, ownerId, hp, maxHp, gridSize, imageUrl, 0, 0);
+    }
+
+    public TokenCreateRequest(String name, int col, int row, String ownerId,
+                              int hp, int maxHp, int gridSize, String imageUrl,
+                              int dayVision, int nightVision) {
         this.name = name;
         this.col = col;
         this.row = row;
@@ -25,6 +35,8 @@ public class TokenCreateRequest {
         this.maxHp = maxHp;
         this.gridSize = gridSize;
         this.imageUrl = imageUrl;
+        this.dayVision = Math.max(0, dayVision);
+        this.nightVision = Math.max(0, nightVision);
     }
 
     public String getName() { return name; }
@@ -35,6 +47,8 @@ public class TokenCreateRequest {
     public int getMaxHp() { return maxHp; }
     public int getGridSize() { return gridSize; }
     public String getImageUrl() { return imageUrl; }
+    public int getDayVision() { return dayVision; }
+    public int getNightVision() { return nightVision; }
 
     public void setName(String name) { this.name = name; }
     public void setCol(int col) { this.col = col; }
@@ -44,4 +58,6 @@ public class TokenCreateRequest {
     public void setMaxHp(int maxHp) { this.maxHp = maxHp; }
     public void setGridSize(int gridSize) { this.gridSize = gridSize; }
     public void setImageUrl(String imageUrl) { this.imageUrl = imageUrl; }
+    public void setDayVision(int dayVision) { this.dayVision = Math.max(0, dayVision); }
+    public void setNightVision(int nightVision) { this.nightVision = Math.max(0, nightVision); }
 }

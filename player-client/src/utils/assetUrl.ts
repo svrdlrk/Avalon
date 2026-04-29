@@ -37,20 +37,23 @@ export function normalizeAssetUrl(imageUrl: string | null | undefined, serverBas
     const trimmed = imageUrl.trim();
     if (!trimmed) return null;
 
-    if (trimmed.startsWith('http://') || trimmed.startsWith('https://') || trimmed.startsWith('data:')) {
-        return trimmed;
+    // Keep any absolute URI scheme intact (http, https, file, data, jar, etc.),
+    // but do not misclassify Windows paths like C:\assets\image.png.
+    const hasUriScheme = /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed) && !/^[a-zA-Z]:[\/]/.test(trimmed);
+    if (hasUriScheme) {
+        return encodeURI(trimmed);
     }
 
     const relative = extractAssetPath(trimmed);
     if (relative) {
         const baseUrl = serverBaseUrl.replace(/\/$/, '');
-        return `${baseUrl}${relative.startsWith('/') ? relative : `/${relative}`}`;
+        return encodeURI(`${baseUrl}${relative.startsWith('/') ? relative : `/${relative}`}`);
     }
 
     if (trimmed.startsWith('/')) {
         const baseUrl = serverBaseUrl.replace(/\/$/, '');
-        return `${baseUrl}${trimmed}`;
+        return encodeURI(`${baseUrl}${trimmed}`);
     }
 
-    return trimmed;
+    return encodeURI(trimmed);
 }

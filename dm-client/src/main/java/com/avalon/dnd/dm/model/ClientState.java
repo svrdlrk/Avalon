@@ -21,6 +21,7 @@ public class ClientState {
     private Object terrainLayer;
     private Object wallLayer;
     private Object fogSettings;
+    private java.util.List<MicroLocationDto> microLocations = new java.util.concurrent.CopyOnWriteArrayList<>();
     private java.util.List<String> assetPackIds = new java.util.concurrent.CopyOnWriteArrayList<>();
 
     private final Map<String, TokenDto>     tokens  = new ConcurrentHashMap<>();
@@ -44,6 +45,7 @@ public class ClientState {
         this.terrainLayer = state.getTerrainLayer();
         this.wallLayer = state.getWallLayer();
         this.fogSettings = state.getFogSettings();
+        this.microLocations = new java.util.concurrent.CopyOnWriteArrayList<>(state.getMicroLocations() == null ? java.util.List.of() : state.getMicroLocations());
         this.assetPackIds = new java.util.concurrent.CopyOnWriteArrayList<>(state.getAssetPackIds() == null ? java.util.List.of() : state.getAssetPackIds());
         tokens.clear();  state.getTokens().forEach(t -> tokens.put(t.getId(), t));
         objects.clear(); state.getObjects().forEach(o -> objects.put(o.getId(), o));
@@ -136,6 +138,11 @@ public class ClientState {
 
     public Object getFogSettings() { return fogSettings; }
     public void setFogSettings(Object value) { this.fogSettings = value; }
+
+    public java.util.List<MicroLocationDto> getMicroLocations() { return microLocations; }
+    public void setMicroLocations(java.util.List<MicroLocationDto> value) {
+        this.microLocations = value == null ? new java.util.concurrent.CopyOnWriteArrayList<>() : new java.util.concurrent.CopyOnWriteArrayList<>(value);
+    }
 
     public List<String> getAssetPackIds() { return assetPackIds; }
     public void setAssetPackIds(List<String> value) {

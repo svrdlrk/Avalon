@@ -43,6 +43,7 @@ public class MapImportController {
             session.setTerrainLayer(dto.getTerrainLayer());
             session.setWallLayer(dto.getWallLayer());
             session.setFogSettings(dto.getFogSettings());
+            session.setMicroLocations(dto.getMicroLocations());
             session.setAssetPackIds(dto.getAssetPackIds());
 
             if (dto.getPlacements() != null) {
@@ -59,6 +60,8 @@ public class MapImportController {
                         );
                         token.setGridSize(Math.max(1, placement.getGridSize()));
                         token.setImageUrl(placement.getImageUrl());
+                        token.setDayVision(placement.getDayVision());
+                        token.setNightVision(placement.getNightVision());
                         session.getTokens().put(token.getId(), token);
                     } else {
                         int w = Math.max(1, placement.getWidth());
@@ -76,6 +79,7 @@ public class MapImportController {
                                 placement.isBlocksMovement(),
                                 placement.isBlocksSight()
                         );
+                        obj.setMicroLocationId(placement.getMicroLocationId());
                         session.getObjects().put(obj.getId(), obj);
                     }
                 }
@@ -91,6 +95,7 @@ public class MapImportController {
                     session.getTerrainLayer(),
                     session.getWallLayer(),
                     session.getFogSettings(),
+                    session.getMicroLocations(),
                     session.getAssetPackIds()
             );
             messaging.convertAndSend(

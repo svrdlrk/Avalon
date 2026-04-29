@@ -1,5 +1,16 @@
 export type Role = 'DM' | 'PLAYER';
 
+export interface MicroLocationDto {
+    id: string;
+    name: string;
+    col: number;
+    row: number;
+    width: number;
+    height: number;
+    locked?: boolean;
+    hint?: string;
+}
+
 export interface GridConfig {
     cellSize: number;
     cols:     number;
@@ -18,6 +29,9 @@ export interface TokenDto {
     maxHp:    number;
     gridSize: number;
     imageUrl: string | null;
+    dayVision?: number;
+    nightVision?: number;
+    microLocationId?: string | null;
     blocksMovement?: boolean;
     blocksSight?: boolean;
 }
@@ -37,6 +51,9 @@ export interface MapObjectDto {
     height:   number;
     gridSize: number;
     imageUrl: string | null;
+    dayVision?: number;
+    nightVision?: number;
+    microLocationId?: string | null;
     blocksMovement?: boolean;
     blocksSight?: boolean;
 }
@@ -53,6 +70,7 @@ export interface SessionStateDto {
     terrainLayer?: unknown;
     wallLayer?: unknown;
     fogSettings?: unknown;
+    microLocations?: MicroLocationDto[];
     assetPackIds?: string[];
 }
 
@@ -65,6 +83,7 @@ export interface MapLayoutUpdateDto {
     terrainLayer?: unknown;
     wallLayer?: unknown;
     fogSettings?: unknown;
+    microLocations?: MicroLocationDto[];
     assetPackIds?: string[];
 }
 

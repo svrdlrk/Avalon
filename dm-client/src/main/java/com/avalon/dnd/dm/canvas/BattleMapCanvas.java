@@ -499,12 +499,17 @@ public class BattleMapCanvas extends Canvas {
     private Image loadImage(String fullUrl) {
         if (fullUrl == null || fullUrl.isBlank()) return null;
         return imageCache.computeIfAbsent("ref:" + fullUrl, u -> {
-            String encoded = encodeUrl(fullUrl);
-            Image img = new Image(encoded, true);
-            img.progressProperty().addListener((obs, old, p) -> {
-                if (p.doubleValue() >= 1.0) javafx.application.Platform.runLater(this::render);
-            });
-            return img;
+            try {
+                String encoded = encodeUrl(fullUrl);
+                Image img = new Image(encoded, true);
+                img.progressProperty().addListener((obs, old, p) -> {
+                    if (p.doubleValue() >= 1.0) javafx.application.Platform.runLater(this::render);
+                });
+                return img;
+            } catch (Exception ex) {
+                System.err.println("[canvas] Failed to load image: " + fullUrl + " -> " + ex.getMessage());
+                return null;
+            }
         });
     }
 
@@ -534,30 +539,41 @@ public class BattleMapCanvas extends Canvas {
         String url = token.getImageUrl();
         if (url == null || url.isBlank()) return null;
         String fullUrl = resolveServerUrl(url);
+        if (fullUrl == null || fullUrl.isBlank()) return null;
         return imageCache.computeIfAbsent(fullUrl, u -> {
-            // FIX: encode before loading so Cyrillic filenames work
-            String encoded = encodeUrl(u);
-            Image img = new Image(encoded, true);
-            img.progressProperty().addListener((obs, old, p) -> {
-                if (p.doubleValue() >= 1.0) javafx.application.Platform.runLater(this::render);
-            });
-            img.errorProperty().addListener((obs, old, err) -> {
-                if (err) System.err.println("[canvas] Failed to load image: " + encoded);
-            });
-            return img;
+            try {
+                String encoded = encodeUrl(u);
+                Image img = new Image(encoded, true);
+                img.progressProperty().addListener((obs, old, p) -> {
+                    if (p.doubleValue() >= 1.0) javafx.application.Platform.runLater(this::render);
+                });
+                img.errorProperty().addListener((obs, old, err) -> {
+                    if (err) System.err.println("[canvas] Failed to load image: " + encoded);
+                });
+                return img;
+            } catch (Exception ex) {
+                System.err.println("[canvas] Failed to load token image: " + u + " -> " + ex.getMessage());
+                return null;
+            }
         });
     }
 
     private Image getObjectImage(String imageUrl) {
         if (imageUrl == null || imageUrl.isBlank()) return null;
         String fullUrl = resolveServerUrl(imageUrl);
+        if (fullUrl == null || fullUrl.isBlank()) return null;
         return imageCache.computeIfAbsent("obj:" + fullUrl, u -> {
-            String encoded = encodeUrl(fullUrl);
-            Image img = new Image(encoded, true);
-            img.progressProperty().addListener((obs, old, p) -> {
-                if (p.doubleValue() >= 1.0) javafx.application.Platform.runLater(this::render);
-            });
-            return img;
+            try {
+                String encoded = encodeUrl(fullUrl);
+                Image img = new Image(encoded, true);
+                img.progressProperty().addListener((obs, old, p) -> {
+                    if (p.doubleValue() >= 1.0) javafx.application.Platform.runLater(this::render);
+                });
+                return img;
+            } catch (Exception ex) {
+                System.err.println("[canvas] Failed to load object image: " + u + " -> " + ex.getMessage());
+                return null;
+            }
         });
     }
 
@@ -565,7 +581,8 @@ public class BattleMapCanvas extends Canvas {
         if (path == null || path.isBlank()) return null;
 
         String trimmed = path.trim();
-        if (trimmed.startsWith("http://") || trimmed.startsWith("https://") || trimmed.startsWith("data:")) {
+        boolean hasUriScheme = trimmed.matches("^[a-zA-Z][a-zA-Z0-9+.-]*:.*") && !trimmed.matches("^[a-zA-Z]:[\\/].*");
+        if (hasUriScheme) {
             return trimmed;
         }
 
@@ -634,7 +651,13 @@ public class BattleMapCanvas extends Canvas {
         System.out.println("[canvas] Loading background: " + resolved);
 
         String encoded = encodeUrl(resolved);
-        backgroundImage = new Image(encoded, true);
+        try {
+            backgroundImage = new Image(encoded, true);
+        } catch (Exception ex) {
+            System.err.println("[canvas] Failed to load background: " + encoded + " -> " + ex.getMessage());
+            backgroundImage = null;
+            return;
+        }
         backgroundImage.progressProperty().addListener((obs, old, p) -> {
             if (p.doubleValue() >= 1.0) {
                 if (backgroundImage.isError()) {

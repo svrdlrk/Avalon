@@ -6,6 +6,7 @@ import com.avalon.dnd.mapeditor.model.EditorState;
 import com.avalon.dnd.mapeditor.model.FogSettings;
 import com.avalon.dnd.mapeditor.model.MapLayer;
 import com.avalon.dnd.mapeditor.model.MapPlacement;
+import com.avalon.dnd.shared.MicroLocationDto;
 import com.avalon.dnd.mapeditor.model.MapProject;
 import com.avalon.dnd.mapeditor.model.PlacementKind;
 import com.avalon.dnd.mapeditor.model.TerrainCell;
@@ -42,6 +43,20 @@ public class MapEditorCanvas extends Canvas {
     private Integer hoverRow;
 
     private boolean resizePending;
+
+    public enum MicroLocationHandle {
+        NONE, MOVE, NW, N, NE, E, SE, S, SW, W
+    }
+
+    public static final class MicroLocationHit {
+        public final MicroLocationDto zone;
+        public final MicroLocationHandle handle;
+
+        public MicroLocationHit(MicroLocationDto zone, MicroLocationHandle handle) {
+            this.zone = zone;
+            this.handle = handle;
+        }
+    }
 
     public MapEditorCanvas(EditorState state) {
         this.state = state;
@@ -131,6 +146,7 @@ public class MapEditorCanvas extends Canvas {
         drawTerrainLayer(gc);
         drawReferenceOverlay(gc);
         drawGrid(gc);
+        drawMicroLocations(gc);
         drawWallLayer(gc);
         drawPlacements(gc);
         drawFogPreview(gc);
@@ -524,6 +540,75 @@ public class MapEditorCanvas extends Canvas {
         }
     }
 
+    private void drawMicroLocations(GraphicsContext gc) {
+        MapProject project = state.getProject();
+        if (project == null || project.getMicroLocations().isEmpty()) return;
+
+        var grid = state.grid();
+        int cell = grid.getCellSize();
+        int ox = grid.getOffsetX();
+        int oy = grid.getOffsetY();
+
+        gc.save();
+        gc.setLineDashes(10.0, 8.0);
+        for (MicroLocationDto zone : project.getMicroLocations()) {
+            if (zone == null) continue;
+            double x = ox + zone.getCol() * cell;
+            double y = oy + zone.getRow() * cell;
+            double w = Math.max(1, zone.getWidth()) * cell;
+            double h = Math.max(1, zone.getHeight()) * cell;
+            boolean selected = zone.getId() != null && zone.getId().equals(selectedMicroLocationId());
+            gc.setStroke(selected ? Color.web("#f97316") : zone.isLocked() ? Color.web("#94a3b8") : Color.web("#38bdf8"));
+            gc.setFill(selected ? Color.web("#f97316", 0.12) : Color.web("#38bdf8", 0.08));
+            gc.setLineWidth((selected ? 2.4 : 1.5) / state.getZoom());
+            gc.fillRect(x, y, w, h);
+            gc.strokeRect(x, y, w, h);
+
+            gc.setFill(Color.web("#ffffff"));
+            gc.setFont(Font.font(11 / state.getZoom()));
+            gc.fillText(displayZoneLabel(zone), x + 4, y + 14 / state.getZoom());
+
+            if (selected) {
+                drawMicroLocationHandles(gc, x, y, w, h);
+            }
+        }
+        gc.restore();
+    }
+
+    private String selectedMicroLocationId() {
+        return state.getSelectedMicroLocationId();
+    }
+
+    private String displayZoneLabel(MicroLocationDto zone) {
+        if (zone == null) return "";
+        String name = zone.getName() == null || zone.getName().isBlank() ? zone.getId() : zone.getName();
+        return name == null ? "zone" : name;
+    }
+
+    private void drawMicroLocationHandles(GraphicsContext gc, double x, double y, double w, double h) {
+        double handleSize = 7.0 / state.getZoom();
+        double half = handleSize / 2.0;
+        gc.save();
+        gc.setFill(Color.web("#ffffff"));
+        gc.setStroke(Color.web("#111827"));
+        gc.setLineWidth(1.0 / state.getZoom());
+        double[][] points = {
+                {x, y},
+                {x + w / 2.0, y},
+                {x + w, y},
+                {x + w, y + h / 2.0},
+                {x + w, y + h},
+                {x + w / 2.0, y + h},
+                {x, y + h},
+                {x, y + h / 2.0}
+        };
+        for (double[] point : points) {
+            gc.fillRect(point[0] - half, point[1] - half, handleSize, handleSize);
+            gc.strokeRect(point[0] - half, point[1] - half, handleSize, handleSize);
+        }
+        gc.restore();
+    }
+
     private void drawPlacements(GraphicsContext gc) {
         MapProject project = state.getProject();
         if (project == null) return;
@@ -715,6 +800,71 @@ public class MapEditorCanvas extends Canvas {
         gc.setFont(Font.font("Arial", 13));
         gc.setTextBaseline(VPos.CENTER);
         gc.fillText(status, 18, 24);
+    }
+
+    public MicroLocationHit findMicroLocationHitAt(double screenX, double screenY) {
+        MapProject project = state.getProject();
+        if (project == null) return null;
+        MicroLocationDto hitZone = null;
+        for (int i = project.getMicroLocations().size() - 1; i >= 0; i--) {
+            MicroLocationDto zone = project.getMicroLocations().get(i);
+            if (zone == null) continue;
+            if (containsMicroLocation(zone, screenX, screenY)) {
+                hitZone = zone;
+                break;
+            }
+        }
+        if (hitZone == null) return null;
+        return new MicroLocationHit(hitZone, findMicroLocationHandleAt(hitZone, screenX, screenY));
+    }
+
+    public MicroLocationDto findMicroLocationAt(double screenX, double screenY) {
+        MicroLocationHit hit = findMicroLocationHitAt(screenX, screenY);
+        return hit == null ? null : hit.zone;
+    }
+
+    public MicroLocationHandle findMicroLocationHandleAt(MicroLocationDto zone, double screenX, double screenY) {
+        if (zone == null) return MicroLocationHandle.NONE;
+        var grid = state.grid();
+        int cell = grid.getCellSize();
+        int ox = grid.getOffsetX();
+        int oy = grid.getOffsetY();
+        double x = ox + zone.getCol() * cell;
+        double y = oy + zone.getRow() * cell;
+        double w = Math.max(1, zone.getWidth()) * cell;
+        double h = Math.max(1, zone.getHeight()) * cell;
+        double threshold = 10.0 / state.getZoom();
+        double worldX = screenToWorldX(screenX);
+        double worldY = screenToWorldY(screenY);
+
+        boolean left = Math.abs(worldX - x) <= threshold;
+        boolean right = Math.abs(worldX - (x + w)) <= threshold;
+        boolean top = Math.abs(worldY - y) <= threshold;
+        boolean bottom = Math.abs(worldY - (y + h)) <= threshold;
+
+        if (left && top) return MicroLocationHandle.NW;
+        if (right && top) return MicroLocationHandle.NE;
+        if (right && bottom) return MicroLocationHandle.SE;
+        if (left && bottom) return MicroLocationHandle.SW;
+        if (top && worldX >= x && worldX <= x + w) return MicroLocationHandle.N;
+        if (bottom && worldX >= x && worldX <= x + w) return MicroLocationHandle.S;
+        if (left && worldY >= y && worldY <= y + h) return MicroLocationHandle.W;
+        if (right && worldY >= y && worldY <= y + h) return MicroLocationHandle.E;
+        return MicroLocationHandle.MOVE;
+    }
+
+    private boolean containsMicroLocation(MicroLocationDto zone, double screenX, double screenY) {
+        var grid = state.grid();
+        int cell = grid.getCellSize();
+        int ox = grid.getOffsetX();
+        int oy = grid.getOffsetY();
+        double worldX = screenToWorldX(screenX);
+        double worldY = screenToWorldY(screenY);
+        double x = ox + zone.getCol() * cell;
+        double y = oy + zone.getRow() * cell;
+        double w = Math.max(1, zone.getWidth()) * cell;
+        double h = Math.max(1, zone.getHeight()) * cell;
+        return worldX >= x && worldX <= x + w && worldY >= y && worldY <= y + h;
     }
 
     public MapPlacement findPlacementAt(double screenX, double screenY) {

@@ -92,14 +92,15 @@ public class MapBattleRulesService {
             return visible;
         }
 
+        boolean nightMode = isNightMode(session.getFogSettings());
         boolean[][] blockers = buildBlockedCells(session, true);
-        List<Cell> sources = new ArrayList<>();
+        List<VisibilitySource> sources = new ArrayList<>();
         session.getTokens().values().forEach(token -> {
-            if (token == null) return;
-            if (token.getOwnerId() != null) {
-                int gs = Math.max(1, token.getGridSize());
-                sources.add(new Cell(token.getCol() + gs / 2, token.getRow() + gs / 2));
-            }
+            if (token == null || token.getOwnerId() == null) return;
+            int gs = Math.max(1, token.getGridSize());
+            int radius = resolveVisionRadius(token, nightMode, revealRadius);
+            if (radius <= 0) return;
+            sources.add(new VisibilitySource(token.getCol() + gs / 2, token.getRow() + gs / 2, radius));
         });
 
         if (sources.isEmpty()) {
@@ -107,9 +108,9 @@ public class MapBattleRulesService {
             return visible;
         }
 
-        int radius = Math.max(0, revealRadius);
-        int radiusSq = radius * radius;
-        for (Cell source : sources) {
+        for (VisibilitySource source : sources) {
+            int radius = source.radius;
+            int radiusSq = radius * radius;
             int minCol = Math.max(0, source.col - radius);
             int maxCol = Math.min(cols - 1, source.col + radius);
             int minRow = Math.max(0, source.row - radius);
@@ -127,6 +128,45 @@ public class MapBattleRulesService {
         }
         return visible;
     }
+
+    private boolean isNightMode(Object fogSettings) {
+        if (fogSettings instanceof Map<?, ?> fogMap) {
+            Object value = fogMap.get("timeOfDay");
+            if (value instanceof String text) {
+                String normalized = text.trim().toLowerCase();
+                if (normalized.equals("night") || normalized.equals("dark")) return true;
+                if (normalized.equals("day") || normalized.equals("light")) return false;
+            }
+            value = fogMap.get("dayNight");
+            if (value instanceof String text) {
+                String normalized = text.trim().toLowerCase();
+                if (normalized.equals("night") || normalized.equals("dark")) return true;
+                if (normalized.equals("day") || normalized.equals("light")) return false;
+            }
+            value = fogMap.get("mode");
+            if (value instanceof String text) {
+                String normalized = text.trim().toLowerCase();
+                if (normalized.equals("night") || normalized.equals("dark")) return true;
+                if (normalized.equals("day") || normalized.equals("light")) return false;
+            }
+            Object boolValue = fogMap.get("nightMode");
+            if (boolValue == null) boolValue = fogMap.get("isNightMode");
+            if (boolValue == null) boolValue = fogMap.get("night");
+            if (boolValue == null) boolValue = fogMap.get("isNight");
+            if (boolValue == null) boolValue = fogMap.get("darkness");
+            return readBoolean(boolValue, false);
+        }
+        return false;
+    }
+
+    private int resolveVisionRadius(Token token, boolean nightMode, int fallbackRadius) {
+        int preferred = nightMode ? token.getNightVision() : token.getDayVision();
+        int alternate = nightMode ? token.getDayVision() : token.getNightVision();
+        int radius = preferred > 0 ? preferred : (alternate > 0 ? alternate : fallbackRadius);
+        return Math.max(0, radius);
+    }
+
+    private record VisibilitySource(int col, int row, int radius) {}
 
     private boolean[][] buildBlockedCells(GameSession session, boolean forSight) {
         GridConfig grid = session.getGrid();

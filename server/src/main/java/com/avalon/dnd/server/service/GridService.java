@@ -68,10 +68,13 @@ public class GridService {
 
         List<com.avalon.dnd.shared.MapObjectDto> objectDtos = new ArrayList<>();
         for (MapObject o : session.getObjects().values()) {
-            objectDtos.add(new com.avalon.dnd.shared.MapObjectDto(
+            com.avalon.dnd.shared.MapObjectDto dto = new com.avalon.dnd.shared.MapObjectDto(
                     o.getId(), o.getType(), o.getCol(), o.getRow(),
                     o.getWidth(), o.getHeight(),
-                    o.getGridSize(), o.getImageUrl()));
+                    o.getGridSize(), o.getImageUrl(),
+                    o.isBlocksMovement(), o.isBlocksSight());
+            dto.setMicroLocationId(o.getMicroLocationId());
+            objectDtos.add(dto);
         }
 
         return new MapLayoutUpdateDto(
@@ -83,6 +86,7 @@ public class GridService {
                 session.getTerrainLayer(),
                 session.getWallLayer(),
                 session.getFogSettings(),
+                session.getMicroLocations(),
                 session.getAssetPackIds()
         );
     }
