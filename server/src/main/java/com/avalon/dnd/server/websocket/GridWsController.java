@@ -3,6 +3,7 @@ package com.avalon.dnd.server.websocket;
 import com.avalon.dnd.server.model.GameSession;
 import com.avalon.dnd.server.model.Player;
 import com.avalon.dnd.server.service.GridService;
+import com.avalon.dnd.server.service.MapBattleRulesService;
 import com.avalon.dnd.server.service.SessionService;
 import com.avalon.dnd.server.service.SessionValidationService;
 import com.avalon.dnd.shared.GridConfig;
@@ -20,15 +21,18 @@ public class GridWsController {
     private final GridService gridService;
     private final SessionService sessionService;
     private final SessionValidationService validationService;
+    private final MapBattleRulesService battleRulesService;
     private final SimpMessagingTemplate messagingTemplate;
 
     public GridWsController(GridService gridService,
                             SessionService sessionService,
                             SessionValidationService validationService,
+                            MapBattleRulesService battleRulesService,
                             SimpMessagingTemplate messagingTemplate) {
         this.gridService = gridService;
         this.sessionService = sessionService;
         this.validationService = validationService;
+        this.battleRulesService = battleRulesService;
         this.messagingTemplate = messagingTemplate;
     }
 
@@ -43,9 +47,25 @@ public class GridWsController {
         MapLayoutUpdateDto layout = gridService.updateGrid(player, newGrid);
         long version = session.incrementVersion();
 
-        messagingTemplate.convertAndSend(
-                "/topic/session/" + sessionId,
-                new WsMessage<>(WsEventType.MAP_UPDATED, sessionId, version, layout)
-        );
+        battleRulesService.computeVisibility(session);
+        for (Player recipient : session.getPlayers().values()) {
+            MapLayoutUpdateDto recipientLayout = new MapLayoutUpdateDto(
+                    layout.getGrid(),
+                    layout.getTokens(),
+                    layout.getObjects(),
+                    layout.getBackgroundUrl(),
+                    battleRulesService.getVisibilityForPlayer(session, recipient.getId()),
+                    layout.getReferenceOverlayLayer(),
+                    layout.getTerrainLayer(),
+                    layout.getWallLayer(),
+                    layout.getFogSettings(),
+                    layout.getMicroLocations(),
+                    layout.getAssetPackIds()
+            );
+            messagingTemplate.convertAndSend(
+                    "/topic/session/" + sessionId + "/private/" + recipient.getId(),
+                    new WsMessage<>(WsEventType.MAP_UPDATED, sessionId, version, recipientLayout)
+            );
+        }
     }
 }

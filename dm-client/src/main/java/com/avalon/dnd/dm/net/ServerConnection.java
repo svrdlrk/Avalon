@@ -330,15 +330,6 @@ public class ServerConnection {
         }).start();
     }
 
-    private static MediaType guessMediaType(String fileName) {
-        String lower = fileName == null ? "" : fileName.toLowerCase();
-        if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return MediaType.parse("image/jpeg");
-        if (lower.endsWith(".png")) return MediaType.parse("image/png");
-        if (lower.endsWith(".gif")) return MediaType.parse("image/gif");
-        if (lower.endsWith(".webp")) return MediaType.parse("image/webp");
-        return MediaType.parse("application/octet-stream");
-    }
-
     private String normalizeSessionId(String sessionId) {
         if (sessionId == null) return null;
         String normalized = sessionId.trim();

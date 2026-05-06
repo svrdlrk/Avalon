@@ -3,6 +3,7 @@ package com.avalon.dnd.server.model;
 import com.avalon.dnd.shared.GridConfig;
 import com.avalon.dnd.shared.InitiativeStateDto;
 import com.avalon.dnd.shared.MicroLocationDto;
+import com.avalon.dnd.shared.VisibilityStateDto;
 
 import java.util.List;
 import java.util.Map;
@@ -27,6 +28,8 @@ public class GameSession {
 
     /** Текущее состояние инициативы (null = не активна). */
     private InitiativeStateDto initiativeState;
+    private VisibilityStateDto visibilityState;
+    private Map<String, VisibilityStateDto> visibilityStatesByPlayer = new ConcurrentHashMap<>();
 
     private Map<String, Player>    players = new ConcurrentHashMap<>();
     private Map<String, Token>     tokens  = new ConcurrentHashMap<>();
@@ -72,6 +75,14 @@ public class GameSession {
 
     public InitiativeStateDto getInitiativeState() { return initiativeState; }
     public void setInitiativeState(InitiativeStateDto s) { this.initiativeState = s; }
+
+    public VisibilityStateDto getVisibilityState() { return visibilityState; }
+    public void setVisibilityState(VisibilityStateDto visibilityState) { this.visibilityState = visibilityState; }
+
+    public Map<String, VisibilityStateDto> getVisibilityStatesByPlayer() { return visibilityStatesByPlayer; }
+    public void setVisibilityStatesByPlayer(Map<String, VisibilityStateDto> visibilityStatesByPlayer) {
+        this.visibilityStatesByPlayer = visibilityStatesByPlayer == null ? new ConcurrentHashMap<>() : new ConcurrentHashMap<>(visibilityStatesByPlayer);
+    }
 
     public long getVersion() { return version.get(); }
     public long incrementVersion() { return version.incrementAndGet(); }

@@ -2,6 +2,7 @@ package com.avalon.dnd.server.websocket;
 
 import com.avalon.dnd.server.model.GameSession;
 import com.avalon.dnd.server.model.Player;
+import com.avalon.dnd.server.service.MapBattleRulesService;
 import com.avalon.dnd.server.service.MapObjectService;
 import com.avalon.dnd.server.service.SessionService;
 import com.avalon.dnd.server.service.SessionValidationService;
@@ -34,6 +35,7 @@ public class SessionWsController {
     private final SessionService           sessionService;
     private final SimpMessagingTemplate    messaging;
     private final SessionValidationService validationService;
+    private final MapBattleRulesService    battleRulesService;
     private final ScheduledExecutorService cleanupExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "session-ws-cleanup");
         t.setDaemon(true);
@@ -48,15 +50,20 @@ public class SessionWsController {
 
     public SessionWsController(SessionService sessionService,
                                SimpMessagingTemplate messaging,
-                               SessionValidationService validationService) {
+                               SessionValidationService validationService,
+                               MapBattleRulesService battleRulesService) {
         this.sessionService    = sessionService;
         this.messaging         = messaging;
         this.validationService = validationService;
+        this.battleRulesService = battleRulesService;
     }
 
     // ---- state builder ----
 
-    private SessionStateDto buildState(GameSession session, String forPlayerId) {
+    public SessionStateDto buildState(GameSession session, String forPlayerId) {
+        if (session.getVisibilityState() == null || session.getVisibilityStatesByPlayer() == null || session.getVisibilityStatesByPlayer().isEmpty()) {
+            battleRulesService.computeVisibility(session);
+        }
         return new SessionStateDto(
                 forPlayerId,
                 session.getGrid(),
@@ -67,6 +74,7 @@ public class SessionWsController {
                 session.getObjects().values().stream().map(MapObjectService::toDto).toList(),
                 session.getBackgroundUrl(),
                 session.getInitiativeState(),
+                battleRulesService.getVisibilityForPlayer(session, forPlayerId),
                 session.getReferenceOverlayLayer(),
                 session.getTerrainLayer(),
                 session.getWallLayer(),
@@ -74,6 +82,17 @@ public class SessionWsController {
                 session.getMicroLocations(),
                 session.getAssetPackIds()
         );
+    }
+
+    public void broadcastSessionState(GameSession session) {
+        if (session == null) return;
+        battleRulesService.computeVisibility(session);
+        session.getPlayers().values().forEach(player -> messaging.convertAndSend(
+                privateTopic(session.getId(), player.getId()),
+                new WsMessage<>(WsEventType.SESSION_STATE,
+                        session.getId(),
+                        session.getVersion(),
+                        buildState(session, player.getId()))));
     }
 
     // ---- join ----
@@ -92,7 +111,7 @@ public class SessionWsController {
         if (session == null) throw new RuntimeException("Session not found");
 
         Player player = sessionService.joinSession(
-                request.getSessionId(), request.getPlayerName(), request.isDm());
+                sessionId, request.getPlayerName(), request.isDm());
 
         cancelPendingDisconnect(sessionId, player.getId());
 
@@ -212,6 +231,8 @@ public class SessionWsController {
                     new WsMessage<>(WsEventType.TOKEN_ASSIGNED,
                             ref.gameSessionId(), version, t));
         }
+
+        broadcastSessionState(session);
     }
 
     private static String disconnectKey(String sessionId, String playerId) {

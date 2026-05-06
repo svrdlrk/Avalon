@@ -17,15 +17,18 @@ public class MapObjectWsController {
     private final SessionService sessionService;
     private final SessionValidationService validationService;
     private final SimpMessagingTemplate messagingTemplate;
+    private final SessionWsController sessionWsController;
 
     public MapObjectWsController(MapObjectService service,
                                  SessionService sessionService,
                                  SessionValidationService validationService,
-                                 SimpMessagingTemplate messagingTemplate) {
+                                 SimpMessagingTemplate messagingTemplate,
+                                 SessionWsController sessionWsController) {
         this.service = service;
         this.sessionService = sessionService;
         this.validationService = validationService;
         this.messagingTemplate = messagingTemplate;
+        this.sessionWsController = sessionWsController;
     }
 
     @MessageMapping("/map.object.create")
@@ -43,6 +46,7 @@ public class MapObjectWsController {
                 new WsMessage<>(WsEventType.MAP_OBJECT_ADDED, sessionId, version,
                         MapObjectService.toDto(obj))
         );
+        sessionWsController.broadcastSessionState(session);
     }
 
     @MessageMapping("/map.object.remove")
@@ -59,5 +63,6 @@ public class MapObjectWsController {
                 "/topic/session/" + sessionId,
                 new WsMessage<>(WsEventType.MAP_OBJECT_REMOVED, sessionId, version, id)
         );
+        sessionWsController.broadcastSessionState(session);
     }
 }

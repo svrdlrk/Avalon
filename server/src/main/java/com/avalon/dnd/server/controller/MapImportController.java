@@ -5,6 +5,7 @@ import com.avalon.dnd.server.model.MapEditorProjectImportDto;
 import com.avalon.dnd.server.model.MapEditorProjectImportDto.PlacementDto;
 import com.avalon.dnd.server.model.MapObject;
 import com.avalon.dnd.server.model.Token;
+import com.avalon.dnd.server.service.MapBattleRulesService;
 import com.avalon.dnd.server.service.SessionService;
 import com.avalon.dnd.shared.GridConfig;
 import com.avalon.dnd.shared.MapLayoutUpdateDto;
@@ -22,11 +23,14 @@ public class MapImportController {
 
     private final SessionService sessionService;
     private final SimpMessagingTemplate messaging;
+    private final MapBattleRulesService battleRulesService;
 
     public MapImportController(SessionService sessionService,
-                               SimpMessagingTemplate messaging) {
+                               SimpMessagingTemplate messaging,
+                               MapBattleRulesService battleRulesService) {
         this.sessionService = sessionService;
         this.messaging = messaging;
+        this.battleRulesService = battleRulesService;
     }
 
     @PostMapping("/{sessionId}/import-map")
@@ -45,6 +49,9 @@ public class MapImportController {
             session.setFogSettings(dto.getFogSettings());
             session.setMicroLocations(dto.getMicroLocations());
             session.setAssetPackIds(dto.getAssetPackIds());
+            session.setInitiativeState(null);
+            session.setVisibilityState(null);
+            session.getVisibilityStatesByPlayer().clear();
 
             if (dto.getPlacements() != null) {
                 for (PlacementDto placement : dto.getPlacements()) {
@@ -86,21 +93,26 @@ public class MapImportController {
             }
 
             long version = session.incrementVersion();
-            MapLayoutUpdateDto layout = new MapLayoutUpdateDto(
-                    session.getGrid(),
-                    session.getTokens().values().stream().map(com.avalon.dnd.server.service.TokenService::toDto).toList(),
-                    session.getObjects().values().stream().map(com.avalon.dnd.server.service.MapObjectService::toDto).toList(),
-                    session.getBackgroundUrl(),
-                    session.getReferenceOverlayLayer(),
-                    session.getTerrainLayer(),
-                    session.getWallLayer(),
-                    session.getFogSettings(),
-                    session.getMicroLocations(),
-                    session.getAssetPackIds()
-            );
-            messaging.convertAndSend(
-                    "/topic/session/" + sessionId,
-                    new WsMessage<>(WsEventType.MAP_UPDATED, sessionId, version, layout));
+            battleRulesService.computeVisibility(session);
+            MapLayoutUpdateDto baseLayout = battleRulesService.buildMapLayout(session, null);
+            for (var player : session.getPlayers().values()) {
+                MapLayoutUpdateDto layout = new MapLayoutUpdateDto(
+                        baseLayout.getGrid(),
+                        baseLayout.getTokens(),
+                        baseLayout.getObjects(),
+                        baseLayout.getBackgroundUrl(),
+                        battleRulesService.getVisibilityForPlayer(session, player.getId()),
+                        baseLayout.getReferenceOverlayLayer(),
+                        baseLayout.getTerrainLayer(),
+                        baseLayout.getWallLayer(),
+                        baseLayout.getFogSettings(),
+                        baseLayout.getMicroLocations(),
+                        baseLayout.getAssetPackIds()
+                );
+                messaging.convertAndSend(
+                        "/topic/session/" + sessionId + "/private/" + player.getId(),
+                        new WsMessage<>(WsEventType.MAP_UPDATED, sessionId, version, layout));
+            }
 
             return ResponseEntity.ok(new SessionController.SessionCreatedResponse(session.getId()));
         } catch (Exception e) {

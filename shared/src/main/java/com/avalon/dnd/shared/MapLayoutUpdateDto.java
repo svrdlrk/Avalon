@@ -13,6 +13,7 @@ public class MapLayoutUpdateDto {
     private List<TokenDto> tokens;
     private List<MapObjectDto> objects;
     private String backgroundUrl;
+    private VisibilityStateDto visibility;
 
     /** Optional editor metadata (opaque to battle clients). */
     private Object referenceOverlayLayer;
@@ -25,13 +26,14 @@ public class MapLayoutUpdateDto {
     public MapLayoutUpdateDto() {}
 
     public MapLayoutUpdateDto(GridConfig grid, List<TokenDto> tokens, List<MapObjectDto> objects, String backgroundUrl) {
-        this(grid, tokens, objects, backgroundUrl, null, null, null, null, null, null);
+        this(grid, tokens, objects, backgroundUrl, null, null, null, null, null, null, null);
     }
 
     public MapLayoutUpdateDto(GridConfig grid,
                               List<TokenDto> tokens,
                               List<MapObjectDto> objects,
                               String backgroundUrl,
+                              VisibilityStateDto visibility,
                               Object referenceOverlayLayer,
                               Object terrainLayer,
                               Object wallLayer,
@@ -42,6 +44,7 @@ public class MapLayoutUpdateDto {
         this.tokens = tokens;
         this.objects = objects;
         this.backgroundUrl = backgroundUrl;
+        this.visibility = visibility;
         this.referenceOverlayLayer = referenceOverlayLayer;
         this.terrainLayer = terrainLayer;
         this.wallLayer = wallLayer;
@@ -61,6 +64,9 @@ public class MapLayoutUpdateDto {
 
     public String getBackgroundUrl() { return backgroundUrl; }
     public void setBackgroundUrl(String backgroundUrl) { this.backgroundUrl = backgroundUrl; }
+
+    public VisibilityStateDto getVisibility() { return visibility; }
+    public void setVisibility(VisibilityStateDto visibility) { this.visibility = visibility; }
 
     public Object getReferenceOverlayLayer() { return referenceOverlayLayer; }
     public void setReferenceOverlayLayer(Object referenceOverlayLayer) { this.referenceOverlayLayer = referenceOverlayLayer; }

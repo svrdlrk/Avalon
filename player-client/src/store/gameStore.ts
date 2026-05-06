@@ -8,6 +8,7 @@ import type {
     PlayerDto,
     SessionStateDto,
     TokenDto,
+    VisibilityStateDto,
 } from '../types/types';
 
 interface GameState {
@@ -23,6 +24,7 @@ interface GameState {
     terrainLayer: unknown | null;
     wallLayer: unknown | null;
     fogSettings: unknown | null;
+    visibility: VisibilityStateDto | null;
     microLocations: MicroLocationDto[];
     assetPackIds: string[];
 
@@ -51,6 +53,7 @@ export const useGameStore = create<GameState>((set) => ({
     terrainLayer: null,
     wallLayer: null,
     fogSettings: null,
+    visibility: null,
     microLocations: [],
     assetPackIds: [],
 
@@ -68,6 +71,7 @@ export const useGameStore = create<GameState>((set) => ({
             terrainLayer: state.terrainLayer ?? null,
             wallLayer: state.wallLayer ?? null,
             fogSettings: state.fogSettings ?? null,
+            visibility: state.visibility ?? null,
             microLocations: state.microLocations ?? [],
             assetPackIds: state.assetPackIds ?? [],
         }),
@@ -84,6 +88,7 @@ export const useGameStore = create<GameState>((set) => ({
             terrainLayer: dto.terrainLayer ?? s.terrainLayer,
             wallLayer: dto.wallLayer ?? s.wallLayer,
             fogSettings: dto.fogSettings ?? s.fogSettings,
+            visibility: dto.visibility ?? s.visibility,
             microLocations: dto.microLocations ?? s.microLocations,
             assetPackIds: dto.assetPackIds ?? s.assetPackIds,
         })),

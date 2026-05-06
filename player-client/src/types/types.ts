@@ -58,6 +58,13 @@ export interface MapObjectDto {
     blocksSight?: boolean;
 }
 
+export interface VisibilityStateDto {
+    visibleCells: boolean[][];
+    exploredCells?: string[];
+    tokenSnapshots?: Record<string, TokenDto>;
+    objectSnapshots?: Record<string, MapObjectDto>;
+}
+
 export interface SessionStateDto {
     myPlayerId:    string;
     grid:          GridConfig;
@@ -66,6 +73,7 @@ export interface SessionStateDto {
     objects:       MapObjectDto[];
     backgroundUrl?: string;
     initiative?:   InitiativeStateDto;
+    visibility?:   VisibilityStateDto;
     referenceOverlayLayer?: unknown;
     terrainLayer?: unknown;
     wallLayer?: unknown;
@@ -79,6 +87,7 @@ export interface MapLayoutUpdateDto {
     tokens:         TokenDto[];
     objects:        MapObjectDto[];
     backgroundUrl?: string;
+    visibility?:    VisibilityStateDto;
     referenceOverlayLayer?: unknown;
     terrainLayer?: unknown;
     wallLayer?: unknown;

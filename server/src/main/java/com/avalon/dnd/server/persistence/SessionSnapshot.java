@@ -3,6 +3,7 @@ package com.avalon.dnd.server.persistence;
 import com.avalon.dnd.server.model.*;
 import com.avalon.dnd.shared.GridConfig;
 import com.avalon.dnd.shared.InitiativeStateDto;
+import com.avalon.dnd.shared.VisibilityStateDto;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
 import java.util.List;
@@ -27,6 +28,7 @@ public class SessionSnapshot {
     public List<TokenSnapshot>      tokens;
     public List<MapObjectSnapshot>  objects;
     public InitiativeStateDto initiative;   // nullable — may be null if not active
+    public VisibilityStateDto visibility;
 
     public SessionSnapshot() {}
 
@@ -156,6 +158,7 @@ public class SessionSnapshot {
         snap.assetPackIds = session.getAssetPackIds();
         snap.version       = session.getVersion();
         snap.initiative    = session.getInitiativeState();
+        snap.visibility    = session.getVisibilityState();
         snap.players = session.getPlayers().values().stream()
                 .map(PlayerSnapshot::from).toList();
         snap.tokens = session.getTokens().values().stream()

@@ -12,6 +12,7 @@ public class SessionStateDto {
     private List<MapObjectDto> objects;
     private String backgroundUrl;
     private InitiativeStateDto initiative;
+    private VisibilityStateDto visibility;
 
     // Optional editor metadata (opaque to battle clients).
     private Object referenceOverlayLayer;
@@ -29,7 +30,7 @@ public class SessionStateDto {
                            List<PlayerDto> players,
                            List<MapObjectDto> objects,
                            String backgroundUrl) {
-        this(myPlayerId, grid, tokens, players, objects, backgroundUrl, null, null, null, null, null, null, null);
+        this(myPlayerId, grid, tokens, players, objects, backgroundUrl, null, null, null, null, null, null, null, null);
     }
 
     public SessionStateDto(String myPlayerId,
@@ -39,7 +40,7 @@ public class SessionStateDto {
                            List<MapObjectDto> objects,
                            String backgroundUrl,
                            InitiativeStateDto initiative) {
-        this(myPlayerId, grid, tokens, players, objects, backgroundUrl, initiative, null, null, null, null, null, null);
+        this(myPlayerId, grid, tokens, players, objects, backgroundUrl, initiative, null, null, null, null, null, null, null);
     }
 
     public SessionStateDto(String myPlayerId,
@@ -49,6 +50,7 @@ public class SessionStateDto {
                            List<MapObjectDto> objects,
                            String backgroundUrl,
                            InitiativeStateDto initiative,
+                           VisibilityStateDto visibility,
                            Object referenceOverlayLayer,
                            Object terrainLayer,
                            Object wallLayer,
@@ -62,6 +64,7 @@ public class SessionStateDto {
         this.objects = objects;
         this.backgroundUrl = backgroundUrl;
         this.initiative = initiative;
+        this.visibility = visibility;
         this.referenceOverlayLayer = referenceOverlayLayer;
         this.terrainLayer = terrainLayer;
         this.wallLayer = wallLayer;
@@ -77,6 +80,7 @@ public class SessionStateDto {
     public List<MapObjectDto> getObjects() { return objects; }
     public String getBackgroundUrl() { return backgroundUrl; }
     public InitiativeStateDto getInitiative() { return initiative; }
+    public VisibilityStateDto getVisibility() { return visibility; }
     public Object getReferenceOverlayLayer() { return referenceOverlayLayer; }
     public Object getTerrainLayer() { return terrainLayer; }
     public Object getWallLayer() { return wallLayer; }
@@ -91,6 +95,7 @@ public class SessionStateDto {
     public void setObjects(List<MapObjectDto> v) { this.objects = v; }
     public void setBackgroundUrl(String v) { this.backgroundUrl = v; }
     public void setInitiative(InitiativeStateDto v) { this.initiative = v; }
+    public void setVisibility(VisibilityStateDto v) { this.visibility = v; }
     public void setReferenceOverlayLayer(Object v) { this.referenceOverlayLayer = v; }
     public void setTerrainLayer(Object v) { this.terrainLayer = v; }
     public void setWallLayer(Object v) { this.wallLayer = v; }

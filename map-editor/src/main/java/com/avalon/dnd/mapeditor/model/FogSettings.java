@@ -8,6 +8,7 @@ public class FogSettings {
     private int revealRadius = 6;
     private double opacity = 0.72;
     private boolean retainExploredCells = true;
+    private int sharedVisionDistance = 8;
     /**
      * Backward-compatible boolean flag. Prefer timeOfDay for new data.
      */
@@ -28,6 +29,7 @@ public class FogSettings {
         copy.revealRadius = this.revealRadius;
         copy.opacity = this.opacity;
         copy.retainExploredCells = this.retainExploredCells;
+        copy.sharedVisionDistance = this.sharedVisionDistance;
         copy.nightMode = this.nightMode;
         copy.timeOfDay = this.timeOfDay;
         return copy;
@@ -39,6 +41,7 @@ public class FogSettings {
     public int getRevealRadius() { return revealRadius; }
     public double getOpacity() { return opacity; }
     public boolean isRetainExploredCells() { return retainExploredCells; }
+    public int getSharedVisionDistance() { return sharedVisionDistance; }
     public boolean isNightMode() { return nightMode || "night".equalsIgnoreCase(timeOfDay); }
     public String getTimeOfDay() { return timeOfDay; }
 
@@ -48,6 +51,7 @@ public class FogSettings {
     public void setRevealRadius(int revealRadius) { this.revealRadius = Math.max(0, Math.min(64, revealRadius)); }
     public void setOpacity(double opacity) { this.opacity = Math.max(0.0, Math.min(1.0, opacity)); }
     public void setRetainExploredCells(boolean retainExploredCells) { this.retainExploredCells = retainExploredCells; }
+    public void setSharedVisionDistance(int sharedVisionDistance) { this.sharedVisionDistance = Math.max(0, Math.min(64, sharedVisionDistance)); }
     public void setNightMode(boolean nightMode) {
         this.nightMode = nightMode;
         this.timeOfDay = nightMode ? "night" : "day";

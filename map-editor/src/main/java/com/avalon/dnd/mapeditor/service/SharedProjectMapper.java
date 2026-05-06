@@ -57,6 +57,7 @@ public final class SharedProjectMapper {
                 tokens,
                 objects,
                 project.getBackgroundUrl(),
+                null,
                 project.getReferenceOverlayLayer(),
                 project.getTerrainLayer(),
                 project.getWallLayer(),

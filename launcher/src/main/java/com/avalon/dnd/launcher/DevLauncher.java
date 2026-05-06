@@ -1,10 +1,18 @@
 package com.avalon.dnd.launcher;
 
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpHandler;
+import com.sun.net.httpserver.HttpServer;
+
 import java.io.*;
+import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class DevLauncher {
 
@@ -14,8 +22,15 @@ public class DevLauncher {
     private static final String SESSION_ENV = "AVALON_LAUNCHER_SESSION";
 
     private static final List<Process> processes = new CopyOnWriteArrayList<>();
+    private static final Set<String> activeClients = ConcurrentHashMap.newKeySet();
+    private static final ConcurrentMap<String, Process> trackedProcesses = new ConcurrentHashMap<>();
+    private static final ConcurrentMap<String, Long> lastHeartbeat = new ConcurrentHashMap<>();
+    private static final AtomicBoolean shutdownRequested = new AtomicBoolean(false);
     private static volatile Path projectRoot;
     private static volatile String launcherSession;
+    private static volatile String controlBaseUrl;
+    private static volatile HttpServer controlServer;
+    private static volatile ScheduledExecutorService monitorExecutor;
 
     public static void main(String[] args) throws Exception {
         if (args != null && args.length >= 3 && WATCHDOG_FLAG.equalsIgnoreCase(args[0])) {
@@ -30,6 +45,7 @@ public class DevLauncher {
         log("root: " + root);
 
         installSignalHandlers();
+        startControlServer();
         Runtime.getRuntime().addShutdownHook(new Thread(DevLauncher::shutdownAll, "avalon-shutdown"));
         startCleanupWatchdog(root, launcherSession);
 
@@ -95,6 +111,180 @@ public class DevLauncher {
         }
     }
 
+    private static void startControlServer() {
+        try {
+            controlServer = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+            controlServer.createContext("/launcher/client-closed", new ClientClosedHandler());
+            controlServer.createContext("/launcher/client-heartbeat", new ClientHeartbeatHandler());
+            controlServer.setExecutor(Executors.newCachedThreadPool(r -> {
+                Thread t = new Thread(r, "avalon-launcher-control");
+                t.setDaemon(true);
+                return t;
+            }));
+            controlServer.start();
+            int port = controlServer.getAddress().getPort();
+            controlBaseUrl = "http://127.0.0.1:" + port;
+            startHeartbeatMonitor();
+            log("control server started on " + controlBaseUrl);
+        } catch (Exception e) {
+            log("control server start failed: " + e.getMessage());
+        }
+    }
+
+    private static final class ClientClosedHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            try {
+                addCors(exchange);
+                if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
+                    exchange.sendResponseHeaders(204, -1);
+                    return;
+                }
+                String method = exchange.getRequestMethod();
+                if (!"POST".equalsIgnoreCase(method) && !"GET".equalsIgnoreCase(method)) {
+                    exchange.sendResponseHeaders(405, -1);
+                    return;
+                }
+                String client = readQueryParam(exchange.getRequestURI(), "client");
+                if (client == null || client.isBlank()) {
+                    exchange.sendResponseHeaders(400, -1);
+                    return;
+                }
+                onClientClosed(client.trim().toLowerCase(Locale.ROOT));
+                exchange.sendResponseHeaders(204, -1);
+            } finally {
+                exchange.close();
+            }
+        }
+    }
+
+    private static void addCors(HttpExchange exchange) {
+        exchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+        exchange.getResponseHeaders().add("Access-Control-Allow-Headers", "Content-Type");
+        exchange.getResponseHeaders().add("Access-Control-Max-Age", "86400");
+    }
+
+    private static String readQueryParam(URI uri, String key) {
+        String query = uri == null ? null : uri.getRawQuery();
+        if (query == null || query.isBlank()) return null;
+        for (String part : query.split("&")) {
+            int idx = part.indexOf('=');
+            String k = idx >= 0 ? part.substring(0, idx) : part;
+            if (!key.equals(k)) continue;
+            String v = idx >= 0 ? part.substring(idx + 1) : "";
+            return java.net.URLDecoder.decode(v, StandardCharsets.UTF_8);
+        }
+        return null;
+    }
+
+
+    private static final class ClientHeartbeatHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            try {
+                addCors(exchange);
+                if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
+                    exchange.sendResponseHeaders(204, -1);
+                    return;
+                }
+                String method = exchange.getRequestMethod();
+                if (!"POST".equalsIgnoreCase(method) && !"GET".equalsIgnoreCase(method)) {
+                    exchange.sendResponseHeaders(405, -1);
+                    return;
+                }
+                String client = readQueryParam(exchange.getRequestURI(), "client");
+                if (client == null || client.isBlank()) {
+                    exchange.sendResponseHeaders(400, -1);
+                    return;
+                }
+                onClientHeartbeat(client.trim().toLowerCase(Locale.ROOT));
+                exchange.sendResponseHeaders(204, -1);
+            } finally {
+                exchange.close();
+            }
+        }
+    }
+
+    private static void onClientHeartbeat(String client) {
+        lastHeartbeat.put(client, System.currentTimeMillis());
+        if ("dm".equals(client) || "player".equals(client)) {
+            activeClients.add(client);
+        }
+    }
+
+    private static void onClientClosed(String client) {
+        if (!activeClients.remove(client)) {
+            return;
+        }
+        log(client + " client closed");
+        Process process = trackedProcesses.remove(client);
+        if (process != null) {
+            try {
+                terminateProcessTree(process);
+            } catch (Exception ignored) {
+            }
+        }
+        maybeShutdownLauncher();
+    }
+
+    private static void registerClient(String name, Process process) {
+        trackedProcesses.put(name, process);
+        if ("dm".equals(name) || "player".equals(name)) {
+            activeClients.add(name);
+            lastHeartbeat.put(name, System.currentTimeMillis());
+        }
+        process.onExit().thenRun(() -> onTrackedProcessExit(name, process));
+    }
+
+    private static void onTrackedProcessExit(String name, Process process) {
+        trackedProcesses.remove(name, process);
+        if ("dm".equals(name) || "player".equals(name)) {
+            activeClients.remove(name);
+        }
+        maybeShutdownLauncher();
+    }
+
+    private static void maybeShutdownLauncher() {
+        if (!activeClients.isEmpty()) {
+            return;
+        }
+        if (shutdownRequested.compareAndSet(false, true)) {
+            log("all clients closed; exiting launcher");
+            new Thread(() -> System.exit(0), "avalon-launcher-exit").start();
+        }
+    }
+
+    private static void startHeartbeatMonitor() {
+        monitorExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "avalon-launcher-heartbeat-monitor");
+            t.setDaemon(true);
+            return t;
+        });
+        monitorExecutor.scheduleAtFixedRate(() -> {
+            try {
+                monitorPlayerHeartbeat();
+            } catch (Exception e) {
+                log("heartbeat monitor failed: " + e.getMessage());
+            }
+        }, 5, 5, TimeUnit.SECONDS);
+    }
+
+    private static void monitorPlayerHeartbeat() {
+        if (!activeClients.contains("player")) {
+            return;
+        }
+        Long last = lastHeartbeat.get("player");
+        if (last == null) {
+            return;
+        }
+        long age = System.currentTimeMillis() - last;
+        if (age > 15000L) {
+            log("player heartbeat stale (" + age + "ms), closing player process");
+            onClientClosed("player");
+        }
+    }
+
     private static void runWatchdog(long launcherPid, Path root, String session) {
         log("watchdog active for pid " + launcherPid + " root " + root);
         while (ProcessHandle.of(launcherPid).map(ProcessHandle::isAlive).orElse(false)) {
@@ -149,24 +339,28 @@ public class DevLauncher {
 
     private static void startServer(Path root) throws IOException {
         log("starting server...");
-        processes.add(startProcess(root, root, "cmd", "/c", "gradlew.bat", "--no-daemon", ":server:bootRun"));
+        Process process = startProcess(root, root, "server", "cmd", "/c", "gradlew.bat", "--no-daemon", ":server:bootRun");
+        processes.add(process);
     }
 
     private static void startDmClient(Path root) throws IOException {
         log("starting dm-client...");
-        processes.add(startProcess(root, root, "cmd", "/c", "gradlew.bat", "--no-daemon", ":dm-client:run"));
+        Process process = startProcess(root, root, "dm", "cmd", "/c", "gradlew.bat", "--no-daemon", ":dm-client:run");
+        processes.add(process);
     }
 
     private static void startPlayerClient(Path root) throws IOException {
         log("starting player-client...");
-        processes.add(startProcess(
+        Process process = startProcess(
                 root.resolve("player-client"),
                 root,
+                "player",
                 "cmd", "/c", "npm.cmd", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5173", "--strictPort"
-        ));
+        );
+        processes.add(process);
     }
 
-    private static Process startProcess(Path dir, Path projectRoot, String... command) throws IOException {
+    private static Process startProcess(Path dir, Path projectRoot, String name, String... command) throws IOException {
         ProcessBuilder pb = new ProcessBuilder(command);
         pb.directory(dir.toFile());
         pb.redirectErrorStream(true);
@@ -176,8 +370,15 @@ public class DevLauncher {
         if (launcherSession != null && !launcherSession.isBlank()) {
             pb.environment().put(SESSION_ENV, launcherSession);
         }
+        if (controlBaseUrl != null && !controlBaseUrl.isBlank()) {
+            pb.environment().put("AVALON_LAUNCHER_CONTROL_URL", controlBaseUrl);
+            if ("player".equals(name)) {
+                pb.environment().put("VITE_AVALON_LAUNCHER_CONTROL_URL", controlBaseUrl);
+            }
+        }
 
         Process process = pb.start();
+        registerClient(name, process);
 
         // логирование stdout
         new Thread(() -> streamOutput(process)).start();
@@ -265,6 +466,17 @@ public class DevLauncher {
     private static void shutdownAll() {
         log("shutting down...");
 
+        try {
+            if (monitorExecutor != null) {
+                monitorExecutor.shutdownNow();
+            }
+        } catch (Exception ignored) {}
+        try {
+            if (controlServer != null) {
+                controlServer.stop(0);
+            }
+        } catch (Exception ignored) {}
+
         List<Process> snapshot = new ArrayList<>(processes);
         Collections.reverse(snapshot);
 
@@ -280,6 +492,9 @@ public class DevLauncher {
         } catch (Exception ignored) {}
 
         processes.clear();
+        activeClients.clear();
+        trackedProcesses.clear();
+        lastHeartbeat.clear();
     }
 
     private static void terminateProcessTree(Process process) throws IOException, InterruptedException {

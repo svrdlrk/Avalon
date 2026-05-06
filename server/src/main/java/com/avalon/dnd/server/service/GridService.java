@@ -17,9 +17,11 @@ import java.util.List;
 public class GridService {
 
     private final SessionService sessionService;
+    private final MapBattleRulesService battleRulesService;
 
-    public GridService(SessionService sessionService) {
+    public GridService(SessionService sessionService, MapBattleRulesService battleRulesService) {
         this.sessionService = sessionService;
+        this.battleRulesService = battleRulesService;
     }
 
     public MapLayoutUpdateDto updateGrid(Player player, GridConfig requested) {
@@ -82,6 +84,7 @@ public class GridService {
                 tokenDtos,
                 objectDtos,
                 session.getBackgroundUrl(),
+                null,
                 session.getReferenceOverlayLayer(),
                 session.getTerrainLayer(),
                 session.getWallLayer(),

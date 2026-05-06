@@ -19,15 +19,18 @@ public class TokenWsController {
     private final SessionService sessionService;
     private final SimpMessagingTemplate messaging;
     private final SessionValidationService validationService;
+    private final SessionWsController sessionWsController;
 
     public TokenWsController(TokenService tokenService,
                              SessionService sessionService,
                              SimpMessagingTemplate messaging,
-                             SessionValidationService validationService) {
+                             SessionValidationService validationService,
+                             SessionWsController sessionWsController) {
         this.tokenService = tokenService;
         this.sessionService = sessionService;
         this.messaging = messaging;
         this.validationService = validationService;
+        this.sessionWsController = sessionWsController;
     }
 
     @MessageMapping("/token.move")
@@ -38,6 +41,7 @@ public class TokenWsController {
         GameSession session = getSession(sessionId);
         Token updated = tokenService.moveToken(event, player);
         broadcast(sessionId, session, WsEventType.TOKEN_MOVED, TokenService.toDto(updated));
+        sessionWsController.broadcastSessionState(session);
     }
 
     @MessageMapping("/token.create")
@@ -48,6 +52,7 @@ public class TokenWsController {
         GameSession session = getSession(sessionId);
         Token token = tokenService.createToken(request, player);
         broadcast(sessionId, session, WsEventType.TOKEN_ADDED, TokenService.toDto(token));
+        sessionWsController.broadcastSessionState(session);
     }
 
     @MessageMapping("/token.remove")
@@ -58,6 +63,7 @@ public class TokenWsController {
         GameSession session = getSession(sessionId);
         String removedId = tokenService.removeToken(event, player);
         broadcast(sessionId, session, WsEventType.TOKEN_REMOVED, removedId);
+        sessionWsController.broadcastSessionState(session);
     }
 
     @MessageMapping("/token.assign")
@@ -68,6 +74,7 @@ public class TokenWsController {
         GameSession session = getSession(sessionId);
         Token updated = tokenService.assignToken(request, player);
         broadcast(sessionId, session, WsEventType.TOKEN_ASSIGNED, TokenService.toDto(updated));
+        sessionWsController.broadcastSessionState(session);
     }
 
     @MessageMapping("/token.hp")
@@ -78,6 +85,7 @@ public class TokenWsController {
         GameSession session = getSession(sessionId);
         Token updated = tokenService.updateHp(event, player);
         broadcast(sessionId, session, WsEventType.TOKEN_HP, TokenService.toDto(updated));
+        sessionWsController.broadcastSessionState(session);
     }
 
     private GameSession getSession(String sessionId) {

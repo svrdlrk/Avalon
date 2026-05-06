@@ -3,7 +3,7 @@ import {
     Stage, Layer, Rect, Line, Circle, Text, Group, Image as KonvaImage,
 } from 'react-konva';
 import { useGameStore } from '../store/gameStore';
-import type { TokenDto, MapObjectDto, GridConfig, MicroLocationDto } from '../types/types';
+import type { TokenDto, MapObjectDto, GridConfig, MicroLocationDto, VisibilityStateDto } from '../types/types';
 import { wsClient } from '../net/wsClient';
 import useImage from '../hooks/useImage';
 import type Konva from 'konva';
@@ -22,182 +22,9 @@ function hpColor(hp: number, maxHp: number): string {
 }
 
 
-type AnyMap = Record<string, any>;
-
-function getBool(v: any, def = false): boolean {
-    if (typeof v === 'boolean') return v;
-    if (v == null) return def;
-    return String(v).toLowerCase() === 'true';
-}
-
 function getNum(v: any, def = 0): number {
     const n = typeof v === 'number' ? v : Number(v);
     return Number.isFinite(n) ? n : def;
-}
-
-function isNightMode(fogSettings: unknown): boolean {
-    const fog = asMap(fogSettings);
-    if (!fog) return false;
-
-    const mode = fog.timeOfDay ?? fog.dayNight ?? fog.mode;
-    if (typeof mode === 'string') {
-        const normalized = mode.trim().toLowerCase();
-        if (normalized === 'night' || normalized === 'dark') return true;
-        if (normalized === 'day' || normalized === 'light') return false;
-    }
-
-    return getBool(fog.nightMode ?? fog.isNightMode ?? fog.night ?? fog.isNight ?? fog.darkness, false);
-}
-
-function resolveVisionRadius(token: TokenDto, fogSettings: unknown): number {
-    const fog = asMap(fogSettings);
-    const fallback = fog ? Math.max(0, Math.floor(getNum(fog.revealRadius, 6))) : 6;
-    const night = isNightMode(fogSettings);
-    const preferred = night ? getNum(token.nightVision, 0) : getNum(token.dayVision, 0);
-    const alternate = night ? getNum(token.dayVision, 0) : getNum(token.nightVision, 0);
-    const radius = preferred > 0 ? preferred : (alternate > 0 ? alternate : fallback);
-    return Math.max(0, Math.floor(radius));
-}
-
-function asMap(v: any): AnyMap | null {
-    return v && typeof v === 'object' && !Array.isArray(v) ? v as AnyMap : null;
-}
-
-function buildBlockedCells(grid: GridConfig, terrainLayer: unknown, wallLayer: unknown, objects: Record<string, MapObjectDto>, forSight = false) {
-    const blocked = Array.from({ length: grid.rows }, () => Array<boolean>(grid.cols).fill(false));
-
-    Object.values(objects).forEach((obj) => {
-        if (!(forSight ? (obj.blocksSight ?? obj.blocksMovement) : obj.blocksMovement)) return;
-        const w = Math.max(1, obj.width ?? 1);
-        const h = Math.max(1, obj.height ?? 1);
-        for (let r = obj.row; r < obj.row + h; r++) {
-            if (r < 0 || r >= grid.rows) continue;
-            for (let c = obj.col; c < obj.col + w; c++) {
-                if (c < 0 || c >= grid.cols) continue;
-                blocked[r][c] = true;
-            }
-        }
-    });
-
-    const terrain = asMap(terrainLayer);
-    const cells = terrain?.cells;
-    if (Array.isArray(cells)) {
-        cells.forEach((cell) => {
-            const m = asMap(cell);
-            if (!m) return;
-            const blocks = forSight ? getBool(m.blocksSight, getBool(m.blocksMovement, false)) : getBool(m.blocksMovement, false);
-            if (!blocks) return;
-            const col = Math.floor(getNum(m.col));
-            const row = Math.floor(getNum(m.row));
-            const w = Math.max(1, Math.floor(getNum(m.width, 1)));
-            const h = Math.max(1, Math.floor(getNum(m.height, 1)));
-            for (let r = row; r < row + h; r++) {
-                if (r < 0 || r >= grid.rows) continue;
-                for (let c = col; c < col + w; c++) {
-                    if (c < 0 || c >= grid.cols) continue;
-                    blocked[r][c] = true;
-                }
-            }
-        });
-    }
-
-    const wall = asMap(wallLayer);
-    const paths = wall?.paths;
-    if (Array.isArray(paths)) {
-        const cellSize = Math.max(1, grid.cellSize);
-        const ox = grid.offsetX;
-        const oy = grid.offsetY;
-        paths.forEach((path) => {
-            const pm = asMap(path);
-            if (!pm) return;
-            const blocks = forSight ? getBool(pm.blocksSight, getBool(pm.blocksMovement, true)) : getBool(pm.blocksMovement, true);
-            if (!blocks) return;
-            const thickness = Math.max(0.5, getNum(pm.thickness, 2.5));
-            const expand = Math.max(0, Math.ceil(thickness / cellSize));
-            const points = Array.isArray(pm.points) ? pm.points : [];
-            let prev: {x:number,y:number} | null = null;
-            for (const pt of points) {
-                const mm = asMap(pt);
-                if (!mm) continue;
-                const curr = { x: getNum(mm.x), y: getNum(mm.y) };
-                if (prev) markWallSegment(blocked, prev, curr, ox, oy, cellSize, expand);
-                prev = curr;
-            }
-        });
-    }
-
-    return blocked;
-}
-
-function markWallSegment(blocked: boolean[][], a: {x:number,y:number}, b: {x:number,y:number}, ox: number, oy: number, cellSize: number, expand: number) {
-    const cells = bresenhamCells(Math.floor((a.x - ox) / cellSize), Math.floor((a.y - oy) / cellSize), Math.floor((b.x - ox) / cellSize), Math.floor((b.y - oy) / cellSize));
-    for (const cell of cells) {
-        for (let r = cell.row - expand; r <= cell.row + expand; r++) {
-            if (r < 0 || r >= blocked.length) continue;
-            for (let c = cell.col - expand; c <= cell.col + expand; c++) {
-                if (c < 0 || c >= blocked[r].length) continue;
-                blocked[r][c] = true;
-            }
-        }
-    }
-}
-
-function bresenhamCells(x0: number, y0: number, x1: number, y1: number) {
-    const cells: Array<{col:number,row:number}> = [];
-    let x = x0, y = y0;
-    const dx = Math.abs(x1 - x0);
-    const dy = Math.abs(y1 - y0);
-    const sx = x0 < x1 ? 1 : -1;
-    const sy = y0 < y1 ? 1 : -1;
-    let err = dx - dy;
-    for (;;) {
-        cells.push({ col: x, row: y });
-        if (x === x1 && y === y1) break;
-        const e2 = 2 * err;
-        if (e2 > -dy) { err -= dy; x += sx; }
-        if (e2 < dx) { err += dx; y += sy; }
-    }
-    return cells;
-}
-
-function computeVisibleCells(grid: GridConfig, tokens: Record<string, TokenDto>, _myPlayerId: string | null, fogSettings: unknown, terrainLayer: unknown, wallLayer: unknown, objects: Record<string, MapObjectDto>) {
-    const fog = asMap(fogSettings);
-    const enabled = fog ? getBool(fog.enabled, true) : true;
-    const revealFromTokens = fog ? getBool(fog.revealFromTokens, true) : true;
-    const blockers = buildBlockedCells(grid, terrainLayer, wallLayer, objects, true);
-    const visible = Array.from({ length: grid.rows }, () => Array<boolean>(grid.cols).fill(!enabled));
-
-    if (!enabled) return visible;
-
-    const sources = Object.values(tokens).filter((t) => revealFromTokens && (t.ownerId != null));
-    if (sources.length === 0) return visible;
-
-    for (const source of sources) {
-        const gs = Math.max(1, source.gridSize ?? 1);
-        const sx = source.col + Math.floor(gs / 2);
-        const sy = source.row + Math.floor(gs / 2);
-        const revealRadius = resolveVisionRadius(source, fogSettings);
-        if (revealRadius <= 0) continue;
-        const radiusSq = revealRadius * revealRadius;
-        for (let row = Math.max(0, sy - revealRadius); row <= Math.min(grid.rows - 1, sy + revealRadius); row++) {
-            for (let col = Math.max(0, sx - revealRadius); col <= Math.min(grid.cols - 1, sx + revealRadius); col++) {
-                const dx = col - sx, dy = row - sy;
-                if (dx * dx + dy * dy > radiusSq) continue;
-                if (hasLineOfSight(sx, sy, col, row, blockers)) visible[row][col] = true;
-            }
-        }
-    }
-
-    return visible;
-}
-
-function hasLineOfSight(x0: number, y0: number, x1: number, y1: number, blocked: boolean[][]) {
-    const cells = bresenhamCells(x0, y0, x1, y1);
-    for (const cell of cells) {
-        if ((cell.col === x0 && cell.row === y0) || (cell.col === x1 && cell.row === y1)) continue;
-        if (cell.row >= 0 && cell.row < blocked.length && cell.col >= 0 && cell.col < blocked[cell.row].length && blocked[cell.row][cell.col]) return false;
-    }
-    return true;
 }
 
 function cellKey(row: number, col: number): string {
@@ -455,7 +282,7 @@ ObjectShape.displayName = 'ObjectShape';
 // ================================================================ BattleMap
 
 const BattleMap: React.FC = () => {
-    const { grid, tokens, objects, myPlayerId, backgroundUrl, players, terrainLayer, wallLayer, fogSettings, microLocations } = useGameStore();
+    const { grid, tokens, objects, myPlayerId, backgroundUrl, players, terrainLayer, wallLayer, fogSettings, microLocations, visibility } = useGameStore();
     const stageRef = useRef<Konva.Stage>(null);
 
     // FIX: use a React state for stageDraggable so JSX prop stays in sync
@@ -466,15 +293,17 @@ const BattleMap: React.FC = () => {
 
     const fullBgUrl = normalizeAssetUrl(backgroundUrl, wsClient.getServerBaseUrl());
     const [bgImage] = useImage(fullBgUrl);
+    const serverVisibility: VisibilityStateDto | null = !isDm ? (visibility ?? null) : null;
     const visibleCells = useMemo(() => {
+        if (serverVisibility?.visibleCells) return serverVisibility.visibleCells;
         if (!grid) return null;
         if (isDm) {
             return Array.from({ length: grid.rows }, () => Array<boolean>(grid.cols).fill(true));
         }
-        return computeVisibleCells(grid, tokens, myPlayerId, fogSettings, terrainLayer, wallLayer, objects);
-    }, [grid, tokens, myPlayerId, fogSettings, terrainLayer, wallLayer, objects, isDm]);
+        return null;
+    }, [serverVisibility, grid, isDm]);
 
-    const fogEnabled = !isDm && visibleCells !== null;
+    const fogEnabled = !isDm;
     const retainExploredCells = useMemo(() => {
         const fog = fogSettings && typeof fogSettings === 'object' ? (fogSettings as Record<string, any>) : null;
         return fog ? Boolean(fog.retainExploredCells ?? true) : true;
@@ -489,10 +318,12 @@ const BattleMap: React.FC = () => {
     }>({ explored: new Set<string>(), tokens: {}, objects: {} });
 
     useEffect(() => {
+        if (serverVisibility) return;
         fogMemoryRef.current = { explored: new Set<string>(), tokens: {}, objects: {} };
-    }, [backgroundUrl, grid?.cols, grid?.rows, terrainLayer, wallLayer, fogSettings]);
+    }, [backgroundUrl, grid?.cols, grid?.rows, terrainLayer, wallLayer, fogSettings, serverVisibility]);
 
     useEffect(() => {
+        if (serverVisibility) return;
         if (!fogEnabled || !grid || !visibleCells) return;
         const memory = fogMemoryRef.current;
         if (!retainExploredCells) {
@@ -518,13 +349,25 @@ const BattleMap: React.FC = () => {
                 memory.objects[obj.id] = cloneObject(obj);
             }
         });
-    }, [fogEnabled, grid, visibleCells, tokens, objects, retainExploredCells]);
+    }, [fogEnabled, grid, visibleCells, tokens, objects, retainExploredCells, serverVisibility]);
 
-    const fogExplored = retainExploredCells ? fogMemoryRef.current.explored : new Set<string>();
+    const fogExplored = serverVisibility ? new Set(serverVisibility.exploredCells ?? []) : (retainExploredCells ? fogMemoryRef.current.explored : new Set<string>());
 
     const renderObjects = useMemo(() => {
         const allObjects = Object.values(objects).filter((obj) => shouldRenderScene(obj.microLocationId ?? null, activeMicroLocationId, isDm));
-        if (!fogEnabled || !visibleCells) return allObjects;
+        if (isDm) return allObjects;
+        if (!visibleCells) return [];
+        if (serverVisibility) {
+            const memory = serverVisibility.objectSnapshots ?? {};
+            return allObjects.flatMap((obj) => {
+                const w = Math.max(1, obj.width ?? 1);
+                const h = Math.max(1, obj.height ?? 1);
+                if (isAnyCellVisible(visibleCells, obj.col, obj.row, w, h)) return [obj];
+                const snap = memory[obj.id];
+                if (snap && isAnyCellExplored(fogExplored, snap.col, snap.row, w, h)) return [snap];
+                return [];
+            });
+        }
         if (!retainExploredCells) {
             return allObjects.filter((obj) => {
                 const w = Math.max(1, obj.width ?? 1);
@@ -547,14 +390,25 @@ const BattleMap: React.FC = () => {
             }
         });
         return result;
-    }, [objects, visibleCells, fogEnabled, fogExplored, retainExploredCells, activeMicroLocationId, isDm]);
+    }, [objects, visibleCells, fogEnabled, fogExplored, retainExploredCells, activeMicroLocationId, isDm, serverVisibility]);
 
     const renderTokens = useMemo(() => {
         const sceneTokens = Object.values(tokens).filter((token) => {
             const zoneId = findMicroLocationIdForToken(token, microLocations);
             return shouldRenderScene(zoneId, activeMicroLocationId, isDm);
         });
-        if (!fogEnabled || !visibleCells) return sceneTokens;
+        if (isDm) return sceneTokens;
+        if (!visibleCells) return [];
+        if (serverVisibility) {
+            const memory = serverVisibility.tokenSnapshots ?? {};
+            return sceneTokens.flatMap((token) => {
+                const gs = Math.max(1, token.gridSize ?? 1);
+                if (isAnyCellVisible(visibleCells, token.col, token.row, gs, gs)) return [token];
+                const snap = memory[token.id];
+                if (snap && isAnyCellExplored(fogExplored, snap.col, snap.row, gs, gs)) return [snap];
+                return [];
+            });
+        }
         if (!retainExploredCells) {
             return sceneTokens.filter((token) => {
                 const gs = Math.max(1, token.gridSize ?? 1);
@@ -575,7 +429,7 @@ const BattleMap: React.FC = () => {
             }
         });
         return result;
-    }, [tokens, microLocations, visibleCells, fogEnabled, fogExplored, retainExploredCells, activeMicroLocationId, isDm]);
+    }, [tokens, microLocations, visibleCells, fogEnabled, fogExplored, retainExploredCells, activeMicroLocationId, isDm, serverVisibility]);
 
     // FIX: set React state, not imperative Konva call, so re-renders respect it
     const handleTokenDragStart = useCallback(() => {

@@ -43,8 +43,12 @@ class WsClient {
         this.client.subscribe(
             `/topic/session/${sid}/private/${this.playerId}`,
             (frame) => {
-                const msg: WsMessage<SessionStateDto> = JSON.parse(frame.body);
-                if (msg.type === 'SESSION_STATE') this.applySessionState(msg, sid);
+                const msg: WsMessage<unknown> = JSON.parse(frame.body);
+                if (msg.type === 'SESSION_STATE') {
+                    this.applySessionState(msg as WsMessage<SessionStateDto>, sid);
+                } else if (msg.type === 'MAP_UPDATED') {
+                    useGameStore.getState().applyMapLayoutUpdate(msg.payload as MapLayoutUpdateDto);
+                }
             },
         );
     }

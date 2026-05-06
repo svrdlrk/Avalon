@@ -170,8 +170,9 @@ public class SessionPersistenceService {
             });
         }
 
-        // Restore initiative state if present
+        // Restore initiative and visibility state if present
         session.setInitiativeState(snap.initiative);
+        session.setVisibilityState(snap.visibility);
 
         return session;
     }

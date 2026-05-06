@@ -21,21 +21,21 @@ public class StaticResourceConfig implements WebMvcConfigurer {
 
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
-        // Загруженные карты из файловой системы
-        Path uploadDir = Paths.get(uploadPath).toAbsolutePath().normalize();
-        Path uploadRootDir = uploadDir.getParent() != null
-                ? uploadDir.getParent().toAbsolutePath().normalize()
-                : uploadDir;
+        // Загруженные карты и ассеты из корня проекта.
+        // В репозитории всё лежит в top-level ./uploads, а не в server/src/main/resources/uploads.
+        Path projectUploadRoot = Paths.get("uploads").toAbsolutePath().normalize();
         Path sourceUploadDir = Paths.get("server/src/main/resources/uploads").toAbsolutePath().normalize();
 
         registry.addResourceHandler("/uploads/**")
-                .addResourceLocations("file:" + uploadRootDir + "/")
+                .addResourceLocations("file:" + projectUploadRoot + "/")
                 .addResourceLocations("file:" + sourceUploadDir + "/")
                 .addResourceLocations("classpath:/uploads/")
                 .setCachePeriod(3600);
 
+        Path projectAssetsDir = Paths.get("uploads/assets").toAbsolutePath().normalize();
         Path sourceAssetsDir = Paths.get("server/src/main/resources/assets").toAbsolutePath().normalize();
         registry.addResourceHandler("/assets/**")
+                .addResourceLocations("file:" + projectAssetsDir + "/")
                 .addResourceLocations("classpath:/assets/")
                 .addResourceLocations("file:" + sourceAssetsDir + "/")
                 .setCachePeriod(86400);
