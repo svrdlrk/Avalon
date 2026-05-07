@@ -8,6 +8,7 @@ import com.avalon.dnd.shared.GridConfig;
 import com.avalon.dnd.shared.MapLayoutUpdateDto;
 import com.avalon.dnd.shared.MapObjectDto;
 import com.avalon.dnd.shared.TokenDto;
+import com.avalon.dnd.shared.VisibilityShareSuggestionDto;
 import com.avalon.dnd.shared.VisibilityStateDto;
 import org.springframework.stereotype.Service;
 
@@ -31,6 +32,7 @@ import java.util.stream.Collectors;
 public class MapBattleRulesService {
 
     private static final int DEFAULT_SHARED_VISION_DISTANCE = 8;
+    private static final int SHARED_SUGGESTION_MAX_GROUP_SIZE = 8;
 
     public boolean isTokenPlacementAllowed(GameSession session, int col, int row, int size) {
         if (session == null || session.getGrid() == null) {
@@ -98,6 +100,8 @@ public class MapBattleRulesService {
         VisibilityComputationResult result = computeVisibilitySnapshot(session);
         if (session != null) {
             session.setVisibilityStatesByPlayer(result.perPlayerStates());
+            session.setSharedVisibilityState(result.sharedState());
+            session.setVisibilityShareSuggestions(result.suggestions());
             session.setVisibilityState(result.mergedState());
         }
         return result.mergedState();
@@ -114,12 +118,16 @@ public class MapBattleRulesService {
             return merged == null ? emptyVisibilityState() : merged;
         }
 
+        VisibilityStateDto shared = session.getSharedVisibilityState();
         Map<String, VisibilityStateDto> states = session.getVisibilityStatesByPlayer();
+        VisibilityStateDto privateState = null;
         if (states != null && playerId != null) {
-            VisibilityStateDto state = states.get(playerId);
-            if (state != null) {
-                return state;
-            }
+            privateState = states.get(playerId);
+        }
+
+        VisibilityStateDto effective = mergeVisibilityStates(shared, privateState);
+        if (effective != null) {
+            return effective;
         }
 
         VisibilityStateDto fallback = session.getVisibilityState();
@@ -151,7 +159,7 @@ public class MapBattleRulesService {
         GridConfig grid = session == null ? null : session.getGrid();
         if (grid == null) {
             VisibilityStateDto empty = emptyVisibilityState();
-            return new VisibilityComputationResult(empty, Map.of());
+            return new VisibilityComputationResult(empty, Map.of(), Map.of(), empty, List.of());
         }
 
         int rows = Math.max(0, grid.getRows());
@@ -164,22 +172,28 @@ public class MapBattleRulesService {
         int sharedVisionDistanceSq = sharedVisionDistance * sharedVisionDistance;
 
         Map<String, List<VisibilitySource>> sourcesByPlayer = buildSourcesByPlayer(session, fogSettings, revealFromTokens);
-        List<PlayerVisibilityGroup> groups = buildVisibilityGroups(session, sourcesByPlayer, sharedVisionDistanceSq);
+        Map<String, Set<String>> zonesByPlayer = buildZonesByPlayer(session);
+        List<PlayerVisibilityGroup> groups = buildVisibilityGroups(session, sourcesByPlayer, zonesByPlayer, sharedVisionDistanceSq);
         Map<String, VisibilityStateDto> previousStates = session == null ? Map.of() : session.getVisibilityStatesByPlayer();
+        VisibilityStateDto sharedState = session == null ? null : session.getSharedVisibilityState();
 
         Map<String, VisibilityStateDto> perPlayerStates = new LinkedHashMap<>();
+        Map<String, VisibilityStateDto> effectiveStates = new LinkedHashMap<>();
         VisibilityStateDto merged = null;
+        List<VisibilityShareSuggestionDto> suggestions = new ArrayList<>();
 
         if (!enabled) {
             VisibilityStateDto full = buildFullVisibilityState(session, rows, cols, previousStates, retainExploredCells);
             for (Player player : sortedPlayers(session)) {
                 perPlayerStates.put(player.getId(), full);
+                VisibilityStateDto effective = mergeVisibilityStates(sharedState, full);
+                effectiveStates.put(player.getId(), effective == null ? full : effective);
             }
-            merged = full;
+            merged = mergeVisibilityStates(sharedState, full);
         } else {
             for (PlayerVisibilityGroup group : groups) {
                 VisibilityStateDto previous = mergePreviousStates(session, previousStates, group.playerIds());
-                VisibilityStateDto state = buildVisibilityStateForSources(
+                VisibilityStateDto privateState = buildVisibilityStateForSources(
                         session,
                         rows,
                         cols,
@@ -189,21 +203,34 @@ public class MapBattleRulesService {
                         group.sources()
                 );
                 for (String playerId : group.playerIds()) {
-                    perPlayerStates.put(playerId, state);
+                    perPlayerStates.put(playerId, privateState);
+                    VisibilityStateDto effective = mergeVisibilityStates(sharedState, privateState);
+                    effectiveStates.put(playerId, effective == null ? privateState : effective);
                 }
-                merged = mergeVisibilityStates(merged, state);
+                merged = mergeVisibilityStates(merged, privateState);
+                String shareReason = shareReasonFor(session, group);
+                if (shouldSuggestShare(session, sharedState, privateState, group.playerIds())) {
+                    suggestions.add(new VisibilityShareSuggestionDto(
+                            suggestionIdFor(group.playerIds()),
+                            group.playerIds(),
+                            shareReason,
+                            true,
+                            shareTriggerFor(group)));
+                }
             }
+            merged = mergeVisibilityStates(sharedState, merged);
         }
 
         if (merged == null) {
             merged = emptyVisibilityState(rows, cols);
         }
 
-        return new VisibilityComputationResult(merged, perPlayerStates);
+        return new VisibilityComputationResult(merged, perPlayerStates, effectiveStates, sharedState == null ? emptyVisibilityState(rows, cols) : sharedState, suggestions);
     }
 
     private List<PlayerVisibilityGroup> buildVisibilityGroups(GameSession session,
                                                               Map<String, List<VisibilitySource>> sourcesByPlayer,
+                                                              Map<String, Set<String>> zonesByPlayer,
                                                               int sharedVisionDistanceSq) {
         List<Player> players = sortedPlayers(session);
         if (players.isEmpty()) {
@@ -216,12 +243,22 @@ public class MapBattleRulesService {
         }
 
         UnionFind uf = new UnionFind(players.size());
+        for (int i = 0; i < players.size(); i++) {
+            String leftId = players.get(i).getId();
+            for (int j = i + 1; j < players.size(); j++) {
+                String rightId = players.get(j).getId();
+                if (sharesAnyZone(zonesByPlayer.get(leftId), zonesByPlayer.get(rightId))) {
+                    uf.union(i, j);
+                }
+            }
+        }
         if (sharedVisionDistanceSq > 0) {
             for (int i = 0; i < players.size(); i++) {
                 String leftId = players.get(i).getId();
                 for (int j = i + 1; j < players.size(); j++) {
                     String rightId = players.get(j).getId();
-                    if (shouldShareVision(sourcesByPlayer.get(leftId), sourcesByPlayer.get(rightId), sharedVisionDistanceSq)) {
+                    if (shouldShareVision(sourcesByPlayer.get(leftId), sourcesByPlayer.get(rightId),
+                            zonesByPlayer.get(leftId), zonesByPlayer.get(rightId), sharedVisionDistanceSq)) {
                         uf.union(i, j);
                     }
                 }
@@ -245,14 +282,26 @@ public class MapBattleRulesService {
                 }
             }
             String groupId = String.join("|", playerIds);
-            groups.add(new PlayerVisibilityGroup(groupId, playerIds, sources));
+            Set<String> groupZones = new LinkedHashSet<>();
+            for (String playerId : playerIds) {
+                Set<String> playerZones = zonesByPlayer.get(playerId);
+                if (playerZones != null) {
+                    groupZones.addAll(playerZones);
+                }
+            }
+            groups.add(new PlayerVisibilityGroup(groupId, playerIds, sources, groupZones));
         }
         return groups;
     }
 
     private boolean shouldShareVision(List<VisibilitySource> leftSources,
                                       List<VisibilitySource> rightSources,
+                                      Set<String> leftZones,
+                                      Set<String> rightZones,
                                       int sharedVisionDistanceSq) {
+        if (sharesAnyZone(leftZones, rightZones)) {
+            return true;
+        }
         if (leftSources == null || rightSources == null || leftSources.isEmpty() || rightSources.isEmpty()) {
             return false;
         }
@@ -271,6 +320,67 @@ public class MapBattleRulesService {
             }
         }
         return minDistanceSq <= sharedVisionDistanceSq;
+    }
+
+
+    private Map<String, Set<String>> buildZonesByPlayer(GameSession session) {
+        Map<String, Set<String>> zonesByPlayer = new LinkedHashMap<>();
+        if (session == null || session.getTokens() == null || session.getMicroLocations() == null || session.getMicroLocations().isEmpty()) {
+            return zonesByPlayer;
+        }
+
+        for (Token token : session.getTokens().values()) {
+            if (token == null || token.getOwnerId() == null) continue;
+            Set<String> tokenZones = resolveTokenZones(session, token);
+            if (tokenZones.isEmpty()) continue;
+            zonesByPlayer.computeIfAbsent(token.getOwnerId(), k -> new LinkedHashSet<>()).addAll(tokenZones);
+        }
+        return zonesByPlayer;
+    }
+
+    private Set<String> resolveTokenZones(GameSession session, Token token) {
+        Set<String> zones = new LinkedHashSet<>();
+        if (session == null || token == null || session.getMicroLocations() == null || session.getMicroLocations().isEmpty()) {
+            return zones;
+        }
+
+        int gs = Math.max(1, token.getGridSize());
+        for (int row = token.getRow(); row < token.getRow() + gs; row++) {
+            for (int col = token.getCol(); col < token.getCol() + gs; col++) {
+                String zoneId = resolveMicroLocationId(session, col, row);
+                if (zoneId != null) {
+                    zones.add(zoneId);
+                }
+            }
+        }
+        return zones;
+    }
+
+    private String resolveMicroLocationId(GameSession session, int col, int row) {
+        if (session == null || session.getMicroLocations() == null) {
+            return null;
+        }
+        for (var zone : session.getMicroLocations()) {
+            if (zone == null) continue;
+            int width = Math.max(1, zone.getWidth());
+            int height = Math.max(1, zone.getHeight());
+            if (col >= zone.getCol() && col < zone.getCol() + width && row >= zone.getRow() && row < zone.getRow() + height) {
+                return zone.getId();
+            }
+        }
+        return null;
+    }
+
+    private boolean sharesAnyZone(Set<String> leftZones, Set<String> rightZones) {
+        if (leftZones == null || rightZones == null || leftZones.isEmpty() || rightZones.isEmpty()) {
+            return false;
+        }
+        for (String zoneId : leftZones) {
+            if (rightZones.contains(zoneId)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private Map<String, List<VisibilitySource>> buildSourcesByPlayer(GameSession session,
@@ -398,6 +508,125 @@ public class MapBattleRulesService {
         state.setTokenSnapshots(tokenSnapshots);
         state.setObjectSnapshots(objectSnapshots);
         return state;
+    }
+
+    private boolean shouldSuggestShare(GameSession session,
+                                      VisibilityStateDto sharedState,
+                                      VisibilityStateDto privateState,
+                                      List<String> playerIds) {
+        if (playerIds == null || playerIds.size() < 2) {
+            return false;
+        }
+        if (playerIds.size() > SHARED_SUGGESTION_MAX_GROUP_SIZE) {
+            return false;
+        }
+        if (privateState == null) {
+            return false;
+        }
+        if (sharedState == null) {
+            return true;
+        }
+        return !isStateCoveredBy(sharedState, privateState);
+    }
+
+    private boolean isStateCoveredBy(VisibilityStateDto base, VisibilityStateDto candidate) {
+        if (candidate == null) return true;
+        if (base == null) return false;
+        if (!containsAllCells(base.getExploredCells(), candidate.getExploredCells())) return false;
+        if (!baseContainsSnapshots(base.getTokenSnapshots(), candidate.getTokenSnapshots())) return false;
+        if (!baseContainsSnapshots(base.getObjectSnapshots(), candidate.getObjectSnapshots())) return false;
+        return true;
+    }
+
+    private boolean containsAllCells(List<String> base, List<String> candidate) {
+        if (candidate == null || candidate.isEmpty()) return true;
+        if (base == null || base.isEmpty()) return false;
+        return base.containsAll(candidate);
+    }
+
+    private <T> boolean baseContainsSnapshots(Map<String, T> base, Map<String, T> candidate) {
+        if (candidate == null || candidate.isEmpty()) return true;
+        if (base == null || base.isEmpty()) return false;
+        return base.keySet().containsAll(candidate.keySet());
+    }
+
+    public boolean approveVisibilityShare(GameSession session, String suggestionId) {
+        if (session == null || suggestionId == null || suggestionId.isBlank()) {
+            return false;
+        }
+
+        VisibilityShareSuggestionDto suggestion = null;
+        for (VisibilityShareSuggestionDto s : session.getVisibilityShareSuggestions()) {
+            if (suggestionId.equals(s.getSuggestionId())) {
+                suggestion = s;
+                break;
+            }
+        }
+        if (suggestion == null) {
+            return false;
+        }
+
+        VisibilityStateDto merged = session.getSharedVisibilityState();
+        for (String playerId : suggestion.getPlayerIds()) {
+            VisibilityStateDto playerState = session.getVisibilityStatesByPlayer().get(playerId);
+            merged = mergeVisibilityStates(merged, playerState);
+        }
+        if (merged == null) {
+            merged = emptyVisibilityState();
+        }
+        session.setSharedVisibilityState(merged);
+        session.getVisibilityShareSuggestions().removeIf(s -> suggestionId.equals(s.getSuggestionId()));
+        computeVisibility(session);
+        return true;
+    }
+
+    private String suggestionIdFor(List<String> playerIds) {
+        if (playerIds == null || playerIds.isEmpty()) {
+            return java.util.UUID.randomUUID().toString();
+        }
+        return String.join("|", playerIds);
+    }
+
+    private String shareReasonFor(GameSession session, PlayerVisibilityGroup group) {
+        if (group == null || group.playerIds() == null || group.playerIds().isEmpty()) {
+            return "Visibility can be shared";
+        }
+        if (group.playerIds().size() == 1) {
+            return "Visibility can be shared";
+        }
+        if (group.groupZones() != null && !group.groupZones().isEmpty()) {
+            return "Одна комната: " + describeZones(session, group.groupZones()) + " — " + String.join(", ", group.playerIds());
+        }
+        return "Игроки достаточно близко для совместного обзора: " + String.join(", ", group.playerIds());
+    }
+
+
+    private String shareTriggerFor(PlayerVisibilityGroup group) {
+        if (group == null) {
+            return "manual";
+        }
+        if (group.groupZones() != null && !group.groupZones().isEmpty()) {
+            return "room";
+        }
+        return "distance";
+    }
+
+    private String describeZones(GameSession session, Set<String> zoneIds) {
+        if (session == null || zoneIds == null || zoneIds.isEmpty() || session.getMicroLocations() == null) {
+            return String.join(", ", zoneIds == null ? java.util.List.of() : zoneIds);
+        }
+        Map<String, String> namesById = new LinkedHashMap<>();
+        for (var zone : session.getMicroLocations()) {
+            if (zone == null || zone.getId() == null) continue;
+            String label = zone.getName();
+            if (label == null || label.isBlank()) label = zone.getId();
+            namesById.put(zone.getId(), label);
+        }
+        List<String> names = new ArrayList<>();
+        for (String zoneId : zoneIds) {
+            names.add(namesById.getOrDefault(zoneId, zoneId));
+        }
+        return String.join(", ", names);
     }
 
     private VisibilityStateDto mergeVisibilityStates(Collection<VisibilityStateDto> states) {
@@ -803,8 +1032,12 @@ public class MapBattleRulesService {
         int yCeil() { return (int) Math.ceil(y); }
     }
 
-    private record PlayerVisibilityGroup(String groupId, List<String> playerIds, List<VisibilitySource> sources) {}
-    private record VisibilityComputationResult(VisibilityStateDto mergedState, Map<String, VisibilityStateDto> perPlayerStates) {}
+    private record PlayerVisibilityGroup(String groupId, List<String> playerIds, List<VisibilitySource> sources, Set<String> groupZones) {}
+    private record VisibilityComputationResult(VisibilityStateDto mergedState,
+                                              Map<String, VisibilityStateDto> perPlayerStates,
+                                              Map<String, VisibilityStateDto> effectiveStates,
+                                              VisibilityStateDto sharedState,
+                                              List<VisibilityShareSuggestionDto> suggestions) {}
     private record Point(double x, double y) {}
     private record Cell(int col, int row) {}
 

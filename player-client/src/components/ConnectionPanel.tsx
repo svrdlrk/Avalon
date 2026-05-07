@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { wsClient } from '../net/wsClient';
 import { useGameStore } from '../store/gameStore';
 
@@ -107,7 +107,7 @@ const ConnectionPanel: React.FC = () => {
     const [status, setStatus] = useState('');
     const autoConnectAttempted = useRef(false);
 
-    const { myPlayerId } = useGameStore();
+    const { myPlayerId, players, visibilityShareSuggestions } = useGameStore();
 
     useEffect(() => {
         try {
@@ -185,17 +185,65 @@ const ConnectionPanel: React.FC = () => {
         }
     };
 
+    const approveSuggestion = (suggestionId: string) => {
+        wsClient.approveVisibilityShare(suggestionId);
+    };
+
+    const pendingSuggestions = useMemo(() => visibilityShareSuggestions ?? [], [visibilityShareSuggestions]);
+
     if (isConnected && myPlayerId) {
         return (
             <div style={s.overlay}>
-                <div style={s.connectedBar}>
-                    <span style={s.dot}>● Подключено</span>
-                    <span style={s.sessionHint}>
-                        {sessionId.slice(0, 8)}…
-                    </span>
-                    <button style={s.disconnectBtn} onClick={handleDisconnect}>
-                        Выйти
-                    </button>
+                <div style={{ display: 'grid', gap: '10px' }}>
+                    <div style={s.connectedBar}>
+                        <span style={s.dot}>● Подключено</span>
+                        <span style={s.sessionHint}>
+                            {sessionId.slice(0, 8)}…
+                        </span>
+                        <button style={s.disconnectBtn} onClick={handleDisconnect}>
+                            Выйти
+                        </button>
+                    </div>
+
+                    {isDm && pendingSuggestions.length > 0 && (
+                        <div style={{ ...s.panel, width: '380px' }}>
+                            <h3 style={{ margin: '0 0 12px', fontSize: '16px', color: '#f4f4f5' }}>
+                                Подсказки для общего обзора
+                            </h3>
+                            <div style={{ display: 'grid', gap: '10px' }}>
+                                {pendingSuggestions.map((item) => {
+                                    const names = item.playerIds
+                                        .map((id) => players[id]?.name ?? id.slice(0, 8))
+                                        .join(', ');
+                                    return (
+                                        <div key={item.suggestionId} style={{ border: '1px solid #3f3f46', borderRadius: '8px', padding: '10px', background: '#101014' }}>
+                                            <div style={{ color: '#e4e4e7', fontSize: '14px', marginBottom: '6px' }}>
+                                                {names}
+                                            </div>
+                                            <div style={{ color: '#a1a1aa', fontSize: '13px', marginBottom: '6px' }}>
+                                                {item.reason ?? 'Информация может стать общей'}
+                                            </div>
+                                            <div style={{ color: '#71717a', fontSize: '12px', marginBottom: '10px' }}>
+                                                {item.trigger === 'room' ? 'Авто: одна комната'
+                                                    : item.trigger === 'distance' ? 'Авто: близко'
+                                                    : item.autoSuggested ? 'Авто-подсказка' : 'Ручная подсказка'}
+                                            </div>
+                                            <button
+                                                style={{
+                                                    ...s.connectBtn,
+                                                    padding: '8px 10px',
+                                                    fontSize: '14px',
+                                                }}
+                                                onClick={() => approveSuggestion(item.suggestionId)}
+                                            >
+                                                Подтвердить общий обзор
+                                            </button>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
                 </div>
             </div>
         );

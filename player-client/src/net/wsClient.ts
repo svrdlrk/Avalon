@@ -186,6 +186,10 @@ class WsClient {
 
     // ---------------------------------------------------------------- send
 
+    approveVisibilityShare(suggestionId: string) {
+        this.send('/visibility.share.approve', { suggestionId });
+    }
+
     send(destination: string, payload: unknown) {
         if (!this.client?.connected) {
             console.warn('[ws] not connected, dropping:', destination);

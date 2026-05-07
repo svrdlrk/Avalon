@@ -9,6 +9,7 @@ import type {
     SessionStateDto,
     TokenDto,
     VisibilityStateDto,
+    VisibilityShareSuggestionDto,
 } from '../types/types';
 
 interface GameState {
@@ -25,6 +26,7 @@ interface GameState {
     wallLayer: unknown | null;
     fogSettings: unknown | null;
     visibility: VisibilityStateDto | null;
+    visibilityShareSuggestions: VisibilityShareSuggestionDto[];
     microLocations: MicroLocationDto[];
     assetPackIds: string[];
 
@@ -54,6 +56,7 @@ export const useGameStore = create<GameState>((set) => ({
     wallLayer: null,
     fogSettings: null,
     visibility: null,
+    visibilityShareSuggestions: [],
     microLocations: [],
     assetPackIds: [],
 
@@ -72,6 +75,7 @@ export const useGameStore = create<GameState>((set) => ({
             wallLayer: state.wallLayer ?? null,
             fogSettings: state.fogSettings ?? null,
             visibility: state.visibility ?? null,
+            visibilityShareSuggestions: state.visibilityShareSuggestions ?? [],
             microLocations: state.microLocations ?? [],
             assetPackIds: state.assetPackIds ?? [],
         }),
@@ -89,6 +93,7 @@ export const useGameStore = create<GameState>((set) => ({
             wallLayer: dto.wallLayer ?? s.wallLayer,
             fogSettings: dto.fogSettings ?? s.fogSettings,
             visibility: dto.visibility ?? s.visibility,
+            visibilityShareSuggestions: s.visibilityShareSuggestions,
             microLocations: dto.microLocations ?? s.microLocations,
             assetPackIds: dto.assetPackIds ?? s.assetPackIds,
         })),

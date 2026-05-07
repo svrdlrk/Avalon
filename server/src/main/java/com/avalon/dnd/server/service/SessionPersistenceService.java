@@ -173,6 +173,8 @@ public class SessionPersistenceService {
         // Restore initiative and visibility state if present
         session.setInitiativeState(snap.initiative);
         session.setVisibilityState(snap.visibility);
+        session.setSharedVisibilityState(snap.sharedVisibility);
+        session.setVisibilityShareSuggestions(snap.visibilityShareSuggestions);
 
         return session;
     }

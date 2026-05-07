@@ -65,6 +65,14 @@ export interface VisibilityStateDto {
     objectSnapshots?: Record<string, MapObjectDto>;
 }
 
+export interface VisibilityShareSuggestionDto {
+    suggestionId: string;
+    playerIds: string[];
+    reason?: string;
+    autoSuggested?: boolean;
+    trigger?: string;
+}
+
 export interface SessionStateDto {
     myPlayerId:    string;
     grid:          GridConfig;
@@ -74,6 +82,7 @@ export interface SessionStateDto {
     backgroundUrl?: string;
     initiative?:   InitiativeStateDto;
     visibility?:   VisibilityStateDto;
+    visibilityShareSuggestions?: VisibilityShareSuggestionDto[];
     referenceOverlayLayer?: unknown;
     terrainLayer?: unknown;
     wallLayer?: unknown;
@@ -88,6 +97,7 @@ export interface MapLayoutUpdateDto {
     objects:        MapObjectDto[];
     backgroundUrl?: string;
     visibility?:    VisibilityStateDto;
+    visibilityShareSuggestions?: VisibilityShareSuggestionDto[];
     referenceOverlayLayer?: unknown;
     terrainLayer?: unknown;
     wallLayer?: unknown;

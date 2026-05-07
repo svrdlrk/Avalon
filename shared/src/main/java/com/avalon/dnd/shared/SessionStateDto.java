@@ -13,6 +13,7 @@ public class SessionStateDto {
     private String backgroundUrl;
     private InitiativeStateDto initiative;
     private VisibilityStateDto visibility;
+    private java.util.List<VisibilityShareSuggestionDto> visibilityShareSuggestions = new java.util.ArrayList<>();
 
     // Optional editor metadata (opaque to battle clients).
     private Object referenceOverlayLayer;
@@ -30,7 +31,7 @@ public class SessionStateDto {
                            List<PlayerDto> players,
                            List<MapObjectDto> objects,
                            String backgroundUrl) {
-        this(myPlayerId, grid, tokens, players, objects, backgroundUrl, null, null, null, null, null, null, null, null);
+        this(myPlayerId, grid, tokens, players, objects, backgroundUrl, null, null, null, null, null, null, null, null, null);
     }
 
     public SessionStateDto(String myPlayerId,
@@ -40,7 +41,7 @@ public class SessionStateDto {
                            List<MapObjectDto> objects,
                            String backgroundUrl,
                            InitiativeStateDto initiative) {
-        this(myPlayerId, grid, tokens, players, objects, backgroundUrl, initiative, null, null, null, null, null, null, null);
+        this(myPlayerId, grid, tokens, players, objects, backgroundUrl, initiative, null, null, null, null, null, null, null, null);
     }
 
     public SessionStateDto(String myPlayerId,
@@ -56,7 +57,8 @@ public class SessionStateDto {
                            Object wallLayer,
                            Object fogSettings,
                            List<MicroLocationDto> microLocations,
-                           List<String> assetPackIds) {
+                           List<String> assetPackIds,
+                           java.util.List<VisibilityShareSuggestionDto> visibilityShareSuggestions) {
         this.myPlayerId = myPlayerId;
         this.grid = grid;
         this.tokens = tokens;
@@ -71,6 +73,7 @@ public class SessionStateDto {
         this.fogSettings = fogSettings;
         setMicroLocations(microLocations);
         setAssetPackIds(assetPackIds);
+        setVisibilityShareSuggestions(visibilityShareSuggestions);
     }
 
     public String getMyPlayerId() { return myPlayerId; }
@@ -87,6 +90,7 @@ public class SessionStateDto {
     public Object getFogSettings() { return fogSettings; }
     public List<MicroLocationDto> getMicroLocations() { return microLocations; }
     public List<String> getAssetPackIds() { return assetPackIds; }
+    public java.util.List<VisibilityShareSuggestionDto> getVisibilityShareSuggestions() { return visibilityShareSuggestions; }
 
     public void setMyPlayerId(String v) { this.myPlayerId = v; }
     public void setGrid(GridConfig v) { this.grid = v; }
@@ -107,5 +111,9 @@ public class SessionStateDto {
     public void setAssetPackIds(List<String> assetPackIds) {
         this.assetPackIds.clear();
         if (assetPackIds != null) this.assetPackIds.addAll(assetPackIds);
+    }
+    public void setVisibilityShareSuggestions(java.util.List<VisibilityShareSuggestionDto> visibilityShareSuggestions) {
+        this.visibilityShareSuggestions.clear();
+        if (visibilityShareSuggestions != null) this.visibilityShareSuggestions.addAll(visibilityShareSuggestions);
     }
 }

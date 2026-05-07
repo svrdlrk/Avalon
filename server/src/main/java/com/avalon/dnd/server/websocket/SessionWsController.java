@@ -64,6 +64,11 @@ public class SessionWsController {
         if (session.getVisibilityState() == null || session.getVisibilityStatesByPlayer() == null || session.getVisibilityStatesByPlayer().isEmpty()) {
             battleRulesService.computeVisibility(session);
         }
+        Player currentPlayer = forPlayerId == null ? null : session.getPlayers().get(forPlayerId);
+        java.util.List<com.avalon.dnd.shared.VisibilityShareSuggestionDto> suggestions =
+                currentPlayer != null && currentPlayer.getRole() == com.avalon.dnd.server.model.Role.DM
+                        ? session.getVisibilityShareSuggestions()
+                        : java.util.List.of();
         return new SessionStateDto(
                 forPlayerId,
                 session.getGrid(),
@@ -80,7 +85,8 @@ public class SessionWsController {
                 session.getWallLayer(),
                 session.getFogSettings(),
                 session.getMicroLocations(),
-                session.getAssetPackIds()
+                session.getAssetPackIds(),
+                suggestions
         );
     }
 

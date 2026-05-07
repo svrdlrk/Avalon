@@ -29,6 +29,8 @@ public class SessionSnapshot {
     public List<MapObjectSnapshot>  objects;
     public InitiativeStateDto initiative;   // nullable — may be null if not active
     public VisibilityStateDto visibility;
+    public VisibilityStateDto sharedVisibility;
+    public List<com.avalon.dnd.shared.VisibilityShareSuggestionDto> visibilityShareSuggestions;
 
     public SessionSnapshot() {}
 
@@ -159,6 +161,8 @@ public class SessionSnapshot {
         snap.version       = session.getVersion();
         snap.initiative    = session.getInitiativeState();
         snap.visibility    = session.getVisibilityState();
+        snap.sharedVisibility = session.getSharedVisibilityState();
+        snap.visibilityShareSuggestions = session.getVisibilityShareSuggestions();
         snap.players = session.getPlayers().values().stream()
                 .map(PlayerSnapshot::from).toList();
         snap.tokens = session.getTokens().values().stream()

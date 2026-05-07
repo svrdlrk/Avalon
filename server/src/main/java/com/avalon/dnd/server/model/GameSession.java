@@ -29,6 +29,8 @@ public class GameSession {
     /** Текущее состояние инициативы (null = не активна). */
     private InitiativeStateDto initiativeState;
     private VisibilityStateDto visibilityState;
+    private VisibilityStateDto sharedVisibilityState;
+    private java.util.List<com.avalon.dnd.shared.VisibilityShareSuggestionDto> visibilityShareSuggestions = new CopyOnWriteArrayList<>();
     private Map<String, VisibilityStateDto> visibilityStatesByPlayer = new ConcurrentHashMap<>();
 
     private Map<String, Player>    players = new ConcurrentHashMap<>();
@@ -78,6 +80,14 @@ public class GameSession {
 
     public VisibilityStateDto getVisibilityState() { return visibilityState; }
     public void setVisibilityState(VisibilityStateDto visibilityState) { this.visibilityState = visibilityState; }
+
+    public VisibilityStateDto getSharedVisibilityState() { return sharedVisibilityState; }
+    public void setSharedVisibilityState(VisibilityStateDto sharedVisibilityState) { this.sharedVisibilityState = sharedVisibilityState; }
+
+    public java.util.List<com.avalon.dnd.shared.VisibilityShareSuggestionDto> getVisibilityShareSuggestions() { return visibilityShareSuggestions; }
+    public void setVisibilityShareSuggestions(java.util.List<com.avalon.dnd.shared.VisibilityShareSuggestionDto> suggestions) {
+        this.visibilityShareSuggestions = suggestions == null ? new CopyOnWriteArrayList<>() : new CopyOnWriteArrayList<>(suggestions);
+    }
 
     public Map<String, VisibilityStateDto> getVisibilityStatesByPlayer() { return visibilityStatesByPlayer; }
     public void setVisibilityStatesByPlayer(Map<String, VisibilityStateDto> visibilityStatesByPlayer) {

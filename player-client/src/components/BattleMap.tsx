@@ -3,7 +3,7 @@ import {
     Stage, Layer, Rect, Line, Circle, Text, Group, Image as KonvaImage,
 } from 'react-konva';
 import { useGameStore } from '../store/gameStore';
-import type { TokenDto, MapObjectDto, GridConfig, MicroLocationDto, VisibilityStateDto } from '../types/types';
+import type { TokenDto, MapObjectDto, MicroLocationDto, VisibilityStateDto } from '../types/types';
 import { wsClient } from '../net/wsClient';
 import useImage from '../hooks/useImage';
 import type Konva from 'konva';
