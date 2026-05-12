@@ -1,6 +1,7 @@
 package com.avalon.dnd.dm.ui;
 
 import com.avalon.dnd.dm.canvas.BattleMapCanvas;
+import com.avalon.dnd.dm.config.RuntimeConfig;
 import com.avalon.dnd.dm.net.ServerConnection;
 import com.avalon.dnd.dm.model.ClientState;
 import com.avalon.dnd.shared.*;
@@ -29,7 +30,7 @@ public class MainStage {
     private Spinner<Integer>       objectColSpinner;
     private Spinner<Integer>       objectRowSpinner;
 
-    private String currentServerUrl = "http://localhost:8080";
+    private String currentServerUrl = RuntimeConfig.defaultServerUrl();
 
     private final List<JsonNode>  tokenCatalog  = new ArrayList<>();
     private final List<JsonNode>  objectCatalog = new ArrayList<>();
@@ -62,8 +63,8 @@ public class MainStage {
         Label title = new Label("Avalon DnD — DM Панель");
         title.setStyle("-fx-font-size: 20px; -fx-font-weight: bold;");
 
-        TextField serverField      = new TextField("http://localhost:8080");
-        TextField playerClientField = new TextField("http://localhost:5173");
+        TextField serverField      = new TextField(RuntimeConfig.defaultServerUrl());
+        TextField playerClientField = new TextField(RuntimeConfig.defaultPlayerClientUrl());
 
         Tab newTab = new Tab("✨ Новая / существующая сессия");
         newTab.setClosable(false);
@@ -76,14 +77,15 @@ public class MainStage {
 
             createBtn.setOnAction(e -> {
                 createBtn.setDisable(true); statusLbl.setText("Создание...");
-                ServerConnection.getInstance().createSession(serverField.getText().trim(), sid -> {
+                String serverUrl = RuntimeConfig.normalize(serverField.getText().trim());
+                ServerConnection.getInstance().createSession(serverUrl, sid -> {
                     createBtn.setDisable(false);
                     if (sid != null) { sessionField.setText(sid); statusLbl.setText("✅ " + sid); }
                     else statusLbl.setText("❌ Не удалось создать");
                 });
             });
             connectBtn.setOnAction(e -> {
-                String url = serverField.getText().trim();
+                String url = RuntimeConfig.normalize(serverField.getText().trim());
                 String sid = sessionField.getText().trim();
                 String nm  = nameField.getText().trim();
                 if (url.isEmpty() || sid.isEmpty() || nm.isEmpty()) {
@@ -113,7 +115,7 @@ public class MainStage {
             Runnable doRefresh = () -> {
                 statusLbl.setText("...");
                 ServerConnection.getInstance().listSavedSessions(
-                        serverField.getText().trim(),
+                        RuntimeConfig.normalize(serverField.getText().trim()),
                         list -> { table.getItems().setAll(list); statusLbl.setText(""); });
             };
             refresh.setOnAction(e -> doRefresh.run());
@@ -121,7 +123,7 @@ public class MainStage {
                 JsonNode sel = table.getSelectionModel().getSelectedItem();
                 if (sel == null) { statusLbl.setText("Выберите сессию"); return; }
                 String sid  = sel.path("sessionId").asText();
-                String url  = serverField.getText().trim();
+                String url  = RuntimeConfig.normalize(serverField.getText().trim());
                 String name = dmName.getText().trim().isEmpty() ? "DM" : dmName.getText().trim();
                 statusLbl.setText("Загрузка...");
                 ServerConnection.getInstance().loadSession(url, sid, id -> {
@@ -137,7 +139,7 @@ public class MainStage {
                 String sid = sel.path("sessionId").asText();
                 new Thread(() -> {
                     try { new okhttp3.OkHttpClient().newCall(new okhttp3.Request.Builder()
-                            .url(serverField.getText().trim() + "/api/session/" + sid + "/saved")
+                            .url(RuntimeConfig.normalize(serverField.getText().trim()) + "/api/session/" + sid + "/saved")
                             .delete().build()).execute().close(); }
                     catch (Exception ex) { ex.printStackTrace(); }
                     Platform.runLater(doRefresh::run);
@@ -177,10 +179,11 @@ public class MainStage {
     // ================================================================ Catalog
 
     private void loadCatalog(String serverUrl, Runnable onDone) {
+        String baseUrl = RuntimeConfig.normalize(serverUrl);
         new Thread(() -> {
             try {
                 var req = new okhttp3.Request.Builder()
-                        .url(serverUrl + "/api/assets/catalog").build();
+                        .url(baseUrl + "/api/assets/catalog").build();
                 try (var r = new okhttp3.OkHttpClient().newCall(req).execute()) {
                     if (r.isSuccessful() && r.body() != null) {
                         var m = new com.fasterxml.jackson.databind.ObjectMapper();
@@ -245,7 +248,7 @@ public class MainStage {
                 buildHpTab(), buildInitiativeTab(), buildSessionTab(sessionId));
 
         Label linkLbl = new Label(
-                (playerClientBase.isEmpty() ? "http://localhost:5173" : playerClientBase)
+                (playerClientBase.isEmpty() ? RuntimeConfig.defaultPlayerClientUrl() : playerClientBase)
                         + "  →  " + sessionId);
         linkLbl.setStyle("-fx-font-family: monospace; -fx-font-size: 11px;");
         Button copyBtn = new Button("📋");
@@ -344,7 +347,14 @@ public class MainStage {
         Button unassignBtn = new Button("→ NPC");     unassignBtn.setOnAction(e -> unassignToken());
         Button removeBtn   = new Button("🗑");         removeBtn.setOnAction(e -> removeToken());
 
-        HBox r1 = hbox(6, new Label("Каталог:"), catCombo, new Label("Имя:"), nameField,
+        Button browseBtn = new Button("🔎 Каталог");
+        browseBtn.setOnAction(e -> AssetBrowserWindow.showTokenBrowser(stage, tokenCatalog, asset -> {
+            if (asset != null) {
+                catCombo.getSelectionModel().select(asset);
+            }
+        }));
+
+        HBox r1 = hbox(6, new Label("Каталог:"), catCombo, browseBtn, new Label("Имя:"), nameField,
                 new Label("HP:"), hpSpin, new Label("Размер:"), sizeLbl, addBtn);
         HBox r2 = hbox(6, new Label("Токен:"), tokenActionsCombo,
                 new Label("Игрок:"), playerAssignCombo, assignBtn, unassignBtn, removeBtn);
@@ -382,7 +392,14 @@ public class MainStage {
         objectRemoveCombo = makeCombo(210, o -> o == null ? "" :
                 o.getType() + " @(" + o.getCol() + "," + o.getRow() + ")");
         Button removeBtn = new Button("🗑"); removeBtn.setOnAction(e -> removeObject());
-        HBox r1 = hbox(6, new Label("Тип:"), catCombo, new Label("col:"), objectColSpinner,
+        Button browseBtn = new Button("🔎 Каталог");
+        browseBtn.setOnAction(e -> AssetBrowserWindow.showObjectBrowser(stage, objectCatalog, asset -> {
+            if (asset != null) {
+                catCombo.getSelectionModel().select(asset);
+            }
+        }));
+
+        HBox r1 = hbox(6, new Label("Тип:"), catCombo, browseBtn, new Label("col:"), objectColSpinner,
                 new Label("row:"), objectRowSpinner, new Label("W:"), wSpin,
                 new Label("H:"), hSpin, prevLbl, placeBtn);
         HBox r2 = hbox(6, new Label("Удалить:"), objectRemoveCombo, removeBtn);
@@ -589,8 +606,8 @@ public class MainStage {
             gs = ce.path("gridSize").asInt(1);
             dayVision = ce.path("dayVision").asInt(0);
             nightVision = ce.path("nightVision").asInt(0);
-            String ip = ce.path("imagePath").asText(null);
-            if (ip != null && !ip.equals("null")) img = "/" + ip;
+            String ip = firstCatalogImageUrl(ce);
+            if (ip != null && !ip.isBlank()) img = normalizeCatalogImageUrl(ip);
         }
         PlayerDto p = playerAssignCombo.getSelectionModel().getSelectedItem();
         String ownerId = (p != null) ? p.getId() : null;
@@ -601,8 +618,8 @@ public class MainStage {
         String type = "wall"; String img = null;
         if (ce != null) {
             type = ce.path("id").asText("wall");
-            String ip = ce.path("imagePath").asText(null);
-            if (ip != null && !ip.equals("null")) img = "/" + ip;
+            String ip = firstCatalogImageUrl(ce);
+            if (ip != null && !ip.isBlank()) img = normalizeCatalogImageUrl(ip);
         }
         ServerConnection.getInstance().send("/map.object.create",
                 new MapObjectCreateRequest(type, col, row, w, h, 1, img));
@@ -621,6 +638,43 @@ public class MainStage {
         TokenAssignRequest req = new TokenAssignRequest();
         req.setTokenId(t.getId()); req.setOwnerId(null);
         ServerConnection.getInstance().send("/token.assign", req);
+    }
+
+    private static String firstCatalogImageUrl(JsonNode node) {
+        if (node == null || node.isNull()) return null;
+        for (String key : List.of("imageUrl", "imagePath", "image", "path", "file", "src", "url", "assetPath", "sprite", "thumbnail")) {
+            JsonNode field = node.get(key);
+            if (field == null || field.isNull()) continue;
+            String value = field.asText(null);
+            if (value != null && !value.isBlank() && looksLikeImagePath(value)) return value;
+        }
+        return null;
+    }
+
+    private static boolean looksLikeImagePath(String value) {
+        if (value == null) return false;
+        String lower = value.trim().replace('\\', '/').toLowerCase(java.util.Locale.ROOT);
+        if (lower.isBlank() || lower.endsWith("/")) return false;
+        return lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg")
+                || lower.endsWith(".gif") || lower.endsWith(".webp") || lower.endsWith(".bmp") || lower.endsWith(".svg")
+                || lower.contains("/uploads/") || lower.contains("/assets/") || lower.contains(".png?") || lower.contains(".jpg?");
+    }
+
+    private static String normalizeCatalogImageUrl(String raw) {
+        if (raw == null) return null;
+        String value = raw.trim().replace('\\', '/');
+        if (value.isBlank()) return null;
+        if (value.startsWith("http://") || value.startsWith("https://") || value.startsWith("file:") || value.startsWith("data:") || value.startsWith("jar:")) {
+            return value;
+        }
+        if (value.startsWith("/uploads/") || value.startsWith("uploads/")) {
+            return value.startsWith("/") ? value : "/" + value;
+        }
+        if (value.startsWith("/assets/") || value.startsWith("assets/")) {
+            return value.startsWith("/") ? value : "/" + value;
+        }
+        value = value.startsWith("/") ? value.substring(1) : value;
+        return "/uploads/assets/" + value;
     }
 
     private void removeToken() {

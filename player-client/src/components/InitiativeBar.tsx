@@ -9,7 +9,9 @@ import { normalizeAssetUrl } from '../utils/assetUrl';
  * - Число инициативы не показывается (только имя + аватар).
  */
 const InitiativeBar: React.FC = () => {
-    const { initiative, tokens, myPlayerId } = useGameStore();
+    const initiative = useGameStore((s) => s.initiative);
+    const tokens = useGameStore((s) => s.tokens);
+    const myPlayerId = useGameStore((s) => s.myPlayerId);
     const scrollRef   = useRef<HTMLDivElement>(null);
     const activeRef   = useRef<HTMLDivElement>(null);
 

@@ -1,4 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
+
+const imageCache = new Map<string, HTMLImageElement>();
 
 /**
  * Хук для асинхронной загрузки картинки в Konva.
@@ -11,24 +13,44 @@ function useImage(url: string | null): [HTMLImageElement | undefined, 'loading' 
     }>({ image: undefined, status: 'loading' });
 
     useEffect(() => {
+        let alive = true;
+
         if (!url) {
             setState({ image: undefined, status: 'failed' });
-            return;
+            return () => {
+                alive = false;
+            };
+        }
+
+        const cached = imageCache.get(url);
+        if (cached) {
+            setState({ image: cached, status: 'loaded' });
+            return () => {
+                alive = false;
+            };
         }
 
         const img = new window.Image();
         img.crossOrigin = 'anonymous';
 
-        const onLoad = () => setState({ image: img, status: 'loaded' });
-        const onError = () => setState({ image: undefined, status: 'failed' });
+        const onLoad = () => {
+            if (!alive) return;
+            imageCache.set(url, img);
+            setState({ image: img, status: 'loaded' });
+        };
+        const onError = () => {
+            if (!alive) return;
+            setState({ image: undefined, status: 'failed' });
+        };
 
         img.addEventListener('load', onLoad);
         img.addEventListener('error', onError);
         img.src = url;
 
-        setState({ image: undefined, status: 'loading' });
+        setState((prev) => (prev.status === 'loading' && prev.image == null ? prev : { image: undefined, status: 'loading' }));
 
         return () => {
+            alive = false;
             img.removeEventListener('load', onLoad);
             img.removeEventListener('error', onError);
         };

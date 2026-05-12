@@ -1,5 +1,6 @@
 package com.avalon.dnd.dm.canvas;
 
+import com.avalon.dnd.dm.config.RuntimeConfig;
 import com.avalon.dnd.dm.model.ClientState;
 import com.avalon.dnd.shared.GridConfig;
 import com.avalon.dnd.shared.TokenDto;
@@ -19,7 +20,7 @@ import java.util.Map;
 
 public class BattleMapCanvas extends Canvas {
 
-    private String serverBaseUrl = "http://localhost:8080";
+    private String serverBaseUrl = RuntimeConfig.defaultServerUrl();
 
     private TokenDto draggingToken = null;
     private double dragOffsetX, dragOffsetY;
@@ -581,21 +582,22 @@ public class BattleMapCanvas extends Canvas {
         if (path == null || path.isBlank()) return null;
 
         String trimmed = path.trim();
-        boolean hasUriScheme = trimmed.matches("^[a-zA-Z][a-zA-Z0-9+.-]*:.*") && !trimmed.matches("^[a-zA-Z]:[\\/].*");
+        boolean hasUriScheme = trimmed.matches("^[a-zA-Z][a-zA-Z0-9+.-]*:.*") && !trimmed.matches("^[a-zA-Z]:[\\\\/].*");
         if (hasUriScheme) {
             return trimmed;
         }
 
-        String relative = extractAssetPath(trimmed);
+        String cleaned = trimmed.replace('\\', '/');
+        String relative = extractAssetPath(cleaned);
         if (relative != null) {
             return joinServerUrl(relative);
         }
 
-        if (trimmed.startsWith("/")) {
-            return joinServerUrl(trimmed);
+        if (cleaned.startsWith("/")) {
+            return joinServerUrl(cleaned);
         }
 
-        return joinServerUrl(trimmed);
+        return joinServerUrl("/uploads/assets/" + cleaned.replaceFirst("^/+", ""));
     }
 
     private String joinServerUrl(String path) {
@@ -682,7 +684,7 @@ public class BattleMapCanvas extends Canvas {
             int pathStart = url.indexOf('/', schemeEnd + 3);
             if (pathStart < 0) return url;
 
-            String base = url.substring(0, pathStart);   // "http://localhost:8080"
+            String base = url.substring(0, pathStart);
             String path = url.substring(pathStart);      // "/uploads/maps/uuid_файл.jpg"
 
             String[] segments = path.split("/", -1);

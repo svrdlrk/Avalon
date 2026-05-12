@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { wsClient } from '../net/wsClient';
 import { useGameStore } from '../store/gameStore';
+import { DEFAULT_SERVER_BASE_URL } from '../config/runtime';
 
 const STORAGE_KEYS = {
     serverUrl: 'avalon.connection.serverUrl',
@@ -16,6 +17,7 @@ const s: Record<string, React.CSSProperties> = {
         top: '16px',
         left: '16px',
         zIndex: 50,
+        maxWidth: 'min(92vw, 420px)',
     },
     connectedBar: {
         display: 'flex',
@@ -45,17 +47,18 @@ const s: Record<string, React.CSSProperties> = {
         fontSize: '13px',
     },
     panel: {
-        background: '#18181b',
+        background: 'linear-gradient(180deg, #1a1a22 0%, #121218 100%)',
         border: '1px solid #3f3f46',
-        borderRadius: '10px',
-        padding: '24px',
-        width: '320px',
-        boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+        borderRadius: '18px',
+        padding: '20px',
+        width: '100%',
+        boxShadow: '0 12px 40px rgba(0,0,0,0.45)',
+        backdropFilter: 'blur(12px)',
     },
     title: {
-        margin: '0 0 20px',
-        fontSize: '18px',
-        fontWeight: 600,
+        margin: '0 0 8px',
+        fontSize: '20px',
+        fontWeight: 700,
         color: '#f4f4f5',
     },
     input: {
@@ -99,7 +102,7 @@ const s: Record<string, React.CSSProperties> = {
 };
 
 const ConnectionPanel: React.FC = () => {
-    const [serverUrl, setServerUrl] = useState('http://localhost:8080');
+    const [serverUrl, setServerUrl] = useState(DEFAULT_SERVER_BASE_URL);
     const [sessionId, setSessionId] = useState('');
     const [playerName, setPlayerName] = useState('');
     const [isDm, setIsDm] = useState(false);
@@ -107,7 +110,9 @@ const ConnectionPanel: React.FC = () => {
     const [status, setStatus] = useState('');
     const autoConnectAttempted = useRef(false);
 
-    const { myPlayerId, players, visibilityShareSuggestions } = useGameStore();
+    const myPlayerId = useGameStore((s) => s.myPlayerId);
+    const players = useGameStore((s) => s.players);
+    const visibilityShareSuggestions = useGameStore((s) => s.visibilityShareSuggestions);
 
     useEffect(() => {
         try {
@@ -164,7 +169,7 @@ const ConnectionPanel: React.FC = () => {
             // ignore storage errors
         }
         wsClient.connect(
-            serverUrl.trim(),
+            serverUrl.trim() || DEFAULT_SERVER_BASE_URL,
             sessionId.trim(),
             playerName.trim(),
             isDm,
@@ -200,6 +205,22 @@ const ConnectionPanel: React.FC = () => {
                         <span style={s.sessionHint}>
                             {sessionId.slice(0, 8)}…
                         </span>
+                        <button
+                            style={{
+                                ...s.disconnectBtn,
+                                background: '#374151',
+                            }}
+                            onClick={() => {
+                                try {
+                                    navigator.clipboard?.writeText(sessionId);
+                                    setStatus('ID сессии скопирован');
+                                } catch {
+                                    setStatus('Не удалось скопировать ID');
+                                }
+                            }}
+                        >
+                            Скопировать ID
+                        </button>
                         <button style={s.disconnectBtn} onClick={handleDisconnect}>
                             Выйти
                         </button>
@@ -245,7 +266,7 @@ const ConnectionPanel: React.FC = () => {
                         </div>
                     )}
                 </div>
-            </div>
+                </div>
         );
     }
 
@@ -255,6 +276,9 @@ const ConnectionPanel: React.FC = () => {
         <div style={s.overlay}>
             <div style={s.panel}>
                 <h2 style={s.title}>⚔ Avalon DnD</h2>
+                <p style={{ margin: '0 0 16px', color: '#a1a1aa', fontSize: '13px', lineHeight: 1.4 }}>
+                    Подключись к сессии, чтобы войти в игру и синхронизироваться с сервером.
+                </p>
 
                 <input
                     style={s.input}

@@ -1,6 +1,7 @@
 import { Client, StompHeaders } from '@stomp/stompjs';
 import SockJS from 'sockjs-client';
 import { useGameStore } from '../store/gameStore';
+import { DEFAULT_SERVER_BASE_URL, normalizeServerBaseUrl } from '../config/runtime';
 import type {
     InitiativeStateDto,
     MapLayoutUpdateDto,
@@ -15,7 +16,7 @@ class WsClient {
     private client:    Client | null = null;
     private sessionId: string | null = null;
     private playerId:  string | null = null;
-    private serverBaseUrl = 'http://localhost:8080';
+    private serverBaseUrl = DEFAULT_SERVER_BASE_URL;
     private onConnectedCallback: (() => void) | null = null;
     private connectedOnce = false;
     // ---------------------------------------------------------------- helpers
@@ -223,28 +224,21 @@ class WsClient {
 
     disconnect() {
         this.client?.deactivate();
-        this.client    = null;
+        this.client = null;
         this.sessionId = null;
-        this.playerId  = null;
+        this.playerId = null;
+        this.connectedOnce = false;
+        this.onConnectedCallback = null;
     }
 
     getPlayerId(): string | null { return this.playerId; }
 
     getServerBaseUrl(): string { return this.serverBaseUrl; }
 
+    getDefaultServerBaseUrl(): string { return DEFAULT_SERVER_BASE_URL; }
+
     private normalizeServerUrl(serverUrl: string): string {
-        let url = serverUrl.trim();
-
-        // если пользователь ввёл без протокола
-        if (!url.startsWith('http://') && !url.startsWith('https://')) {
-            url = 'http://' + url;
-        }
-
-        try {
-            return new URL(url).origin;
-        } catch {
-            return url.replace(/\/$/, '');
-        }
+        return normalizeServerBaseUrl(serverUrl);
     }
 }
 

@@ -97,8 +97,13 @@ public class MapProject {
     }
 
     public Optional<MapLayer> findLayer(String layerId) {
-        if (layerId == null) return Optional.empty();
-        return layers.stream().filter(l -> layerId.equals(l.getId())).findFirst();
+        if (layerId == null || layerId.isBlank()) return Optional.empty();
+        for (MapLayer layer : layers) {
+            if (layer != null && layerId.equals(layer.getId())) {
+                return Optional.of(layer);
+            }
+        }
+        return Optional.empty();
     }
 
     public MapLayer defaultLayerFor(PlacementKind kind) {

@@ -149,6 +149,7 @@ public class MapEditorPane extends BorderPane {
     private boolean syncingWallForm = false;
     private boolean syncingFogForm = false;
     private boolean syncingMicroLocationForm = false;
+    private boolean syncingSelection = false;
     private String selectedMicroLocationId;
 
     public MapEditorPane(MapProject project, AssetCatalog catalog) {
@@ -1535,35 +1536,43 @@ public class MapEditorPane extends BorderPane {
     }
 
     private void refreshSelection() {
-        if (state.selectedPlacement() != null) {
-            selectionLabel.setText("Selected: " + displayName(state.selectedPlacement().getName(), state.selectedPlacement().getAssetId()));
-            layerLabel.setText("Layer: " + safeLayerName(state.selectedPlacement().getLayerId()));
-        } else if (state.selectedWallPath() != null) {
-            String wallName = state.selectedWallPath().getName() == null ? state.selectedWallPath().getId() : state.selectedWallPath().getName();
-            String vertexInfo = state.getSelectedWallVertexIndex() >= 0 ? " | Vertex: " + state.getSelectedWallVertexIndex() : "";
-            selectionLabel.setText("Wall: " + wallName + vertexInfo);
-            layerLabel.setText("Layer: Walls");
-        } else if (state.getSelectedMicroLocationId() != null && state.getProject() != null && state.getProject().findMicroLocation(state.getSelectedMicroLocationId()).isPresent()) {
-            MicroLocationDto zone = state.getProject().findMicroLocation(state.getSelectedMicroLocationId()).orElse(null);
-            String zoneName = zone == null ? state.getSelectedMicroLocationId() : displayName(zone.getName(), zone.getId());
-            selectionLabel.setText("Micro location: " + zoneName + " @ " + (zone == null ? "?" : zone.getCol() + "," + zone.getRow()) + " " + (zone == null ? "" : zone.getWidth() + "x" + zone.getHeight()));
-            layerLabel.setText("Layer: map zones");
-        } else if (state.selectedAsset() != null) {
-            selectionLabel.setText("Asset: " + state.selectedAsset().getName());
-            layerLabel.setText("Layer: " + safeLayerName(state.getSelectedLayerId()));
-        } else {
-            selectionLabel.setText("Nothing selected");
-            layerLabel.setText("Layer: " + safeLayerName(state.getSelectedLayerId()));
+        if (syncingSelection) {
+            return;
         }
-        refreshPlacementForm();
-        refreshBackgroundForm();
-        refreshReferenceForm();
-        refreshTerrainForm();
-        refreshGridForm();
-        refreshWallForm();
-        refreshFogForm();
-        refreshMicroLocationPanel();
-        refreshLayerList();
+        syncingSelection = true;
+        try {
+            if (state.selectedPlacement() != null) {
+                selectionLabel.setText("Selected: " + displayName(state.selectedPlacement().getName(), state.selectedPlacement().getAssetId()));
+                layerLabel.setText("Layer: " + safeLayerName(state.selectedPlacement().getLayerId()));
+            } else if (state.selectedWallPath() != null) {
+                String wallName = state.selectedWallPath().getName() == null ? state.selectedWallPath().getId() : state.selectedWallPath().getName();
+                String vertexInfo = state.getSelectedWallVertexIndex() >= 0 ? " | Vertex: " + state.getSelectedWallVertexIndex() : "";
+                selectionLabel.setText("Wall: " + wallName + vertexInfo);
+                layerLabel.setText("Layer: Walls");
+            } else if (state.getSelectedMicroLocationId() != null && state.getProject() != null && state.getProject().findMicroLocation(state.getSelectedMicroLocationId()).isPresent()) {
+                MicroLocationDto zone = state.getProject().findMicroLocation(state.getSelectedMicroLocationId()).orElse(null);
+                String zoneName = zone == null ? state.getSelectedMicroLocationId() : displayName(zone.getName(), zone.getId());
+                selectionLabel.setText("Micro location: " + zoneName + " @ " + (zone == null ? "?" : zone.getCol() + "," + zone.getRow()) + " " + (zone == null ? "" : zone.getWidth() + "x" + zone.getHeight()));
+                layerLabel.setText("Layer: map zones");
+            } else if (state.selectedAsset() != null) {
+                selectionLabel.setText("Asset: " + state.selectedAsset().getName());
+                layerLabel.setText("Layer: " + safeLayerName(state.getSelectedLayerId()));
+            } else {
+                selectionLabel.setText("Nothing selected");
+                layerLabel.setText("Layer: " + safeLayerName(state.getSelectedLayerId()));
+            }
+            refreshPlacementForm();
+            refreshBackgroundForm();
+            refreshReferenceForm();
+            refreshTerrainForm();
+            refreshGridForm();
+            refreshWallForm();
+            refreshFogForm();
+            refreshMicroLocationPanel();
+            refreshLayerList();
+        } finally {
+            syncingSelection = false;
+        }
     }
 
     private void refreshPlacementForm() {
@@ -2002,12 +2011,21 @@ public class MapEditorPane extends BorderPane {
 
     private void refreshLayerList() {
         if (state.getProject() == null) return;
+        if (syncingLayerSelection) return;
         syncingLayerSelection = true;
         try {
             layerList.setItems(FXCollections.observableArrayList(state.getProject().getLayers()));
-            MapLayer selectedLayer = state.selectedLayer();
-            if (selectedLayer != null) {
-                int index = state.getProject().getLayers().indexOf(selectedLayer);
+            String selectedLayerId = state.getSelectedLayerId();
+            if (selectedLayerId != null) {
+                int index = -1;
+                var layers = state.getProject().getLayers();
+                for (int i = 0; i < layers.size(); i++) {
+                    MapLayer layer = layers.get(i);
+                    if (layer != null && selectedLayerId.equals(layer.getId())) {
+                        index = i;
+                        break;
+                    }
+                }
                 if (index >= 0) layerList.getSelectionModel().select(index);
                 else layerList.getSelectionModel().clearSelection();
             } else {
@@ -2020,7 +2038,12 @@ public class MapEditorPane extends BorderPane {
 
     private String safeLayerName(String layerId) {
         if (layerId == null || state.getProject() == null) return "-";
-        return state.getProject().findLayer(layerId).map(MapLayer::getName).orElse(layerId);
+        for (MapLayer layer : state.getProject().getLayers()) {
+            if (layer != null && layerId.equals(layer.getId())) {
+                return layer.getName() == null || layer.getName().isBlank() ? layerId : layer.getName();
+            }
+        }
+        return layerId;
     }
 
     private String displayName(String primary, String fallback) {

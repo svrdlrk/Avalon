@@ -282,7 +282,17 @@ ObjectShape.displayName = 'ObjectShape';
 // ================================================================ BattleMap
 
 const BattleMap: React.FC = () => {
-    const { grid, tokens, objects, myPlayerId, backgroundUrl, players, terrainLayer, wallLayer, fogSettings, microLocations, visibility } = useGameStore();
+    const grid = useGameStore((s) => s.grid);
+    const tokens = useGameStore((s) => s.tokens);
+    const objects = useGameStore((s) => s.objects);
+    const myPlayerId = useGameStore((s) => s.myPlayerId);
+    const backgroundUrl = useGameStore((s) => s.backgroundUrl);
+    const players = useGameStore((s) => s.players);
+    const terrainLayer = useGameStore((s) => s.terrainLayer);
+    const wallLayer = useGameStore((s) => s.wallLayer);
+    const fogSettings = useGameStore((s) => s.fogSettings);
+    const microLocations = useGameStore((s) => s.microLocations);
+    const visibility = useGameStore((s) => s.visibility);
     const stageRef = useRef<Konva.Stage>(null);
 
     // FIX: use a React state for stageDraggable so JSX prop stays in sync

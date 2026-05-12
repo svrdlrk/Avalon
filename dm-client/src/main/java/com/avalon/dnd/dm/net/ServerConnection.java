@@ -1,5 +1,6 @@
 package com.avalon.dnd.dm.net;
 
+import com.avalon.dnd.dm.config.RuntimeConfig;
 import com.avalon.dnd.dm.model.ClientState;
 import com.avalon.dnd.shared.*;
 import com.fasterxml.jackson.databind.JavaType;
@@ -46,12 +47,13 @@ public class ServerConnection {
         this.onConnected = onConnected;
         String joinNonce = UUID.randomUUID().toString();
         String normalizedSessionId = normalizeSessionId(sessionId);
+        String normalizedServerUrl = normalizeServerUrl(serverUrl);
 
         var wsClient    = new SockJsClient(List.of(new WebSocketTransport(new StandardWebSocketClient())));
         var stompClient = new WebSocketStompClient(wsClient);
         stompClient.setMessageConverter(new MappingJackson2MessageConverter());
 
-        stompClient.connectAsync(serverUrl + "/ws", new StompSessionHandlerAdapter() {
+        stompClient.connectAsync(normalizedServerUrl + "/ws", new StompSessionHandlerAdapter() {
             @Override
             public void afterConnected(StompSession session, StompHeaders headers) {
                 stompSession = session;
@@ -103,6 +105,22 @@ public class ServerConnection {
         stompSession.subscribe(
                 "/topic/session/" + sessionId + "/private/" + playerId,
                 new JoinStateHandler(sessionId, false));
+    }
+
+
+    private String normalizeServerUrl(String serverUrl) {
+        String value = serverUrl == null ? "" : serverUrl.trim();
+        if (value.isEmpty()) {
+            return RuntimeConfig.defaultServerUrl();
+        }
+        if (!value.startsWith("http://") && !value.startsWith("https://")) {
+            value = "http://" + value;
+        }
+        try {
+            return java.net.URI.create(value).resolve("/").toString().replaceAll("/+$", "").replaceAll("/$", "");
+        } catch (Exception ex) {
+            return value.replaceAll("/+$", "");
+        }
     }
 
     // ================================================================ Handlers
@@ -193,9 +211,10 @@ public class ServerConnection {
     // ================================================================ HTTP helpers
 
     public void createSession(String serverUrl, Consumer<String> onDone) {
+        String baseUrl = normalizeServerUrl(serverUrl);
         httpAsync(() -> {
             Request req = new Request.Builder()
-                    .url(serverUrl + "/api/session/create")
+                    .url(baseUrl + "/api/session/create")
                     .post(RequestBody.create(new byte[0])).build();
             try (Response resp = httpClient.newCall(req).execute()) {
                 if (resp.isSuccessful() && resp.body() != null)
@@ -207,9 +226,10 @@ public class ServerConnection {
 
     public void saveSession(String serverUrl, String sessionId,
                             String name, Consumer<Boolean> onDone) {
+        String baseUrl = normalizeServerUrl(serverUrl);
         new Thread(() -> {
             try {
-                HttpUrl url = HttpUrl.parse(serverUrl + "/api/session/" + sessionId + "/save")
+                HttpUrl url = HttpUrl.parse(baseUrl + "/api/session/" + sessionId + "/save")
                         .newBuilder().addQueryParameter("name", name).build();
                 try (Response r = httpClient.newCall(
                         new Request.Builder().url(url)
@@ -224,9 +244,10 @@ public class ServerConnection {
     }
 
     public void loadSession(String serverUrl, String sessionId, Consumer<String> onDone) {
+        String baseUrl = normalizeServerUrl(serverUrl);
         httpAsync(() -> {
             Request req = new Request.Builder()
-                    .url(serverUrl + "/api/session/" + sessionId + "/load")
+                    .url(baseUrl + "/api/session/" + sessionId + "/load")
                     .post(RequestBody.create(new byte[0])).build();
             try (Response r = httpClient.newCall(req).execute()) {
                 if (r.isSuccessful() && r.body() != null)
@@ -237,10 +258,11 @@ public class ServerConnection {
     }
 
     public void listSavedSessions(String serverUrl, Consumer<List<JsonNode>> onDone) {
+        String baseUrl = normalizeServerUrl(serverUrl);
         new Thread(() -> {
             try {
                 Request req = new Request.Builder()
-                        .url(serverUrl + "/api/session/saved").build();
+                        .url(baseUrl + "/api/session/saved").build();
                 try (Response r = httpClient.newCall(req).execute()) {
                     if (r.isSuccessful() && r.body() != null) {
                         List<JsonNode> list = new java.util.ArrayList<>();
@@ -256,9 +278,10 @@ public class ServerConnection {
 
     public void uploadMap(String serverUrl, String sessionId,
                           java.io.File file, Consumer<String> onDone) {
+        String baseUrl = normalizeServerUrl(serverUrl);
         new Thread(() -> {
             try {
-                HttpUrl uploadUrl = HttpUrl.parse(serverUrl + "/api/map/upload")
+                HttpUrl uploadUrl = HttpUrl.parse(baseUrl + "/api/map/upload")
                         .newBuilder()
                         .addPathSegment(normalizeSessionId(sessionId))
                         .build();

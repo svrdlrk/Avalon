@@ -39,21 +39,22 @@ export function normalizeAssetUrl(imageUrl: string | null | undefined, serverBas
 
     // Keep any absolute URI scheme intact (http, https, file, data, jar, etc.),
     // but do not misclassify Windows paths like C:\assets\image.png.
-    const hasUriScheme = /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed) && !/^[a-zA-Z]:[\/]/.test(trimmed);
+    const hasUriScheme = /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed) && !/^[a-zA-Z]:[\\/]/.test(trimmed);
     if (hasUriScheme) {
         return encodeURI(trimmed);
     }
 
+    const baseUrl = serverBaseUrl.replace(/\/$/, '');
     const relative = extractAssetPath(trimmed);
     if (relative) {
-        const baseUrl = serverBaseUrl.replace(/\/$/, '');
         return encodeURI(`${baseUrl}${relative.startsWith('/') ? relative : `/${relative}`}`);
     }
 
-    if (trimmed.startsWith('/')) {
-        const baseUrl = serverBaseUrl.replace(/\/$/, '');
-        return encodeURI(`${baseUrl}${trimmed}`);
+    const cleaned = trimmed.replace(/\\/g, '/');
+    if (cleaned.startsWith('/')) {
+        return encodeURI(`${baseUrl}${cleaned}`);
     }
 
-    return encodeURI(trimmed);
+    const noSlash = cleaned.replace(/^\/+/, '');
+    return encodeURI(`${baseUrl}/uploads/assets/${noSlash}`);
 }

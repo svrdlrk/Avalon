@@ -414,16 +414,33 @@ public class AssetCatalogController {
     }
 
     private boolean looksLikeAssetNode(JsonNode node) {
-        boolean hasImage = node.hasNonNull("imageUrl") || node.hasNonNull("image") || node.hasNonNull("path") || node.hasNonNull("file")
-                || node.hasNonNull("src") || node.hasNonNull("url") || node.hasNonNull("filename") || node.hasNonNull("fileName")
-                || node.hasNonNull("imagePath") || node.hasNonNull("assetPath") || node.hasNonNull("sprite") || node.hasNonNull("thumbnail");
+        if (node == null || !node.isObject()) {
+            return false;
+        }
+        String imageUrl = text(node, "imageUrl", "image", "path", "file", "src", "url", "filename", "fileName", "imagePath", "assetPath", "sprite", "thumbnail");
+        if (!looksLikeRenderableImage(imageUrl)) {
+            return false;
+        }
         boolean hasSize = node.hasNonNull("width") || node.hasNonNull("height") || node.hasNonNull("gridSize")
                 || node.hasNonNull("defaultWidth") || node.hasNonNull("defaultHeight")
                 || node.hasNonNull("size") || node.hasNonNull("dimensions");
         boolean hasBehavior = node.hasNonNull("kind") || node.hasNonNull("blocksMovement") || node.hasNonNull("blocksSight")
                 || node.hasNonNull("movementBlock") || node.hasNonNull("visionBlock") || node.hasNonNull("solid") || node.hasNonNull("opaque")
                 || node.hasNonNull("dayVision") || node.hasNonNull("nightVision");
-        return hasImage || hasSize || hasBehavior;
+        return hasSize || hasBehavior || node.hasNonNull("name") || node.hasNonNull("title") || node.hasNonNull("displayName") || node.hasNonNull("label");
+    }
+
+    private boolean looksLikeRenderableImage(String imageUrl) {
+        if (imageUrl == null || imageUrl.isBlank()) {
+            return false;
+        }
+        String cleaned = imageUrl.trim().replace('\\', '/').toLowerCase(Locale.ROOT);
+        if (cleaned.endsWith("/")) {
+            return false;
+        }
+        return cleaned.endsWith(".png") || cleaned.endsWith(".jpg") || cleaned.endsWith(".jpeg")
+                || cleaned.endsWith(".gif") || cleaned.endsWith(".webp") || cleaned.endsWith(".bmp") || cleaned.endsWith(".svg")
+                || cleaned.contains(".");
     }
 
     private boolean isTokenLike(JsonNode node) {

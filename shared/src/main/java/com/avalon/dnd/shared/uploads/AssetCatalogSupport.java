@@ -54,14 +54,32 @@ public final class AssetCatalogSupport {
     }
 
     public static String deriveCategory(Path baseDir, String imageUrl) {
-        String path = imageUrl == null ? null : imageUrl.replace('\\', '/');
-        if (path != null) {
-            int uploadsIdx = path.toLowerCase(Locale.ROOT).indexOf("/uploads/");
+        String path = imageUrl == null ? null : imageUrl.replace('\\', '/').trim();
+        if (path != null && !path.isBlank()) {
+            String cleaned = path;
+            int uploadsIdx = cleaned.toLowerCase(Locale.ROOT).indexOf("/uploads/");
             if (uploadsIdx >= 0) {
-                String tail = path.substring(uploadsIdx + "/uploads/".length());
-                int slash = tail.indexOf('/');
-                if (slash > 0) {
-                    return tail.substring(0, slash).toLowerCase(Locale.ROOT);
+                cleaned = cleaned.substring(uploadsIdx + "/uploads/".length());
+            } else if (cleaned.startsWith("uploads/")) {
+                cleaned = cleaned.substring("uploads/".length());
+            }
+
+            cleaned = cleaned.startsWith("/") ? cleaned.substring(1) : cleaned;
+            if (cleaned.toLowerCase(Locale.ROOT).startsWith("assets/")) {
+                cleaned = cleaned.substring("assets/".length());
+            }
+
+            if (!cleaned.isBlank()) {
+                String[] segments = cleaned.split("/");
+                int end = segments.length;
+                if (end > 0 && segments[end - 1].contains(".")) {
+                    end--;
+                }
+                if (end > 0) {
+                    String category = String.join("/", java.util.Arrays.copyOfRange(segments, 0, end)).trim();
+                    if (!category.isBlank()) {
+                        return category;
+                    }
                 }
             }
         }
@@ -69,8 +87,12 @@ public final class AssetCatalogSupport {
             try {
                 Path normalized = baseDir.toAbsolutePath().normalize();
                 for (int i = 0; i < normalized.getNameCount(); i++) {
-                    if ("assets".equalsIgnoreCase(normalized.getName(i).toString()) && i + 1 < normalized.getNameCount()) {
-                        return normalized.getName(i + 1).toString().toLowerCase(Locale.ROOT);
+                    if ("uploads".equalsIgnoreCase(normalized.getName(i).toString()) && i + 1 < normalized.getNameCount()) {
+                        Path rel = normalized.subpath(i + 1, normalized.getNameCount());
+                        String relText = rel.toString().replace('\\', '/').trim();
+                        if (!relText.isBlank()) {
+                            return relText;
+                        }
                     }
                 }
             } catch (Exception ignored) {
