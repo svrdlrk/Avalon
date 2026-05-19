@@ -49,9 +49,10 @@ public class ProjectRepository {
         String fileName = path.getFileName() == null ? "" : path.getFileName().toString();
         Path parent = path.getParent();
         if ("map.json".equalsIgnoreCase(fileName) && parent != null) {
-            Path microLocations = parent.resolve("microLocations.json");
+            Path microLocations = parent.resolve("microlocations.json");
+            Path legacyMicroLocations = parent.resolve("microLocations.json");
             Path interiors = parent.resolve("interiors");
-            if (Files.exists(microLocations) || Files.isDirectory(interiors)) {
+            if (Files.exists(microLocations) || Files.exists(legacyMicroLocations) || Files.isDirectory(interiors)) {
                 return loadWorkspace(parent);
             }
         }
@@ -59,8 +60,15 @@ public class ProjectRepository {
         try {
             BattleProjectDto dto = mapper.readValue(path.toFile(), BattleProjectDto.class);
             return BattleProjectMapper.fromDto(dto);
-        } catch (Exception ex) {
-            return mapper.readValue(path.toFile(), MapProject.class);
+        } catch (Exception primary) {
+            try {
+                System.err.println("[map-editor] Falling back to legacy MapProject format for: " + path + " (" + primary.getMessage() + ")");
+                return mapper.readValue(path.toFile(), MapProject.class);
+            } catch (Exception legacy) {
+                IOException io = new IOException("Unable to load project file: " + path, legacy);
+                io.addSuppressed(primary);
+                throw io;
+            }
         }
     }
 
@@ -77,9 +85,12 @@ public class ProjectRepository {
         BattleProjectDto dto = mapper.readValue(mapFile.toFile(), BattleProjectDto.class);
         MapProject project = BattleProjectMapper.fromDto(dto);
 
-        Path microLocationsFile = root.resolve("microLocations.json");
+        Path microLocationsFile = root.resolve("microlocations.json");
+        Path legacyMicroLocationsFile = root.resolve("microLocations.json");
         if (Files.exists(microLocationsFile)) {
             project.setMicroLocations(readMicroLocations(microLocationsFile));
+        } else if (Files.exists(legacyMicroLocationsFile)) {
+            project.setMicroLocations(readMicroLocations(legacyMicroLocationsFile));
         }
         return project;
     }
@@ -88,9 +99,10 @@ public class ProjectRepository {
         if (project == null) {
             throw new IllegalArgumentException("project is null");
         }
-        Path root = workspaceRoot(rootDir);
+        Path root = rootDir == null
+                ? projectRoot().toAbsolutePath().normalize()
+                : rootDir.toAbsolutePath().normalize();
         Files.createDirectories(root);
-        Files.createDirectories(root.resolve("interiors"));
 
         BattleProjectDto dto = BattleProjectMapper.toDto(project);
         dto.setMicroLocations(new ArrayList<>());
@@ -98,13 +110,21 @@ public class ProjectRepository {
         Path mapFile = root.resolve("map.json");
         mapper.writerWithDefaultPrettyPrinter().writeValue(mapFile.toFile(), dto);
 
-        Path microLocationsFile = root.resolve("microLocations.json");
+        Path microLocationsFile = root.resolve("microlocations.json");
         mapper.writerWithDefaultPrettyPrinter().writeValue(microLocationsFile.toFile(), new ArrayList<>(project.getMicroLocations()));
         return root;
     }
 
     public Path saveFinished(MapProject project) throws IOException {
-        return saveWorkspace(finishedDir().resolve(projectFileName(project, "finished")), project);
+        return saveFinished(project, null);
+    }
+
+    public Path saveFinished(MapProject project, String folderName) throws IOException {
+        String resolvedName = safeStem(folderName);
+        if (resolvedName.isBlank()) {
+            resolvedName = projectFileName(project, "finished");
+        }
+        return saveWorkspace(finishedDir().resolve(resolvedName), project);
     }
 
     public Path saveBackup(MapProject project) throws IOException {
@@ -167,12 +187,23 @@ public class ProjectRepository {
         return parent == null ? normalized : parent;
     }
 
-    private Path finishedDir() {
-        return Paths.get("uploads/maps/finished").toAbsolutePath().normalize();
+    public Path finishedDir() {
+        return projectRoot().resolve("uploads/maps/finished").toAbsolutePath().normalize();
     }
 
     private Path backupsDir() {
-        return Paths.get("uploads/maps/backups").toAbsolutePath().normalize();
+        return projectRoot().resolve("uploads/maps/backups").toAbsolutePath().normalize();
+    }
+
+    private Path projectRoot() {
+        Path current = Paths.get("").toAbsolutePath().normalize();
+        while (current != null) {
+            if (Files.exists(current.resolve("settings.gradle")) || Files.exists(current.resolve("settings.gradle.kts"))) {
+                return current;
+            }
+            current = current.getParent();
+        }
+        return Paths.get("").toAbsolutePath().normalize();
     }
 
     private String projectFileName(MapProject project, String fallback) {

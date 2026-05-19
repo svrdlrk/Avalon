@@ -7,22 +7,37 @@ import com.avalon.dnd.dm.model.ClientState;
 import com.avalon.dnd.shared.*;
 import com.fasterxml.jackson.databind.JsonNode;
 import javafx.application.Platform;
+import javafx.css.PseudoClass;
 import javafx.beans.property.SimpleStringProperty;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
+import javafx.scene.Node;
 import javafx.scene.Scene;
+import javafx.scene.input.KeyCode;
 import javafx.scene.control.*;
 import javafx.scene.layout.*;
 import javafx.stage.Stage;
 import javafx.util.StringConverter;
 
 import java.util.*;
+import java.util.Objects;
 
 public class MainStage {
 
     private final Stage stage;
     private BattleMapCanvas mapCanvas;
     private ScrollPane mapScrollPane;
+    private double mapZoom = 1.0;
+
+    private String currentSessionId = "";
+    private String currentPlayerClientBase = RuntimeConfig.defaultPlayerClientUrl();
+    private final Label sessionSummaryLabel = new Label("Session —");
+    private final Label sessionCountsLabel = new Label("Players 0 • Tokens 0 • Objects 0");
+
+    {
+        sessionSummaryLabel.getStyleClass().add("dm-chip");
+        sessionCountsLabel.getStyleClass().addAll("dm-chip", "dm-chip-accent");
+    }
 
     private ComboBox<TokenDto>     tokenActionsCombo;
     private ComboBox<PlayerDto>    playerAssignCombo;
@@ -49,21 +64,73 @@ public class MainStage {
 
     public MainStage(Stage stage) { this.stage = stage; }
 
+    public void dispose() {
+        if (mapCanvas != null) {
+            mapCanvas.dispose();
+            mapCanvas = null;
+        }
+        if (backgroundChangeListener != null) {
+            ClientState.getInstance().removeChangeListener(backgroundChangeListener);
+            backgroundChangeListener = null;
+        }
+        if (selectorRefreshListener != null) {
+            ClientState.getInstance().removeChangeListener(selectorRefreshListener);
+            selectorRefreshListener = null;
+        }
+        if (hpRefreshListener != null) {
+            ClientState.getInstance().removeChangeListener(hpRefreshListener);
+            hpRefreshListener = null;
+        }
+        if (initiativeRefreshListener != null) {
+            ClientState.getInstance().removeChangeListener(initiativeRefreshListener);
+            initiativeRefreshListener = null;
+        }
+    }
+
     public void show() {
         stage.setTitle("Avalon DnD — DM");
-        stage.setScene(new Scene(buildConnectForm(), 1280, 840));
+        Scene scene = new Scene(buildConnectForm(), 1280, 840);
+        scene.getStylesheets().add(Objects.requireNonNull(
+                MainStage.class.getResource("/com/avalon/dnd/dm/ui/dm-theme.css")
+        ).toExternalForm());
+        scene.setOnKeyPressed(event -> {
+            if (mapScrollPane == null || mapCanvas == null) return;
+            switch (event.getCode()) {
+                case EQUALS, PLUS -> { zoomMap(1.08); event.consume(); }
+                case MINUS, SUBTRACT -> { zoomMap(0.92); event.consume(); }
+                case DIGIT0 -> { setMapZoom(1.0); centerMapView(); event.consume(); }
+                case F -> { fitMapView(); event.consume(); }
+                case C -> { centerMapView(); event.consume(); }
+                case LEFT -> { mapCanvas.panBy(64, 0); event.consume(); }
+                case RIGHT -> { mapCanvas.panBy(-64, 0); event.consume(); }
+                case UP -> { mapCanvas.panBy(0, 64); event.consume(); }
+                case DOWN -> { mapCanvas.panBy(0, -64); event.consume(); }
+                default -> { }
+            }
+        });
+        stage.setScene(scene);
         stage.show();
     }
 
     // ================================================================ Connect form
 
     private VBox buildConnectForm() {
-        VBox root = new VBox(10);
-        root.setPadding(new Insets(20));
-        Label title = new Label("Avalon DnD — DM Панель");
-        title.setStyle("-fx-font-size: 20px; -fx-font-weight: bold;");
+        VBox root = new VBox(14);
+        root.getStyleClass().add("dm-connect-root");
+        root.setPadding(new Insets(24));
+        root.setMaxWidth(720);
+        root.setStyle("-fx-background-color: linear-gradient(to bottom, rgba(15,23,42,0.96), rgba(8,15,28,0.96));"
+                + "-fx-border-color: rgba(148,163,184,0.14); -fx-border-width: 1; -fx-border-radius: 24; -fx-background-radius: 24;"
+                + "-fx-effect: dropshadow(gaussian, rgba(0,0,0,0.28), 28, 0.28, 0, 10);");
 
-        TextField serverField      = new TextField(RuntimeConfig.defaultServerUrl());
+        Label title = new Label("Avalon DnD — DM Панель");
+        title.setStyle("-fx-font-size: 22px; -fx-font-weight: bold; -fx-text-fill: #f8fafc;");
+
+        Label subtitle = new Label("Подключение к сессии, загрузка сохранений и быстрый вход в боевой режим.");
+        subtitle.setStyle("-fx-text-fill: #94a3b8; -fx-font-size: 13px;");
+        subtitle.setWrapText(true);
+
+        TextField serverField = new TextField(RuntimeConfig.defaultServerUrl());
         TextField playerClientField = new TextField(RuntimeConfig.defaultPlayerClientUrl());
 
         Tab newTab = new Tab("✨ Новая / существующая сессия");
@@ -99,7 +166,9 @@ public class MainStage {
 
             VBox c = new VBox(8, new Label("ID сессии:"), sessionField, new Label("Имя DM:"), nameField,
                     new HBox(8, createBtn, connectBtn), statusLbl);
-            c.setPadding(new Insets(10)); newTab.setContent(c);
+            c.setPadding(new Insets(12));
+            c.setStyle("-fx-background-color: rgba(15,23,42,0.58); -fx-border-color: rgba(148,163,184,0.12); -fx-border-radius: 18; -fx-background-radius: 18;");
+            newTab.setContent(c);
         }
 
         Tab loadTab = new Tab("📂 Загрузить сохранённую");
@@ -137,26 +206,46 @@ public class MainStage {
             deleteBtn.setOnAction(e -> {
                 JsonNode sel = table.getSelectionModel().getSelectedItem(); if (sel == null) return;
                 String sid = sel.path("sessionId").asText();
-                new Thread(() -> {
-                    try { new okhttp3.OkHttpClient().newCall(new okhttp3.Request.Builder()
-                            .url(RuntimeConfig.normalize(serverField.getText().trim()) + "/api/session/" + sid + "/saved")
-                            .delete().build()).execute().close(); }
-                    catch (Exception ex) { ex.printStackTrace(); }
-                    Platform.runLater(doRefresh::run);
-                }).start();
+                deleteBtn.setDisable(true);
+                ServerConnection.getInstance().deleteSavedSession(
+                        serverField.getText().trim(),
+                        sid,
+                        ok -> {
+                            deleteBtn.setDisable(false);
+                            Platform.runLater(doRefresh::run);
+                        }
+                );
             });
-            HBox row = hbox(8, refresh, loadBtn, deleteBtn, new Label("Имя DM:"), dmName);
+            FlowPane row = flowRow(8, 8, refresh, loadBtn, deleteBtn, new Label("Имя DM:"), dmName);
             row.setAlignment(Pos.CENTER_LEFT);
-            VBox c = new VBox(8, table, row, statusLbl); c.setPadding(new Insets(10));
+            VBox c = new VBox(8, table, row, statusLbl); c.setPadding(new Insets(12));
+            c.setStyle("-fx-background-color: rgba(15,23,42,0.58); -fx-border-color: rgba(148,163,184,0.12); -fx-border-radius: 18; -fx-background-radius: 18;");
             loadTab.setContent(c);
         }
 
         TabPane tabPane = new TabPane(newTab, loadTab);
         tabPane.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
-        root.getChildren().addAll(title,
+        tabPane.setStyle("-fx-background-color: transparent;");
+        tabPane.getStyleClass().add("dm-connect-tabs");
+
+        VBox connectCard = new VBox(12,
+                title,
+                subtitle,
                 new Label("Сервер:"), serverField,
                 new Label("Player-client URL:"), playerClientField,
                 tabPane);
+        connectCard.setPadding(new Insets(20));
+        connectCard.setMaxWidth(760);
+        connectCard.getStyleClass().add("dm-connect-card");
+        connectCard.setStyle("-fx-background-color: rgba(8,13,25,0.54); -fx-border-color: rgba(148,163,184,0.14); -fx-border-radius: 28; -fx-background-radius: 28;");
+
+        StackPane wrapper = new StackPane(connectCard);
+        wrapper.setPadding(new Insets(18));
+        wrapper.getStyleClass().add("dm-connect-shell");
+        wrapper.setStyle("-fx-background-color: radial-gradient(radius 120%, rgba(124,58,237,0.18), transparent 45%), radial-gradient(radius 110%, rgba(37,99,235,0.16), transparent 50%), linear-gradient(to bottom, #09101c, #070b14);");
+        StackPane.setAlignment(connectCard, Pos.CENTER);
+        root.setAlignment(Pos.CENTER);
+        root.getChildren().add(wrapper);
         return root;
     }
 
@@ -176,11 +265,219 @@ public class MainStage {
         return t;
     }
 
+
+    private void copyToClipboard(String value) {
+        if (value == null || value.isBlank()) {
+            return;
+        }
+        var cb = javafx.scene.input.Clipboard.getSystemClipboard();
+        var cc = new javafx.scene.input.ClipboardContent();
+        cc.putString(value);
+        cb.setContent(cc);
+    }
+
+    private void centerMapView() {
+        if (mapCanvas == null || mapScrollPane == null) {
+            return;
+        }
+        double viewportW = Math.max(1, mapScrollPane.getViewportBounds().getWidth());
+        double viewportH = Math.max(1, mapScrollPane.getViewportBounds().getHeight());
+        mapCanvas.centerView();
+        mapScrollPane.requestLayout();
+    }
+
+    private void setMapZoom(double zoom) {
+        mapZoom = Math.max(0.25, Math.min(2.75, zoom));
+        if (mapCanvas != null) {
+            mapCanvas.setZoom(mapZoom);
+        }
+        if (mapScrollPane != null) {
+            mapScrollPane.layout();
+        }
+    }
+
+    private void zoomMap(double factor) {
+        setMapZoom(mapZoom * factor);
+        centerMapView();
+    }
+
+    private void fitMapView() {
+        if (mapCanvas == null || mapScrollPane == null) {
+            return;
+        }
+        double viewportW = Math.max(1, mapScrollPane.getViewportBounds().getWidth());
+        double viewportH = Math.max(1, mapScrollPane.getViewportBounds().getHeight());
+        mapCanvas.fitView(viewportW, viewportH);
+        mapZoom = mapCanvas.getZoom();
+        mapScrollPane.requestLayout();
+    }
+
+    private VBox buildBattleOverview(String playerClientBase, String sessionId) {
+        Label title = new Label("Battle Control");
+        title.getStyleClass().add("dm-title");
+
+        Label subtitle = new Label((playerClientBase == null || playerClientBase.isBlank()
+                ? RuntimeConfig.defaultPlayerClientUrl()
+                : playerClientBase) + "  →  " + sessionId);
+        subtitle.getStyleClass().add("dm-meta");
+        subtitle.setWrapText(true);
+
+        Button zoomOutBtn = new Button("Zoom -");
+        zoomOutBtn.setOnAction(e -> zoomMap(0.88));
+
+        Button zoomInBtn = new Button("Zoom +");
+        zoomInBtn.setOnAction(e -> zoomMap(1.12));
+
+        Button fitBtn = new Button("Fit");
+        fitBtn.setOnAction(e -> fitMapView());
+
+        Button centerBtn = new Button("Center map");
+        centerBtn.setOnAction(e -> centerMapView());
+
+        Button copySessionBtn = new Button("Copy session");
+        copySessionBtn.getStyleClass().add("primary-action");
+        copySessionBtn.setOnAction(e -> copyToClipboard(sessionId));
+
+        Button copyPlayerBtn = new Button("Copy player URL");
+        copyPlayerBtn.setOnAction(e -> copyToClipboard(playerClientBase == null || playerClientBase.isBlank()
+                ? RuntimeConfig.defaultPlayerClientUrl()
+                : playerClientBase));
+
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+        HBox titleRow = new HBox(10, title, spacer, subtitle);
+        titleRow.setAlignment(Pos.CENTER_LEFT);
+
+        FlowPane actions = new FlowPane(8, 8, zoomOutBtn, zoomInBtn, fitBtn, centerBtn, copyPlayerBtn, copySessionBtn);
+        actions.setPrefWrapLength(780);
+        actions.getStyleClass().add("dm-header-actions");
+
+        HBox chips = new HBox(8, sessionSummaryLabel, sessionCountsLabel);
+        chips.getStyleClass().add("dm-summary-row");
+        chips.setPadding(new Insets(0, 14, 12, 14));
+
+        VBox header = new VBox(8, titleRow, actions, chips);
+        header.setStyle("-fx-background-color: rgba(7, 12, 20, 0.92); -fx-border-color: rgba(148, 163, 184, 0.12); -fx-border-width: 0 0 1 0;");
+        return header;
+    }
+
+    private VBox buildSidebarIntro(String playerClientBase, String sessionId) {
+        Label title = new Label("Session orbit");
+        title.setStyle("-fx-font-size: 15px; -fx-font-weight: 800; -fx-text-fill: #f8fafc;");
+
+        Label hint = new Label("Use the rail below to manage tokens, objects, map layers, HP and initiative. Drag the map to pan, wheel to zoom.");
+        hint.setWrapText(true);
+        hint.setStyle("-fx-text-fill: #9fb0c8; -fx-font-size: 12px; -fx-line-spacing: 2px;");
+
+        Label meta = new Label("Session " + shortId(sessionId) + " · "
+                + (playerClientBase == null || playerClientBase.isBlank()
+                ? RuntimeConfig.defaultPlayerClientUrl()
+                : playerClientBase));
+        meta.setWrapText(true);
+        meta.setStyle("-fx-text-fill: #c9d6ea; -fx-font-size: 11px; -fx-font-family: Consolas, 'SFMono-Regular', monospace;");
+
+        VBox shell = new VBox(8, title, hint, meta);
+        shell.setPadding(new Insets(12));
+        shell.getStyleClass().add("dm-summary-shell");
+        return shell;
+    }
+
+    private Node buildSidebarWorkspace(String sessionId) {
+        List<SidebarSection> sections = List.of(
+                new SidebarSection("tokens", "🗡 Токены", buildTokenTab().getContent()),
+                new SidebarSection("objects", "🧱 Объекты", buildObjectTab().getContent()),
+                new SidebarSection("grid", "🗺 Карта", buildGridTab(sessionId).getContent()),
+                new SidebarSection("hp", "❤ HP", buildHpTab().getContent()),
+                new SidebarSection("initiative", "🎲 Инициатива", buildInitiativeTab().getContent()),
+                new SidebarSection("session", "💾 Сессия", buildSessionTab(sessionId).getContent())
+        );
+
+        FlowPane nav = new FlowPane(8, 8);
+        nav.setPrefWrapLength(350);
+        nav.getStyleClass().add("dm-nav-bar");
+
+        StackPane contentStack = new StackPane();
+        contentStack.getStyleClass().add("dm-section-stack");
+
+        Map<String, Node> contentById = new LinkedHashMap<>();
+        ToggleGroup group = new ToggleGroup();
+        final ToggleButton[] first = {null};
+
+        for (SidebarSection section : sections) {
+            ToggleButton button = new ToggleButton(section.title());
+            button.setToggleGroup(group);
+            button.setMaxWidth(Double.MAX_VALUE);
+            button.setMinWidth(0);
+            button.getStyleClass().add("dm-nav-toggle");
+
+            Node wrapped = wrapSidebarSection(section.content());
+            wrapped.setVisible(false);
+            wrapped.setManaged(false);
+            contentStack.getChildren().add(wrapped);
+            contentById.put(section.id(), wrapped);
+
+            button.setOnAction(e -> showSidebarSection(section.id(), group, contentById));
+            nav.getChildren().add(button);
+            if (first[0] == null) {
+                first[0] = button;
+            }
+        }
+
+        if (first[0] != null) {
+            first[0].setSelected(true);
+            showSidebarSection(sections.get(0).id(), group, contentById);
+        }
+
+        VBox shell = new VBox(12, buildSidebarIntro(currentPlayerClientBase, sessionId), nav, contentStack);
+        shell.getStyleClass().add("dm-sidebar-shell");
+        return shell;
+    }
+
+    private static Node wrapSidebarSection(Node content) {
+        VBox box = new VBox(content);
+        box.setPadding(new Insets(10));
+        box.getStyleClass().add("dm-section-card");
+        return box;
+    }
+
+    private static void showSidebarSection(String selectedId,
+                                           ToggleGroup group,
+                                           Map<String, Node> contentById) {
+        for (var entry : contentById.entrySet()) {
+            boolean active = Objects.equals(entry.getKey(), selectedId);
+            entry.getValue().setVisible(active);
+            entry.getValue().setManaged(active);
+        }
+        if (group.getSelectedToggle() == null) {
+            for (Toggle toggle : group.getToggles()) {
+                if (toggle instanceof ToggleButton button && button.getText() != null) {
+                    // no-op; selection already set by caller
+                    break;
+                }
+            }
+        }
+    }
+
+    private record SidebarSection(String id, String title, Node content) {}
+
+    private void refreshBattleSummary() {
+        String sid = currentSessionId == null || currentSessionId.isBlank() ? "—" : shortId(currentSessionId);
+        sessionSummaryLabel.setText("Session " + sid);
+
+        int players = ClientState.getInstance().getPlayers().size();
+        int tokens = ClientState.getInstance().getTokens().size();
+        int objects = ClientState.getInstance().getObjects().size();
+        sessionCountsLabel.setText(String.format(java.util.Locale.ROOT,
+                "%d players • %d tokens • %d objects", players, tokens, objects));
+    }
+
     // ================================================================ Catalog
 
     private void loadCatalog(String serverUrl, Runnable onDone) {
         String baseUrl = RuntimeConfig.normalize(serverUrl);
-        new Thread(() -> {
+        Thread loader = new Thread(() -> {
+            List<JsonNode> loadedTokens = new ArrayList<>();
+            List<JsonNode> loadedObjects = new ArrayList<>();
             try {
                 var req = new okhttp3.Request.Builder()
                         .url(baseUrl + "/api/assets/catalog").build();
@@ -188,17 +485,25 @@ public class MainStage {
                     if (r.isSuccessful() && r.body() != null) {
                         var m = new com.fasterxml.jackson.databind.ObjectMapper();
                         JsonNode root = m.readTree(r.body().string());
-                        tokenCatalog.clear(); objectCatalog.clear();
-                        if (root.has("tokens"))  root.get("tokens").forEach(tokenCatalog::add);
-                        if (root.has("objects")) root.get("objects").forEach(objectCatalog::add);
+                        if (root.has("tokens"))  root.get("tokens").forEach(loadedTokens::add);
+                        if (root.has("objects")) root.get("objects").forEach(loadedObjects::add);
                     }
                 }
             } catch (Exception ex) { System.err.println("Catalog: " + ex.getMessage()); }
-            Platform.runLater(onDone::run);
-        }).start();
+            Platform.runLater(() -> {
+                tokenCatalog.clear();
+                tokenCatalog.addAll(loadedTokens);
+                objectCatalog.clear();
+                objectCatalog.addAll(loadedObjects);
+                onDone.run();
+            });
+        }, "dm-load-catalog");
+        loader.setDaemon(true);
+        loader.start();
     }
 
     // ================================================================ Battle map
+
 
     private void switchToBattleMap(String playerClientBase, String sessionId) {
 
@@ -221,6 +526,12 @@ public class MainStage {
             initiativeRefreshListener = null;
         }
 
+        currentSessionId = sessionId;
+        currentPlayerClientBase = playerClientBase;
+
+        if (mapCanvas != null) {
+            mapCanvas.dispose();
+        }
         mapCanvas = new BattleMapCanvas();
         mapCanvas.setServerBaseUrl(currentServerUrl);
 
@@ -228,46 +539,60 @@ public class MainStage {
         // Prepend the server base only once here; the listener below does the same.
         String bg = ClientState.getInstance().getBackgroundUrl();
         if (bg != null && !bg.isEmpty()) {
-            mapCanvas.setBackground(currentServerUrl + bg);
+            mapCanvas.setBackground(bg);
         }
 
         // FIX: keep the reference so we can remove it on next switchToBattleMap
         backgroundChangeListener = () -> {
             String url = ClientState.getInstance().getBackgroundUrl();
             if (url != null && !url.isEmpty() && mapCanvas != null) {
-                // url is relative ("/uploads/maps/..."), prepend base once
-                mapCanvas.setBackground(currentServerUrl + url);
+                mapCanvas.setBackground(url);
             }
         };
         ClientState.getInstance().addChangeListener(backgroundChangeListener);
 
-        TabPane tabs = new TabPane();
-        tabs.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
-        tabs.getTabs().addAll(
-                buildTokenTab(), buildObjectTab(), buildGridTab(sessionId),
-                buildHpTab(), buildInitiativeTab(), buildSessionTab(sessionId));
-
-        Label linkLbl = new Label(
-                (playerClientBase.isEmpty() ? RuntimeConfig.defaultPlayerClientUrl() : playerClientBase)
-                        + "  →  " + sessionId);
-        linkLbl.setStyle("-fx-font-family: monospace; -fx-font-size: 11px;");
-        Button copyBtn = new Button("📋");
-        copyBtn.setOnAction(e -> {
-            var cb = javafx.scene.input.Clipboard.getSystemClipboard();
-            var cc = new javafx.scene.input.ClipboardContent();
-            cc.putString(sessionId); cb.setContent(cc);
-        });
-        HBox bar = hbox(8, linkLbl, copyBtn); bar.setPadding(new Insets(4, 8, 4, 8));
+        VBox header = buildBattleOverview(playerClientBase, sessionId);
+        header.setPadding(new Insets(0));
 
         mapScrollPane = new ScrollPane(mapCanvas);
         mapScrollPane.setFitToWidth(false);
         mapScrollPane.setFitToHeight(false);
-        mapScrollPane.setPannable(false);
+        mapScrollPane.setPannable(true);
+        mapScrollPane.setStyle("-fx-background: transparent; -fx-background-color: transparent;");
+        mapScrollPane.getStyleClass().add("dm-map-scroll");
+        setMapZoom(1.0);
+        java.util.function.Consumer<javafx.scene.input.ScrollEvent> zoomHandler = event -> {
+            double delta = event.getDeltaY();
+            if (Math.abs(delta) < 1e-3) {
+                return;
+            }
+            zoomMap(delta > 0 ? 1.08 : 0.92);
+            event.consume();
+        };
+        mapScrollPane.setOnScroll(zoomHandler::accept);
+        mapCanvas.setOnScroll(zoomHandler::accept);
+
+        VBox sidebar = new VBox(12, buildSidebarWorkspace(sessionId));
+        sidebar.getStyleClass().add("dm-sidebar");
+        sidebar.setPrefWidth(380);
+        sidebar.setMaxWidth(520);
+
+        ScrollPane sidebarScroll = new ScrollPane(sidebar);
+        sidebarScroll.setFitToWidth(true);
+        sidebarScroll.setPrefWidth(380);
+        sidebarScroll.setStyle("-fx-background: transparent; -fx-background-color: transparent;");
+        sidebarScroll.getStyleClass().add("dm-sidebar-scroll");
+
+        SplitPane workspace = new SplitPane(mapScrollPane, sidebarScroll);
+        workspace.setDividerPositions(0.80);
+        workspace.getStyleClass().add("dm-workspace");
 
         BorderPane root = new BorderPane();
-        root.setTop(new VBox(tabs, bar));
-        root.setCenter(mapScrollPane);
+        root.setTop(header);
+        root.setCenter(workspace);
+        root.getStyleClass().add("dm-root");
         stage.getScene().setRoot(root);
+        refreshBattleSummary();
         mapCanvas.render();
 
         // FIX: keep reference for cleanup
@@ -277,6 +602,7 @@ public class MainStage {
     }
 
     // ================================================================ Tab: 💾 Сессия
+
 
     private Tab buildSessionTab(String sessionId) {
         Tab tab = new Tab("💾 Сессия");
@@ -327,36 +653,32 @@ public class MainStage {
             });
         });
 
-        Button addBtn = new Button("➕ Добавить");
+        Button addBtn = new Button("Добавить токен");
         addBtn.setOnAction(e -> {
             addToken(nameField.getText(), catCombo.getSelectionModel().getSelectedItem(), hpSpin.getValue());
             playerAssignCombo.getSelectionModel().clearSelection();
         });
 
-        tokenActionsCombo = makeCombo(210, t -> {
-            if (t == null) return "";
-            String own = t.getOwnerId() == null ? "NPC" : getPlayerName(t.getOwnerId());
-            String sz  = t.getGridSize() > 1 ? " [" + t.getGridSize() + "×]" : "";
-            return t.getName() + sz + " (" + own + ")";
-        });
+        tokenActionsCombo = makeCombo(320, this::formatTokenLabel);
+        configureTokenCombo(tokenActionsCombo);
 
-        playerAssignCombo = makeCombo(140,
-                p -> p == null ? "" : p.getName());
+        playerAssignCombo = makeCombo(180,
+                p -> p == null ? "" : p.getName() + " · " + p.getRole());
 
-        Button assignBtn   = new Button("👤 → Игрок"); assignBtn.setOnAction(e -> assignToken());
-        Button unassignBtn = new Button("→ NPC");     unassignBtn.setOnAction(e -> unassignToken());
-        Button removeBtn   = new Button("🗑");         removeBtn.setOnAction(e -> removeToken());
+        Button assignBtn   = new Button("Назначить игроку"); assignBtn.setOnAction(e -> assignToken());
+        Button unassignBtn = new Button("Снять");     unassignBtn.setOnAction(e -> unassignToken());
+        Button removeBtn   = new Button("Удалить");         removeBtn.setOnAction(e -> removeToken());
 
-        Button browseBtn = new Button("🔎 Каталог");
+        Button browseBtn = new Button("Каталог");
         browseBtn.setOnAction(e -> AssetBrowserWindow.showTokenBrowser(stage, tokenCatalog, asset -> {
             if (asset != null) {
                 catCombo.getSelectionModel().select(asset);
             }
         }));
 
-        HBox r1 = hbox(6, new Label("Каталог:"), catCombo, browseBtn, new Label("Имя:"), nameField,
+        FlowPane r1 = flowRow(8, 8, new Label("Каталог:"), catCombo, browseBtn, new Label("Имя:"), nameField,
                 new Label("HP:"), hpSpin, new Label("Размер:"), sizeLbl, addBtn);
-        HBox r2 = hbox(6, new Label("Токен:"), tokenActionsCombo,
+        FlowPane r2 = flowRow(8, 8, new Label("Токен:"), tokenActionsCombo,
                 new Label("Игрок:"), playerAssignCombo, assignBtn, unassignBtn, removeBtn);
         tab.setContent(new VBox(r1, new Separator(), r2)); return tab;
     }
@@ -385,24 +707,24 @@ public class MainStage {
             wSpin.getValueFactory().setValue(w); hSpin.getValueFactory().setValue(h);
             prevLbl.setText(w + "×" + h);
         });
-        Button placeBtn = new Button("📌 Разместить");
+        Button placeBtn = new Button("Разместить объект");
         placeBtn.setOnAction(e -> placeObject(catCombo.getSelectionModel().getSelectedItem(),
                 objectColSpinner.getValue(), objectRowSpinner.getValue(),
                 wSpin.getValue(), hSpin.getValue()));
         objectRemoveCombo = makeCombo(210, o -> o == null ? "" :
                 o.getType() + " @(" + o.getCol() + "," + o.getRow() + ")");
-        Button removeBtn = new Button("🗑"); removeBtn.setOnAction(e -> removeObject());
-        Button browseBtn = new Button("🔎 Каталог");
+        Button removeBtn = new Button("Удалить"); removeBtn.setOnAction(e -> removeObject());
+        Button browseBtn = new Button("Каталог");
         browseBtn.setOnAction(e -> AssetBrowserWindow.showObjectBrowser(stage, objectCatalog, asset -> {
             if (asset != null) {
                 catCombo.getSelectionModel().select(asset);
             }
         }));
 
-        HBox r1 = hbox(6, new Label("Тип:"), catCombo, browseBtn, new Label("col:"), objectColSpinner,
+        FlowPane r1 = flowRow(8, 8, new Label("Тип:"), catCombo, browseBtn, new Label("col:"), objectColSpinner,
                 new Label("row:"), objectRowSpinner, new Label("W:"), wSpin,
                 new Label("H:"), hSpin, prevLbl, placeBtn);
-        HBox r2 = hbox(6, new Label("Удалить:"), objectRemoveCombo, removeBtn);
+        FlowPane r2 = flowRow(8, 8, new Label("Удалить:"), objectRemoveCombo, removeBtn);
         tab.setContent(new VBox(r1, new Separator(), r2)); return tab;
     }
 
@@ -414,10 +736,11 @@ public class MainStage {
         Spinner<Integer> cols = makeSpinner(4, 60, g0.getCols());
         Spinner<Integer> rows = makeSpinner(4, 60, g0.getRows());
         Spinner<Integer> cell = makeSpinner(24, 128, g0.getCellSize());
-        Button applyBtn = new Button("✅ Применить");
+        Button applyBtn = new Button("Применить сетку");
         applyBtn.setOnAction(e -> applyGrid(cols.getValue(), rows.getValue(), cell.getValue()));
 
-        Button uploadBtn = new Button("🖼 Загрузить фон");
+        Button uploadBtn = new Button("Загрузить фон");
+        Button importMapBtn = new Button("Импорт карты");
         Label upSt = new Label("");
         uploadBtn.setOnAction(e -> {
             javafx.stage.FileChooser fc = new javafx.stage.FileChooser();
@@ -443,8 +766,29 @@ public class MainStage {
                         }
                     });
         });
-        HBox row = hbox(8, new Label("cols:"), cols, new Label("rows:"), rows,
-                new Label("cell px:"), cell, applyBtn, new Separator(), uploadBtn, upSt);
+        importMapBtn.setOnAction(e -> {
+            javafx.stage.DirectoryChooser chooser = new javafx.stage.DirectoryChooser();
+            chooser.setTitle("Выберите папку сохранённой карты");
+            java.io.File defaultDir = resolveProjectUploadsDir("uploads/maps/finished");
+            if (defaultDir != null && defaultDir.isDirectory()) {
+                chooser.setInitialDirectory(defaultDir);
+            }
+            java.io.File dir = chooser.showDialog(stage);
+            if (dir == null) return;
+            importMapBtn.setDisable(true);
+            upSt.setText("Импорт...");
+            ServerConnection.getInstance().importMapWorkspace(
+                    currentServerUrl,
+                    ClientState.getInstance().getSessionId(),
+                    dir.toPath(),
+                    ok -> {
+                        importMapBtn.setDisable(false);
+                        upSt.setText(ok ? "✅ Карта загружена" : "❌ Ошибка импорта");
+                    }
+            );
+        });
+        FlowPane row = flowRow(8, 8, new Label("cols:"), cols, new Label("rows:"), rows,
+                new Label("cell px:"), cell, applyBtn, new Separator(), uploadBtn, importMapBtn, upSt);
         tab.setContent(row); return tab;
     }
 
@@ -452,23 +796,24 @@ public class MainStage {
 
     private Tab buildHpTab() {
         Tab tab = new Tab("❤ HP");
-        ComboBox<TokenDto> hpCombo = makeCombo(225,
-                t -> t == null ? "" : t.getName() + " [" + t.getHp() + "/" + t.getMaxHp() + "]");
+        ComboBox<TokenDto> hpCombo = makeCombo(340,
+                this::formatTokenLabel);
+        configureTokenCombo(hpCombo);
         Spinner<Integer> hpSpin  = makeSpinner(0, 9999, 20);
         Spinner<Integer> maxSpin = makeSpinner(1, 9999, 20);
-        Label curLbl = new Label("HP: —/—");
+        Label curLbl = new Label("Выбран: —");
 
         hpCombo.setOnAction(e -> {
             TokenDto t = hpCombo.getSelectionModel().getSelectedItem(); if (t == null) return;
             hpSpin.getValueFactory().setValue(t.getHp()); maxSpin.getValueFactory().setValue(t.getMaxHp());
-            curLbl.setText("HP: " + t.getHp() + " / " + t.getMaxHp());
+            curLbl.setText("Выбран: " + formatTokenLabel(t));
         });
 
-        Button dmg  = new Button("⚔ -"); dmg.setStyle("-fx-base:#c0392b;");
+        Button dmg  = new Button("Урон"); dmg.setStyle("-fx-base:#c0392b;");
         Spinner<Integer> delta = makeSpinner(1, 999, 5);
-        Button heal = new Button("💚 +"); heal.setStyle("-fx-base:#27ae60;");
-        Button set  = new Button("💾 Задать");
-        Button kill = new Button("💀 0"); kill.setStyle("-fx-base:#7f8c8d;");
+        Button heal = new Button("Лечение"); heal.setStyle("-fx-base:#27ae60;");
+        Button set  = new Button("Применить HP");
+        Button kill = new Button("Обнулить"); kill.setStyle("-fx-base:#7f8c8d;");
 
         dmg.setOnAction(e -> { TokenDto t = sel(hpCombo); if (t == null) return;
             ServerConnection.getInstance().updateTokenHp(t.getId(), Math.max(0, t.getHp() - delta.getValue()), t.getMaxHp()); });
@@ -484,12 +829,12 @@ public class MainStage {
             hpCombo.getItems().setAll(ClientState.getInstance().getTokens().values());
             selById(hpCombo, keep, TokenDto::getId);
             TokenDto s = sel(hpCombo);
-            if (s != null) curLbl.setText("HP: " + s.getHp() + " / " + s.getMaxHp());
+            if (s != null) curLbl.setText("Выбран: " + formatTokenLabel(s));
         };
         ClientState.getInstance().addChangeListener(hpRefreshListener);
 
-        HBox r1 = hbox(8, new Label("Токен:"), hpCombo, curLbl);
-        HBox r2 = hbox(8, new Label("Урон/Лечение:"), dmg, delta, heal,
+        FlowPane r1 = flowRow(8, 8, new Label("Токен:"), hpCombo, curLbl);
+        FlowPane r2 = flowRow(8, 8, new Label("Урон/Лечение:"), dmg, delta, heal,
                 new Separator(), new Label("HP:"), hpSpin, new Label("/ max:"), maxSpin, set, kill);
         tab.setContent(new VBox(r1, new Separator(), r2)); return tab;
     }
@@ -498,14 +843,17 @@ public class MainStage {
 
     private Tab buildInitiativeTab() {
         Tab tab = new Tab("🎲 Инициатива");
-        ListView<String> listView = new ListView<>(); listView.setPrefHeight(130);
-        ComboBox<TokenDto> addCombo = makeCombo(210, t -> t == null ? "" : t.getName());
+        ListView<InitEntry> listView = new ListView<>();
+        listView.setPrefHeight(130);
+        listView.setCellFactory(lv -> createInitiativeCell(listView));
+        ComboBox<TokenDto> addCombo = makeCombo(340, this::formatTokenLabel);
+        configureTokenCombo(addCombo);
         Spinner<Integer> iniSpin = makeSpinner(1, 30, 10);
-        Button addBtn     = new Button("➕");
-        Button removeBtn  = new Button("🗑");
-        Button clearBtn   = new Button("🔄 Сброс");
-        Button nextBtn    = new Button("▶ Следующий ход");
-        Button publishBtn = new Button("📡 Опубликовать");
+        Button addBtn     = new Button("Добавить в инициативу");
+        Button removeBtn  = new Button("Удалить");
+        Button clearBtn   = new Button("Сбросить");
+        Button nextBtn    = new Button("Следующий ход");
+        Button publishBtn = new Button("Публиковать");
         publishBtn.setStyle("-fx-base: #2980b9;");
         Label curTurnLbl = new Label("Ход: —"); curTurnLbl.setStyle("-fx-font-weight: bold; -fx-font-size: 13px;");
 
@@ -513,6 +861,7 @@ public class MainStage {
             String keep = selId(addCombo, TokenDto::getId);
             addCombo.getItems().setAll(ClientState.getInstance().getTokens().values());
             selById(addCombo, keep, TokenDto::getId);
+            listView.refresh();
         };
         ClientState.getInstance().addChangeListener(initiativeRefreshListener);
 
@@ -538,13 +887,13 @@ public class MainStage {
             if (iniQueue.isEmpty()) return;
             iniIndex = (iniIndex + 1) % iniQueue.size();
             refreshIniList(listView);
-            curTurnLbl.setText("Ход: " + iniQueue.get(iniIndex).name());
+            curTurnLbl.setText("Ход: " + formatInitiativeEntry(iniQueue.get(iniIndex)));
             publishInitiative();
         });
         publishBtn.setOnAction(e -> publishInitiative());
 
-        HBox r1 = hbox(8, new Label("Токен:"), addCombo, new Label("Иниц:"), iniSpin, addBtn, removeBtn);
-        HBox r2 = hbox(8, nextBtn, clearBtn, publishBtn, curTurnLbl);
+        FlowPane r1 = flowRow(8, 8, new Label("Токен:"), addCombo, new Label("Иниц:"), iniSpin, addBtn, removeBtn);
+        FlowPane r2 = flowRow(8, 8, nextBtn, clearBtn, publishBtn, curTurnLbl);
         VBox c = new VBox(8, r1, r2, listView); c.setPadding(new Insets(6));
         tab.setContent(c); return tab;
     }
@@ -557,12 +906,8 @@ public class MainStage {
         ServerConnection.getInstance().publishInitiative(entries, iniIndex);
     }
 
-    private void refreshIniList(ListView<String> list) {
-        list.getItems().clear();
-        for (int i = 0; i < iniQueue.size(); i++) {
-            var e = iniQueue.get(i);
-            list.getItems().add((i == iniIndex ? "► " : "  ") + e.name());
-        }
+    private void refreshIniList(ListView<InitEntry> list) {
+        list.getItems().setAll(iniQueue);
         if (!iniQueue.isEmpty()) list.getSelectionModel().select(iniIndex);
     }
 
@@ -587,6 +932,8 @@ public class MainStage {
         selById(tokenActionsCombo, keepToken,  TokenDto::getId);
         selById(playerAssignCombo, keepPlayer, PlayerDto::getId);
         selById(objectRemoveCombo, keepObj,    MapObjectDto::getId);
+
+        refreshBattleSummary();
 
         var g = ClientState.getInstance().getGrid();
         int maxC = Math.max(0, g.getCols() - 1), maxR = Math.max(0, g.getRows() - 1);
@@ -690,15 +1037,187 @@ public class MainStage {
     }
 
     private void applyGrid(int cols, int rows, int cellSize) {
+        GridConfig current = ClientState.getInstance().getGrid();
         GridConfig g = new GridConfig();
-        g.setCols(cols); g.setRows(rows); g.setCellSize(cellSize); g.setOffsetX(0); g.setOffsetY(0);
+        g.setCols(cols);
+        g.setRows(rows);
+        g.setCellSize(cellSize);
+        g.setOffsetX(current.getOffsetX());
+        g.setOffsetY(current.getOffsetY());
         ServerConnection.getInstance().send("/map.grid.update", g);
     }
 
     // ================================================================ Utils
 
+    private String formatTokenLabel(TokenDto t) {
+        if (t == null) return "";
+        StringBuilder sb = new StringBuilder();
+        sb.append(t.getName() == null || t.getName().isBlank() ? "—" : t.getName());
+        if (t.getId() != null && !t.getId().isBlank()) {
+            sb.append(" · #").append(shortId(t.getId()));
+        }
+        sb.append(" · HP ").append(t.getHp()).append('/').append(t.getMaxHp());
+        if (t.getGridSize() > 1) {
+            sb.append(" · ").append(t.getGridSize()).append('×').append(t.getGridSize());
+        }
+        String owner = t.getOwnerId() == null ? "NPC" : getPlayerName(t.getOwnerId());
+        if (owner != null && !owner.isBlank()) {
+            sb.append(" · ").append(owner);
+        }
+        sb.append(" · @ ").append(t.getCol()).append(',').append(t.getRow());
+        return sb.toString();
+    }
+
+    private String formatInitiativeEntry(InitEntry e) {
+        if (e == null) return "";
+        TokenDto live = e.id() == null ? null : ClientState.getInstance().getTokens().get(e.id());
+        StringBuilder sb = new StringBuilder();
+        if (live != null) {
+            sb.append(formatTokenLabel(live));
+        } else {
+            sb.append(e.name() == null || e.name().isBlank() ? "—" : e.name());
+            if (e.id() != null && !e.id().isBlank()) {
+                sb.append(" · #").append(shortId(e.id()));
+            }
+            sb.append(" · HP —/— · @ —");
+        }
+        sb.append(" · Init ").append(e.initiative());
+        return sb.toString();
+    }
+
     private static String shortId(String id) {
         return id == null ? "" : id.length() <= 8 ? id : id.substring(0, 8) + "…";
+    }
+
+    private void configureTokenCombo(ComboBox<TokenDto> combo) {
+        if (combo == null) return;
+        combo.setButtonCell(createTokenCell(combo));
+        combo.setCellFactory(lv -> createTokenCell(combo));
+    }
+
+    private ListCell<TokenDto> createTokenCell(ComboBox<TokenDto> combo) {
+        return new ListCell<>() {
+            private final Label title = new Label();
+            private final Label meta = new Label();
+            private final Label badge = new Label();
+            private final VBox text = new VBox(1, title, meta);
+            private final HBox root = new HBox(8, text, badge);
+
+            {
+                text.getStyleClass().add("dm-token-cell-text");
+                badge.getStyleClass().add("dm-duplicate-token-badge");
+                root.getStyleClass().add("dm-token-cell-root");
+                root.setAlignment(Pos.CENTER_LEFT);
+                badge.setManaged(false);
+                badge.setVisible(false);
+            }
+
+            @Override
+            protected void updateItem(TokenDto item, boolean empty) {
+                super.updateItem(item, empty);
+                if (empty || item == null) {
+                    setText(null);
+                    setGraphic(null);
+                    pseudoClassStateChanged(DUPLICATE_PSEUDO_CLASS, false);
+                    return;
+                }
+                title.setText(item.getName() == null || item.getName().isBlank() ? "—" : item.getName());
+                meta.setText(buildTokenMetaLine(item));
+                int duplicateCount = countDuplicateTokens(combo.getItems(), item);
+                boolean duplicate = duplicateCount > 1;
+                badge.setText(duplicate ? "×" + duplicateCount : "");
+                badge.setVisible(duplicate);
+                badge.setManaged(duplicate);
+                pseudoClassStateChanged(DUPLICATE_PSEUDO_CLASS, duplicate);
+                setText(null);
+                setGraphic(root);
+            }
+        };
+    }
+
+    private ListCell<InitEntry> createInitiativeCell(ListView<InitEntry> list) {
+        return new ListCell<>() {
+            private final Label title = new Label();
+            private final Label meta = new Label();
+            private final Label badge = new Label();
+            private final VBox text = new VBox(1, title, meta);
+            private final HBox root = new HBox(8, text, badge);
+
+            {
+                text.getStyleClass().add("dm-token-cell-text");
+                badge.getStyleClass().add("dm-duplicate-token-badge");
+                root.getStyleClass().add("dm-token-cell-root");
+                root.setAlignment(Pos.CENTER_LEFT);
+                badge.setManaged(false);
+                badge.setVisible(false);
+            }
+
+            @Override
+            protected void updateItem(InitEntry item, boolean empty) {
+                super.updateItem(item, empty);
+                if (empty || item == null) {
+                    setText(null);
+                    setGraphic(null);
+                    pseudoClassStateChanged(DUPLICATE_PSEUDO_CLASS, false);
+                    return;
+                }
+                title.setText(item.name() == null || item.name().isBlank() ? "—" : item.name());
+                meta.setText(formatInitiativeEntry(item));
+                int duplicateCount = countDuplicateInitEntries(list.getItems(), item);
+                boolean duplicate = duplicateCount > 1;
+                badge.setText(duplicate ? "×" + duplicateCount : "");
+                badge.setVisible(duplicate);
+                badge.setManaged(duplicate);
+                pseudoClassStateChanged(DUPLICATE_PSEUDO_CLASS, duplicate);
+                setText(null);
+                setGraphic(root);
+            }
+        };
+    }
+
+    private static final PseudoClass DUPLICATE_PSEUDO_CLASS = PseudoClass.getPseudoClass("duplicate");
+
+    private static int countDuplicateTokens(Collection<TokenDto> tokens, TokenDto token) {
+        if (token == null) return 0;
+        String key = normalizeName(token.getName());
+        if (key.isEmpty()) return 1;
+        int count = 0;
+        for (TokenDto t : tokens) {
+            if (t != null && key.equals(normalizeName(t.getName()))) count++;
+        }
+        return count;
+    }
+
+    private static int countDuplicateInitEntries(Collection<InitEntry> entries, InitEntry entry) {
+        if (entry == null) return 0;
+        String key = normalizeName(entry.name());
+        if (key.isEmpty()) return 1;
+        int count = 0;
+        for (InitEntry e : entries) {
+            if (e != null && key.equals(normalizeName(e.name()))) count++;
+        }
+        return count;
+    }
+
+    private static String normalizeName(String value) {
+        return value == null ? "" : value.trim().toLowerCase(java.util.Locale.ROOT);
+    }
+
+    private String buildTokenMetaLine(TokenDto t) {
+        StringBuilder sb = new StringBuilder();
+        if (t.getId() != null && !t.getId().isBlank()) {
+            sb.append("#").append(shortId(t.getId()));
+        }
+        sb.append(" · HP ").append(t.getHp()).append('/').append(t.getMaxHp());
+        if (t.getGridSize() > 1) {
+            sb.append(" · ").append(t.getGridSize()).append('×').append(t.getGridSize());
+        }
+        String owner = t.getOwnerId() == null ? "NPC" : getPlayerName(t.getOwnerId());
+        if (owner != null && !owner.isBlank()) {
+            sb.append(" · ").append(owner);
+        }
+        sb.append(" · @ ").append(t.getCol()).append(',').append(t.getRow());
+        return sb.toString();
     }
 
     private static <T> T sel(ComboBox<T> b) {
@@ -737,6 +1256,35 @@ public class MainStage {
 
     private static HBox hbox(int gap, javafx.scene.Node... nodes) {
         HBox h = new HBox(gap, nodes);
-        h.setAlignment(Pos.CENTER_LEFT); h.setPadding(new Insets(6)); return h;
+        h.setAlignment(Pos.CENTER_LEFT);
+        h.setPadding(new Insets(6));
+        h.setFillHeight(false);
+        return h;
     }
+
+    private static FlowPane flowRow(int hgap, int vgap, javafx.scene.Node... nodes) {
+        FlowPane p = new FlowPane(hgap, vgap, nodes);
+        p.setAlignment(Pos.CENTER_LEFT);
+        p.setPadding(new Insets(6));
+        p.setPrefWrapLength(430);
+        return p;
+    }
+    private java.io.File resolveProjectUploadsDir(String relative) {
+        try {
+            java.nio.file.Path current = java.nio.file.Paths.get("").toAbsolutePath().normalize();
+            while (current != null) {
+                if (java.nio.file.Files.exists(current.resolve("settings.gradle")) || java.nio.file.Files.exists(current.resolve("settings.gradle.kts"))) {
+                    java.io.File candidate = current.resolve(relative).toFile();
+                    if (candidate.exists()) {
+                        return candidate;
+                    }
+                    return candidate;
+                }
+                current = current.getParent();
+            }
+        } catch (Exception ignored) {
+        }
+        return new java.io.File(relative);
+    }
+
 }

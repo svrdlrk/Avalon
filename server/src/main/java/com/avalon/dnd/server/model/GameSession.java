@@ -5,6 +5,8 @@ import com.avalon.dnd.shared.InitiativeStateDto;
 import com.avalon.dnd.shared.MicroLocationDto;
 import com.avalon.dnd.shared.VisibilityStateDto;
 
+import com.fasterxml.jackson.databind.JsonNode;
+
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -19,10 +21,10 @@ public class GameSession {
     private final AtomicLong version = new AtomicLong(0);
 
     // Opaque editor metadata preserved for save/load/import round-trips.
-    private Object referenceOverlayLayer;
-    private Object terrainLayer;
-    private Object wallLayer;
-    private Object fogSettings;
+    private JsonNode referenceOverlayLayer;
+    private JsonNode terrainLayer;
+    private JsonNode wallLayer;
+    private JsonNode fogSettings;
     private List<MicroLocationDto> microLocations = new CopyOnWriteArrayList<>();
     private List<String> assetPackIds = new CopyOnWriteArrayList<>();
 
@@ -53,17 +55,21 @@ public class GameSession {
     public String getBackgroundUrl() { return backgroundUrl; }
     public void setBackgroundUrl(String url) { this.backgroundUrl = url; }
 
-    public Object getReferenceOverlayLayer() { return referenceOverlayLayer; }
-    public void setReferenceOverlayLayer(Object referenceOverlayLayer) { this.referenceOverlayLayer = referenceOverlayLayer; }
+    public JsonNode getReferenceOverlayLayer() { return referenceOverlayLayer; }
+    public void setReferenceOverlayLayer(Object referenceOverlayLayer) { this.referenceOverlayLayer = com.avalon.dnd.shared.JsonPayloads.toNode(referenceOverlayLayer); }
+    public void setReferenceOverlayLayer(JsonNode referenceOverlayLayer) { this.referenceOverlayLayer = referenceOverlayLayer; }
 
-    public Object getTerrainLayer() { return terrainLayer; }
-    public void setTerrainLayer(Object terrainLayer) { this.terrainLayer = terrainLayer; }
+    public JsonNode getTerrainLayer() { return terrainLayer; }
+    public void setTerrainLayer(Object terrainLayer) { this.terrainLayer = com.avalon.dnd.shared.JsonPayloads.toNode(terrainLayer); }
+    public void setTerrainLayer(JsonNode terrainLayer) { this.terrainLayer = terrainLayer; }
 
-    public Object getWallLayer() { return wallLayer; }
-    public void setWallLayer(Object wallLayer) { this.wallLayer = wallLayer; }
+    public JsonNode getWallLayer() { return wallLayer; }
+    public void setWallLayer(Object wallLayer) { this.wallLayer = com.avalon.dnd.shared.JsonPayloads.toNode(wallLayer); }
+    public void setWallLayer(JsonNode wallLayer) { this.wallLayer = wallLayer; }
 
-    public Object getFogSettings() { return fogSettings; }
-    public void setFogSettings(Object fogSettings) { this.fogSettings = fogSettings; }
+    public JsonNode getFogSettings() { return fogSettings; }
+    public void setFogSettings(Object fogSettings) { this.fogSettings = com.avalon.dnd.shared.JsonPayloads.toNode(fogSettings); }
+    public void setFogSettings(JsonNode fogSettings) { this.fogSettings = fogSettings; }
 
     public List<MicroLocationDto> getMicroLocations() { return microLocations; }
     public void setMicroLocations(List<MicroLocationDto> microLocations) {

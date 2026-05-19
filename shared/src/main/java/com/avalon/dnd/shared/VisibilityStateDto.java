@@ -12,14 +12,14 @@ public class VisibilityStateDto {
 
     private boolean[][] visibleCells;
     private List<String> exploredCells = new ArrayList<>();
-    private Map<String, TokenDto> tokenSnapshots = new LinkedHashMap<>();
+    private Map<String, TokenVisibilitySnapshotDto> tokenSnapshots = new LinkedHashMap<>();
     private Map<String, MapObjectDto> objectSnapshots = new LinkedHashMap<>();
 
     public VisibilityStateDto() {}
 
     public VisibilityStateDto(boolean[][] visibleCells,
                               List<String> exploredCells,
-                              Map<String, TokenDto> tokenSnapshots,
+                              Map<String, TokenVisibilitySnapshotDto> tokenSnapshots,
                               Map<String, MapObjectDto> objectSnapshots) {
         this.visibleCells = visibleCells;
         setExploredCells(exploredCells);
@@ -36,8 +36,8 @@ public class VisibilityStateDto {
         if (exploredCells != null) this.exploredCells.addAll(exploredCells);
     }
 
-    public Map<String, TokenDto> getTokenSnapshots() { return tokenSnapshots; }
-    public void setTokenSnapshots(Map<String, TokenDto> tokenSnapshots) {
+    public Map<String, TokenVisibilitySnapshotDto> getTokenSnapshots() { return tokenSnapshots; }
+    public void setTokenSnapshots(Map<String, TokenVisibilitySnapshotDto> tokenSnapshots) {
         this.tokenSnapshots.clear();
         if (tokenSnapshots != null) this.tokenSnapshots.putAll(tokenSnapshots);
     }

@@ -1,5 +1,7 @@
 package com.avalon.dnd.server.model;
 
+import com.avalon.dnd.shared.PlacementSizingRules;
+
 public class Token {
 
     private String id;
@@ -18,6 +20,8 @@ public class Token {
     private int dayVision;
     /** Радиус обзора ночью. */
     private int nightVision;
+    /** Угол поворота токена в градусах относительно изображения, смотрящего вниз. */
+    private int facingAngleDeg;
 
     public Token() {}
 
@@ -35,6 +39,7 @@ public class Token {
         this.sessionId = sessionId;
         this.dayVision = Math.max(0, dayVision);
         this.nightVision = Math.max(0, nightVision);
+        this.facingAngleDeg = 0;
     }
 
     public String getId() { return id; }
@@ -49,6 +54,7 @@ public class Token {
     public String getImageUrl() { return imageUrl; }
     public int getDayVision() { return dayVision; }
     public int getNightVision() { return nightVision; }
+    public int getFacingAngleDeg() { return facingAngleDeg; }
 
     public void setId(String id) { this.id = id; }
     public void setName(String name) { this.name = name; }
@@ -58,8 +64,9 @@ public class Token {
     public void setSessionId(String sessionId) { this.sessionId = sessionId; }
     public void setHp(int hp) { this.hp = hp; }
     public void setMaxHp(int maxHp) { this.maxHp = maxHp; }
-    public void setGridSize(int gridSize) { this.gridSize = Math.max(1, Math.min(4, gridSize)); }
+    public void setGridSize(int gridSize) { this.gridSize = PlacementSizingRules.clampTokenGridSize(gridSize); }
     public void setImageUrl(String imageUrl) { this.imageUrl = imageUrl; }
     public void setDayVision(int dayVision) { this.dayVision = Math.max(0, dayVision); }
     public void setNightVision(int nightVision) { this.nightVision = Math.max(0, nightVision); }
+    public void setFacingAngleDeg(int facingAngleDeg) { this.facingAngleDeg = facingAngleDeg; }
 }

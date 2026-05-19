@@ -40,6 +40,13 @@ import java.util.function.Predicate;
 
 public final class AssetBrowserWindow {
 
+    private static final Map<String, Image> THUMBNAIL_CACHE = new java.util.LinkedHashMap<>(128, 0.75f, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<String, Image> eldest) {
+            return size() > 256;
+        }
+    };
+
     private AssetBrowserWindow() {}
 
     public static void showTokenBrowser(Window owner, List<JsonNode> catalog, Consumer<JsonNode> onSelect) {
@@ -47,7 +54,7 @@ public final class AssetBrowserWindow {
     }
 
     public static void showObjectBrowser(Window owner, List<JsonNode> catalog, Consumer<JsonNode> onSelect) {
-        show(owner, "Object Browser", catalog, AssetBrowserWindow::isObjectAsset, onSelect, true, 1120, 760, Modality.NONE);
+        show(owner, "Object Browser", catalog, AssetBrowserWindow::isObjectAsset, onSelect, true, 1120, 760, Modality.WINDOW_MODAL);
     }
 
     private static void show(Window owner,
@@ -231,21 +238,6 @@ public final class AssetBrowserWindow {
         return category.trim().split("\\s*[\\/\\\\>|:]\\s*");
     }
 
-    private static String selectedCategoryPath(TreeItem<String> selected) {
-        if (selected == null) {
-            return "";
-        }
-        if (selected.getParent() == null) {
-            return "";
-        }
-        List<String> parts = new ArrayList<>();
-        TreeItem<String> current = selected;
-        while (current != null && current.getParent() != null) {
-            parts.add(0, current.getValue());
-            current = current.getParent();
-        }
-        return String.join("/", parts).toLowerCase(Locale.ROOT);
-    }
 
     private static boolean categoryMatches(JsonNode asset, String selectedPath) {
         if (selectedPath == null || selectedPath.isBlank()) {
@@ -369,9 +361,22 @@ public final class AssetBrowserWindow {
             return null;
         }
 
+        synchronized (THUMBNAIL_CACHE) {
+            Image cached = THUMBNAIL_CACHE.get(resolved);
+            if (cached != null && !cached.isError()) {
+                return cached;
+            }
+        }
+
         try {
             Image image = new Image(resolved, 42, 42, true, true, true);
-            return image.isError() ? null : image;
+            if (image.isError()) {
+                return null;
+            }
+            synchronized (THUMBNAIL_CACHE) {
+                THUMBNAIL_CACHE.put(resolved, image);
+            }
+            return image;
         } catch (IllegalArgumentException ex) {
             return null;
         } catch (Exception ex) {
@@ -409,6 +414,14 @@ public final class AssetBrowserWindow {
             return cleaned.startsWith("/") ? cleaned : "/" + cleaned;
         }
 
+        if (cleaned.startsWith("/maps/") || cleaned.startsWith("maps/")) {
+            Path local = resolveProjectPath("uploads/" + cleanedNoSlash);
+            if (local != null) {
+                return local.toUri().toString();
+            }
+            return "/uploads/" + cleanedNoSlash;
+        }
+
         Path local = resolveProjectPath(cleanedNoSlash);
         if (local != null) {
             return local.toUri().toString();
@@ -417,6 +430,11 @@ public final class AssetBrowserWindow {
         Path assetLocal = resolveProjectPath("uploads/assets/" + cleanedNoSlash);
         if (assetLocal != null) {
             return assetLocal.toUri().toString();
+        }
+
+        Path mapLocal = resolveProjectPath("uploads/maps/finished/" + cleanedNoSlash);
+        if (mapLocal != null) {
+            return mapLocal.toUri().toString();
         }
 
         return encodeUrl("/uploads/assets/" + cleanedNoSlash);

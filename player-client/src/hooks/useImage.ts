@@ -1,6 +1,20 @@
 import { useEffect, useState } from 'react';
 
+const MAX_CACHE_SIZE = 128;
 const imageCache = new Map<string, HTMLImageElement>();
+
+function rememberImage(url: string, img: HTMLImageElement) {
+    if (imageCache.has(url)) {
+        imageCache.delete(url);
+    }
+    imageCache.set(url, img);
+    if (imageCache.size > MAX_CACHE_SIZE) {
+        const oldestKey = imageCache.keys().next().value as string | undefined;
+        if (oldestKey) {
+            imageCache.delete(oldestKey);
+        }
+    }
+}
 
 /**
  * Хук для асинхронной загрузки картинки в Konva.
@@ -24,6 +38,7 @@ function useImage(url: string | null): [HTMLImageElement | undefined, 'loading' 
 
         const cached = imageCache.get(url);
         if (cached) {
+            rememberImage(url, cached);
             setState({ image: cached, status: 'loaded' });
             return () => {
                 alive = false;
@@ -32,10 +47,11 @@ function useImage(url: string | null): [HTMLImageElement | undefined, 'loading' 
 
         const img = new window.Image();
         img.crossOrigin = 'anonymous';
+        img.decoding = 'async';
 
         const onLoad = () => {
             if (!alive) return;
-            imageCache.set(url, img);
+            rememberImage(url, img);
             setState({ image: img, status: 'loaded' });
         };
         const onError = () => {
@@ -47,7 +63,7 @@ function useImage(url: string | null): [HTMLImageElement | undefined, 'loading' 
         img.addEventListener('error', onError);
         img.src = url;
 
-        setState((prev) => (prev.status === 'loading' && prev.image == null ? prev : { image: undefined, status: 'loading' }));
+        setState({ image: undefined, status: 'loading' });
 
         return () => {
             alive = false;

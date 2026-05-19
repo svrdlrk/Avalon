@@ -1,5 +1,7 @@
 package com.avalon.dnd.shared;
 
+import com.fasterxml.jackson.databind.JsonNode;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -16,17 +18,17 @@ public class MapLayoutUpdateDto {
     private VisibilityStateDto visibility;
 
     /** Optional editor metadata (opaque to battle clients). */
-    private Object referenceOverlayLayer;
-    private Object terrainLayer;
-    private Object wallLayer;
-    private Object fogSettings;
+    private JsonNode referenceOverlayLayer;
+    private JsonNode terrainLayer;
+    private JsonNode wallLayer;
+    private JsonNode fogSettings;
     private List<MicroLocationDto> microLocations = new ArrayList<>();
     private List<String> assetPackIds = new ArrayList<>();
 
     public MapLayoutUpdateDto() {}
 
     public MapLayoutUpdateDto(GridConfig grid, List<TokenDto> tokens, List<MapObjectDto> objects, String backgroundUrl) {
-        this(grid, tokens, objects, backgroundUrl, null, null, null, null, null, null, null);
+        this(grid, tokens, objects, backgroundUrl, null, (com.fasterxml.jackson.databind.JsonNode) null, (com.fasterxml.jackson.databind.JsonNode) null, (com.fasterxml.jackson.databind.JsonNode) null, (com.fasterxml.jackson.databind.JsonNode) null, null, null);
     }
 
     public MapLayoutUpdateDto(GridConfig grid,
@@ -38,6 +40,26 @@ public class MapLayoutUpdateDto {
                               Object terrainLayer,
                               Object wallLayer,
                               Object fogSettings,
+                              List<MicroLocationDto> microLocations,
+                              List<String> assetPackIds) {
+        this(grid, tokens, objects, backgroundUrl, visibility,
+                JsonPayloads.toNode(referenceOverlayLayer),
+                JsonPayloads.toNode(terrainLayer),
+                JsonPayloads.toNode(wallLayer),
+                JsonPayloads.toNode(fogSettings),
+                microLocations,
+                assetPackIds);
+    }
+
+    public MapLayoutUpdateDto(GridConfig grid,
+                              List<TokenDto> tokens,
+                              List<MapObjectDto> objects,
+                              String backgroundUrl,
+                              VisibilityStateDto visibility,
+                              JsonNode referenceOverlayLayer,
+                              JsonNode terrainLayer,
+                              JsonNode wallLayer,
+                              JsonNode fogSettings,
                               List<MicroLocationDto> microLocations,
                               List<String> assetPackIds) {
         this.grid = grid;
@@ -68,17 +90,21 @@ public class MapLayoutUpdateDto {
     public VisibilityStateDto getVisibility() { return visibility; }
     public void setVisibility(VisibilityStateDto visibility) { this.visibility = visibility; }
 
-    public Object getReferenceOverlayLayer() { return referenceOverlayLayer; }
-    public void setReferenceOverlayLayer(Object referenceOverlayLayer) { this.referenceOverlayLayer = referenceOverlayLayer; }
+    public JsonNode getReferenceOverlayLayer() { return referenceOverlayLayer; }
+    public void setReferenceOverlayLayer(Object referenceOverlayLayer) { this.referenceOverlayLayer = JsonPayloads.toNode(referenceOverlayLayer); }
+    public void setReferenceOverlayLayer(JsonNode referenceOverlayLayer) { this.referenceOverlayLayer = referenceOverlayLayer; }
 
-    public Object getTerrainLayer() { return terrainLayer; }
-    public void setTerrainLayer(Object terrainLayer) { this.terrainLayer = terrainLayer; }
+    public JsonNode getTerrainLayer() { return terrainLayer; }
+    public void setTerrainLayer(Object terrainLayer) { this.terrainLayer = JsonPayloads.toNode(terrainLayer); }
+    public void setTerrainLayer(JsonNode terrainLayer) { this.terrainLayer = terrainLayer; }
 
-    public Object getWallLayer() { return wallLayer; }
-    public void setWallLayer(Object wallLayer) { this.wallLayer = wallLayer; }
+    public JsonNode getWallLayer() { return wallLayer; }
+    public void setWallLayer(Object wallLayer) { this.wallLayer = JsonPayloads.toNode(wallLayer); }
+    public void setWallLayer(JsonNode wallLayer) { this.wallLayer = wallLayer; }
 
-    public Object getFogSettings() { return fogSettings; }
-    public void setFogSettings(Object fogSettings) { this.fogSettings = fogSettings; }
+    public JsonNode getFogSettings() { return fogSettings; }
+    public void setFogSettings(Object fogSettings) { this.fogSettings = JsonPayloads.toNode(fogSettings); }
+    public void setFogSettings(JsonNode fogSettings) { this.fogSettings = fogSettings; }
 
     public List<MicroLocationDto> getMicroLocations() { return microLocations; }
     public void setMicroLocations(List<MicroLocationDto> microLocations) {

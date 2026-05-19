@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type {
     GridConfig,
     InitiativeStateDto,
+    JsonValue,
     MapLayoutUpdateDto,
     MapObjectDto,
     MicroLocationDto,
@@ -13,44 +14,48 @@ import type {
 } from '../types/types';
 
 interface GameState {
-    sessionId:     string | null;
-    myPlayerId:    string | null;
-    grid:          GridConfig;
-    tokens:        Record<string, TokenDto>;
-    objects:       Record<string, MapObjectDto>;
-    players:       Record<string, PlayerDto>;
+    sessionId: string | null;
+    myPlayerId: string | null;
+    selectedTokenId: string | null;
+    grid: GridConfig;
+    tokens: Record<string, TokenDto>;
+    objects: Record<string, MapObjectDto>;
+    players: Record<string, PlayerDto>;
     backgroundUrl: string | null;
-    initiative:    InitiativeStateDto | null;
-    referenceOverlayLayer: unknown | null;
-    terrainLayer: unknown | null;
-    wallLayer: unknown | null;
-    fogSettings: unknown | null;
+    initiative: InitiativeStateDto | null;
+    referenceOverlayLayer: JsonValue | null;
+    terrainLayer: JsonValue | null;
+    wallLayer: JsonValue | null;
+    fogSettings: JsonValue | null;
     visibility: VisibilityStateDto | null;
     visibilityShareSuggestions: VisibilityShareSuggestionDto[];
     microLocations: MicroLocationDto[];
     assetPackIds: string[];
 
-    applyState:           (state: SessionStateDto, sessionId: string) => void;
+    applyState: (state: SessionStateDto, sessionId: string) => void;
     applyMapLayoutUpdate: (dto: MapLayoutUpdateDto) => void;
-    moveToken:            (token: TokenDto)  => void;
-    removeToken:          (tokenId: string)  => void;
-    addObject:            (obj: MapObjectDto) => void;
-    removeObject:         (objId: string)    => void;
-    addPlayer:            (player: PlayerDto) => void;
-    removePlayer:         (playerId: string) => void;
-    setBackground:        (url: string | null) => void;
-    setInitiative:        (state: InitiativeStateDto | null) => void;
+    moveToken: (token: TokenDto) => void;
+    removeToken: (tokenId: string) => void;
+    addObject: (obj: MapObjectDto) => void;
+    removeObject: (objId: string) => void;
+    addPlayer: (player: PlayerDto) => void;
+    removePlayer: (playerId: string) => void;
+    setBackground: (url: string | null) => void;
+    setInitiative: (state: InitiativeStateDto | null) => void;
+    setSelectedTokenId: (tokenId: string | null) => void;
+    clearSelection: () => void;
 }
 
 export const useGameStore = create<GameState>((set) => ({
-    sessionId:     null,
-    myPlayerId:    null,
-    grid:          { cellSize: 64, cols: 20, rows: 20, offsetX: 0, offsetY: 0 },
-    tokens:        {},
-    objects:       {},
-    players:       {},
+    sessionId: null,
+    myPlayerId: null,
+    selectedTokenId: null,
+    grid: { cellSize: 64, cols: 20, rows: 20, offsetX: 0, offsetY: 0 },
+    tokens: {},
+    objects: {},
+    players: {},
     backgroundUrl: null,
-    initiative:    null,
+    initiative: null,
     referenceOverlayLayer: null,
     terrainLayer: null,
     wallLayer: null,
@@ -61,15 +66,19 @@ export const useGameStore = create<GameState>((set) => ({
     assetPackIds: [],
 
     applyState: (state, sessionId) =>
-        set({
+        set((current) => ({
             sessionId,
-            myPlayerId:    state.myPlayerId,
-            grid:          state.grid,
-            tokens:        Object.fromEntries(state.tokens.map((t) => [t.id, t])),
-            objects:       Object.fromEntries(state.objects.map((o) => [o.id, o])),
-            players:       Object.fromEntries(state.players.map((p) => [p.id, p])),
+            myPlayerId: state.myPlayerId,
+            selectedTokenId:
+                current.selectedTokenId && state.tokens.some((token) => token.id === current.selectedTokenId)
+                    ? current.selectedTokenId
+                    : null,
+            grid: state.grid,
+            tokens: Object.fromEntries(state.tokens.map((t) => [t.id, t])),
+            objects: Object.fromEntries(state.objects.map((o) => [o.id, o])),
+            players: Object.fromEntries(state.players.map((p) => [p.id, p])),
             backgroundUrl: state.backgroundUrl ?? null,
-            initiative:    state.initiative    ?? null,
+            initiative: state.initiative ?? null,
             referenceOverlayLayer: state.referenceOverlayLayer ?? null,
             terrainLayer: state.terrainLayer ?? null,
             wallLayer: state.wallLayer ?? null,
@@ -78,56 +87,60 @@ export const useGameStore = create<GameState>((set) => ({
             visibilityShareSuggestions: state.visibilityShareSuggestions ?? [],
             microLocations: state.microLocations ?? [],
             assetPackIds: state.assetPackIds ?? [],
-        }),
+        })),
 
     applyMapLayoutUpdate: (dto) =>
-        set((s) => ({
-            grid:          dto.grid,
-            tokens:        Object.fromEntries(dto.tokens.map((t) => [t.id, t])),
-            objects:       dto.objects
-                ? Object.fromEntries(dto.objects.map((o) => [o.id, o]))
-                : s.objects,
-            backgroundUrl: dto.backgroundUrl ?? s.backgroundUrl,
-            referenceOverlayLayer: dto.referenceOverlayLayer ?? s.referenceOverlayLayer,
-            terrainLayer: dto.terrainLayer ?? s.terrainLayer,
-            wallLayer: dto.wallLayer ?? s.wallLayer,
-            fogSettings: dto.fogSettings ?? s.fogSettings,
-            visibility: dto.visibility ?? s.visibility,
-            visibilityShareSuggestions: s.visibilityShareSuggestions,
-            microLocations: dto.microLocations ?? s.microLocations,
-            assetPackIds: dto.assetPackIds ?? s.assetPackIds,
+        set((current) => ({
+            grid: dto.grid,
+            tokens: Object.fromEntries(dto.tokens.map((t) => [t.id, t])),
+            objects: dto.objects ? Object.fromEntries(dto.objects.map((o) => [o.id, o])) : current.objects,
+            backgroundUrl: dto.backgroundUrl ?? current.backgroundUrl,
+            referenceOverlayLayer: dto.referenceOverlayLayer ?? current.referenceOverlayLayer,
+            terrainLayer: dto.terrainLayer ?? current.terrainLayer,
+            wallLayer: dto.wallLayer ?? current.wallLayer,
+            fogSettings: dto.fogSettings ?? current.fogSettings,
+            visibility: dto.visibility ?? current.visibility,
+            visibilityShareSuggestions: current.visibilityShareSuggestions,
+            microLocations: dto.microLocations ?? current.microLocations,
+            assetPackIds: dto.assetPackIds ?? current.assetPackIds,
         })),
 
     moveToken: (token) =>
-        set((s) => ({ tokens: { ...s.tokens, [token.id]: token } })),
+        set((current) => ({
+            tokens: { ...current.tokens, [token.id]: token },
+            selectedTokenId: current.selectedTokenId === token.id ? token.id : current.selectedTokenId,
+        })),
 
     removeToken: (tokenId) =>
-        set((s) => {
-            const tokens = { ...s.tokens };
+        set((current) => {
+            const tokens = { ...current.tokens };
             delete tokens[tokenId];
-            return { tokens };
+            return {
+                tokens,
+                selectedTokenId: current.selectedTokenId === tokenId ? null : current.selectedTokenId,
+            };
         }),
 
-    addObject: (obj) =>
-        set((s) => ({ objects: { ...s.objects, [obj.id]: obj } })),
+    addObject: (obj) => set((current) => ({ objects: { ...current.objects, [obj.id]: obj } })),
 
     removeObject: (objId) =>
-        set((s) => {
-            const objects = { ...s.objects };
+        set((current) => {
+            const objects = { ...current.objects };
             delete objects[objId];
             return { objects };
         }),
 
-    addPlayer: (player) =>
-        set((s) => ({ players: { ...s.players, [player.id]: player } })),
+    addPlayer: (player) => set((current) => ({ players: { ...current.players, [player.id]: player } })),
 
     removePlayer: (playerId) =>
-        set((s) => {
-            const players = { ...s.players };
+        set((current) => {
+            const players = { ...current.players };
             delete players[playerId];
             return { players };
         }),
 
-    setBackground:  (url)   => set({ backgroundUrl: url }),
-    setInitiative:  (state) => set({ initiative: state }),
+    setBackground: (url) => set({ backgroundUrl: url }),
+    setInitiative: (initiative) => set({ initiative }),
+    setSelectedTokenId: (tokenId) => set({ selectedTokenId: tokenId }),
+    clearSelection: () => set({ selectedTokenId: null }),
 }));

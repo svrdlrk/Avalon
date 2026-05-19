@@ -18,56 +18,60 @@ public final class GridAlignmentService {
     private GridAlignmentService() {}
 
     public static Optional<GridConfig> fitToReference(MapProject project, ReferenceOverlay reference) {
-        if (project == null || reference == null) {
+        try {
+            if (project == null || reference == null) {
+                return Optional.empty();
+            }
+            String url = reference.getImageUrl();
+            if (url == null || url.isBlank()) {
+                return Optional.empty();
+            }
+
+            Image image = loadImage(url);
+            if (image == null || image.isError() || image.getWidth() <= 1 || image.getHeight() <= 1) {
+                return Optional.empty();
+            }
+
+            PixelReader reader = image.getPixelReader();
+            if (reader == null) {
+                return Optional.empty();
+            }
+
+            double scale = Math.max(0.1, reference.getScale());
+            int sampledWidth = Math.max(8, (int) Math.round(image.getWidth() * scale));
+            int sampledHeight = Math.max(8, (int) Math.round(image.getHeight() * scale));
+
+            PeriodEstimate xEstimate = estimatePeriod(reader, (int) image.getWidth(), (int) image.getHeight(), true);
+            PeriodEstimate yEstimate = estimatePeriod(reader, (int) image.getWidth(), (int) image.getHeight(), false);
+            int periodPx = choosePeriod(xEstimate, yEstimate);
+            if (periodPx <= 0) {
+                return Optional.empty();
+            }
+
+            int phaseX = xEstimate == null ? 0 : xEstimate.phase;
+            int phaseY = yEstimate == null ? 0 : yEstimate.phase;
+
+            GridConfig grid = project.getGrid();
+            if (grid == null) {
+                grid = new GridConfig(64, 40, 30);
+                project.setGrid(grid);
+            }
+
+            int cellSize = Math.max(4, (int) Math.round(periodPx * scale));
+            int offsetX = (int) Math.round(reference.getOffsetX() + phaseX * scale);
+            int offsetY = (int) Math.round(reference.getOffsetY() + phaseY * scale);
+            int cols = Math.max(1, (int) Math.round(sampledWidth / (double) cellSize));
+            int rows = Math.max(1, (int) Math.round(sampledHeight / (double) cellSize));
+
+            grid.setCellSize(cellSize);
+            grid.setCols(cols);
+            grid.setRows(rows);
+            grid.setOffsetX(offsetX);
+            grid.setOffsetY(offsetY);
+            return Optional.of(grid);
+        } catch (RuntimeException ex) {
             return Optional.empty();
         }
-        String url = reference.getImageUrl();
-        if (url == null || url.isBlank()) {
-            return Optional.empty();
-        }
-
-        Image image = loadImage(url);
-        if (image == null || image.isError() || image.getWidth() <= 1 || image.getHeight() <= 1) {
-            return Optional.empty();
-        }
-
-        PixelReader reader = image.getPixelReader();
-        if (reader == null) {
-            return Optional.empty();
-        }
-
-        double scale = Math.max(0.1, reference.getScale());
-        int sampledWidth = Math.max(8, (int) Math.round(image.getWidth() * scale));
-        int sampledHeight = Math.max(8, (int) Math.round(image.getHeight() * scale));
-
-        PeriodEstimate xEstimate = estimatePeriod(reader, (int) image.getWidth(), (int) image.getHeight(), true);
-        PeriodEstimate yEstimate = estimatePeriod(reader, (int) image.getWidth(), (int) image.getHeight(), false);
-        int periodPx = choosePeriod(xEstimate, yEstimate);
-        if (periodPx <= 0) {
-            return Optional.empty();
-        }
-
-        int phaseX = xEstimate == null ? 0 : xEstimate.phase;
-        int phaseY = yEstimate == null ? 0 : yEstimate.phase;
-
-        GridConfig grid = project.getGrid();
-        if (grid == null) {
-            grid = new GridConfig(64, 40, 30);
-            project.setGrid(grid);
-        }
-
-        int cellSize = Math.max(4, (int) Math.round(periodPx * scale));
-        int offsetX = (int) Math.round(reference.getOffsetX() + phaseX * scale);
-        int offsetY = (int) Math.round(reference.getOffsetY() + phaseY * scale);
-        int cols = Math.max(1, (int) Math.round(sampledWidth / (double) cellSize));
-        int rows = Math.max(1, (int) Math.round(sampledHeight / (double) cellSize));
-
-        grid.setCellSize(cellSize);
-        grid.setCols(cols);
-        grid.setRows(rows);
-        grid.setOffsetX(offsetX);
-        grid.setOffsetY(offsetY);
-        return Optional.of(grid);
     }
 
 

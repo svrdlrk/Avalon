@@ -5,6 +5,7 @@ import com.avalon.dnd.mapeditor.service.GridAlignmentService;
 import com.avalon.dnd.mapeditor.service.ProjectRepository;
 import com.avalon.dnd.mapeditor.service.SharedProjectMapper;
 import com.avalon.dnd.shared.MapLayoutUpdateDto;
+import com.avalon.dnd.shared.PlacementSizingRules;
 import com.avalon.dnd.shared.GridConfig;
 import com.avalon.dnd.shared.MicroLocationDto;
 import com.avalon.dnd.mapeditor.tool.BrushTool;
@@ -27,6 +28,7 @@ import javafx.scene.Node;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.layout.BorderPane;
+import javafx.scene.control.SplitPane;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 import javafx.scene.layout.GridPane;
@@ -41,6 +43,9 @@ import javafx.util.Duration;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyCodeCombination;
 import javafx.scene.input.KeyCombination;
+import javafx.scene.layout.FlowPane;
+import javafx.scene.layout.HBox;
+import javafx.scene.layout.Region;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -61,9 +66,25 @@ public class MapEditorPane extends BorderPane {
     private final Map<String, Tool> tools = new LinkedHashMap<>();
     private final MapEditorCanvas canvas;
     private final AssetCatalog assetCatalog;
-    private final TextField assetSearch = new TextField();
     private final Label selectionLabel = new Label("Nothing selected");
     private final Label layerLabel = new Label("No layer selected");
+    private final Label selectionStatusLabel = new Label("Nothing selected");
+    private final Label layerStatusLabel = new Label("No layer selected");
+    private final Label toolStatusLabel = new Label("Tool: Select");
+    private final Label viewStatusLabel = new Label("View: 100%");
+    private final Label gridStatusLabel = new Label("Grid: ready");
+    private final Label workspaceSummaryLabel = new Label("Workspace ready");
+    private final Label workspaceHintLabel = new Label("Ctrl+S save • Ctrl+Z undo • Space pan • Scroll zoom");
+
+    {
+        selectionStatusLabel.getStyleClass().add("status-chip");
+        layerStatusLabel.getStyleClass().add("status-chip");
+        toolStatusLabel.getStyleClass().add("status-chip");
+        viewStatusLabel.getStyleClass().add("status-chip");
+        gridStatusLabel.getStyleClass().add("status-chip");
+        workspaceSummaryLabel.getStyleClass().add("status-chip");
+        workspaceHintLabel.getStyleClass().add("workspace-hint");
+    }
     private final ListView<MapLayer> layerList = new ListView<>();
     private final ProjectRepository repository = new ProjectRepository();
     private final PauseTransition backupAutosaveDebounce = new PauseTransition(Duration.millis(1200));
@@ -178,15 +199,26 @@ public class MapEditorPane extends BorderPane {
         state.setActiveTool(tools.get("select"));
 
         canvas = new MapEditorCanvas(state);
-        setCenter(new ScrollPane(canvas));
 
+        ScrollPane canvasScroll = new ScrollPane(canvas);
+        canvasScroll.setFitToWidth(false);
+        canvasScroll.setFitToHeight(false);
+        canvasScroll.setPannable(true);
+
+        canvasScroll.getStyleClass().add("editor-canvas-scroll");
+
+        SplitPane workspace = new SplitPane(buildAssetPanel(catalog), canvasScroll, buildRightPanel());
+        workspace.setDividerPositions(0.18, 0.80);
+        workspace.getStyleClass().add("editor-workspace");
+
+        setCenter(workspace);
         setTop(buildToolbar());
-        setLeft(buildAssetPanel(catalog));
-        setRight(buildRightPanel());
+        setBottom(buildStatusBar());
 
         backupAutosaveDebounce.setOnFinished(e -> saveBackupSnapshot());
         state.addListener(evt -> {
             refreshSelection();
+            refreshStatusBar();
             if (EditorState.PROP_HISTORY.equals(evt.getPropertyName())) {
                 scheduleBackupSave();
             }
@@ -198,6 +230,7 @@ public class MapEditorPane extends BorderPane {
         });
         refreshSelection();
         refreshLayerList();
+        refreshStatusBar();
         updateDocumentTitle();
     }
 
@@ -247,7 +280,7 @@ public class MapEditorPane extends BorderPane {
         return button;
     }
 
-    private ToolBar buildToolbar() {
+    private Node buildToolbar() {
         ToggleGroup toolGroup = new ToggleGroup();
 
         ToggleButton select = buttonFor(tools.get("select"), toolGroup);
@@ -317,31 +350,64 @@ public class MapEditorPane extends BorderPane {
         });
 
         Label title = new Label("Map Editor");
+        title.getStyleClass().add("editor-page-title");
 
-        ToolBar bar = new ToolBar(
-                title,
-                new Separator(Orientation.VERTICAL),
-                select, move, reference, place, token, brush, terrain, wall, wallEdit, erase, pan,
-                new Separator(Orientation.VERTICAL),
-                newProject, undo, redo, save, load, exportLayout, importLayout, resetView,
-                new Separator(Orientation.VERTICAL),
-                snap, fog
-        );
-        bar.setPadding(new Insets(6));
+        Label subtitle = new Label();
+        subtitle.getStyleClass().add("editor-page-subtitle");
+        subtitle.textProperty().bind(documentTitle);
+
+        VBox selectionGroup = buildToolbarGroup("Navigation", select, move, pan);
+        VBox editingGroup = buildToolbarGroup("Tools", reference, place, token, brush, terrain, wall, wallEdit, erase);
+        VBox workspaceGroup = buildToolbarGroup("Workspace", newProject, undo, redo, save, load, exportLayout, importLayout, resetView, snap, fog);
+        HBox toolRow = new HBox(12, selectionGroup, editingGroup, workspaceGroup);
+        toolRow.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
+        toolRow.getStyleClass().add("editor-tool-row");
+
+        VBox header = new VBox(2, title, subtitle);
+        header.getStyleClass().add("editor-header-title");
+        HBox topRow = new HBox(12, header);
+        topRow.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
+
+        Region summarySpacer = new Region();
+        HBox.setHgrow(summarySpacer, Priority.ALWAYS);
+        HBox summaryRow = new HBox(10, workspaceSummaryLabel, summarySpacer, workspaceHintLabel);
+        summaryRow.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
+
+        VBox bar = new VBox(10, topRow, toolRow, summaryRow);
+        bar.setPadding(new Insets(10, 12, 12, 12));
+        bar.getStyleClass().add("editor-toolbar");
         return bar;
     }
 
+    private VBox buildToolbarGroup(String title, Node... nodes) {
+        Label groupTitle = new Label(title);
+        groupTitle.getStyleClass().add("editor-toolbar-group__title");
+
+        FlowPane content = new FlowPane(6, 6, nodes);
+        content.setPrefWrapLength(420);
+        content.setHgap(6);
+        content.setVgap(6);
+        content.getStyleClass().add("editor-toolbar-group");
+        content.getStyleClass().add("editor-toolbar-group__content");
+
+        VBox group = new VBox(6, groupTitle, content);
+        group.getStyleClass().add("editor-toolbar-group-shell");
+        return group;
+    }
+
     private Node buildAssetPanel(AssetCatalog catalog) {
-        VBox content = new VBox(12);
+        VBox content = new VBox(10);
         content.setPadding(new Insets(12));
 
+
         Label title = new Label("Assets");
-        title.setStyle("-fx-font-size: 16px; -fx-font-weight: bold;");
+        title.getStyleClass().add("editor-panel-title");
 
         Label tokenLabel = new Label("Tokens: none selected");
         Label objectLabel = new Label("Objects: none selected");
-        Label hint = new Label("Open the catalog windows to choose tokens and objects separately.");
+        Label hint = new Label("Open the catalogs to choose tokens and objects separately.");
         hint.setWrapText(true);
+        hint.getStyleClass().add("editor-panel-hint");
 
         Button openTokens = new Button("Open token explorer");
         openTokens.setMaxWidth(Double.MAX_VALUE);
@@ -374,35 +440,143 @@ public class MapEditorPane extends BorderPane {
         tokenLabel.setText(state.selectedTokenAsset() == null ? "Tokens: none selected" : "Tokens: " + state.selectedTokenAsset().getName());
         objectLabel.setText(state.selectedObjectAsset() == null ? "Objects: none selected" : "Objects: " + state.selectedObjectAsset().getName());
 
-        content.getChildren().addAll(title, tokenLabel, objectLabel, hint, openTokens, openObjects, new Separator(), useReferenceAsAsset);
-        VBox.setVgrow(hint, Priority.NEVER);
+        Label tokenHint = new Label("Token catalog is shared with live session assets.");
+        tokenHint.getStyleClass().add("editor-panel-note");
+        Label objectHint = new Label("Object catalog is used for environment props and blockers.");
+        objectHint.getStyleClass().add("editor-panel-note");
+
+        content.getChildren().addAll(
+                title,
+                tokenLabel,
+                tokenHint,
+                objectLabel,
+                objectHint,
+                hint,
+                openTokens,
+                openObjects,
+                new Separator(),
+                useReferenceAsAsset
+        );
+
         VBoxWrapper wrapper = new VBoxWrapper("Asset selection", content);
+        wrapper.getStyleClass().add("editor-card");
+
         ScrollPane scroll = new ScrollPane(wrapper);
         scroll.setFitToWidth(true);
         scroll.setPrefWidth(280);
+        scroll.getStyleClass().add("editor-side-scroll");
+
         return scroll;
     }
 
+
+    private VBox buildInspectorSummary() {
+        Label title = new Label("Context inspector");
+        title.getStyleClass().add("editor-panel-title");
+
+        Label hint = new Label("Fast actions stay close to the selection so the map remains the main workspace.");
+        hint.setWrapText(true);
+        hint.getStyleClass().add("editor-panel-hint");
+
+        Button select = new Button("Select");
+        select.setOnAction(e -> state.setActiveTool(activeTool("select")));
+
+        Button move = new Button("Move");
+        move.setOnAction(e -> state.setActiveTool(activeTool("move")));
+
+        Button pan = new Button("Pan");
+        pan.setOnAction(e -> state.setActiveTool(activeTool("pan")));
+
+        Button center = new Button("Center view");
+        center.setOnAction(e -> {
+            state.setViewOffset(0, 0);
+            canvas.requestRender();
+        });
+
+        HBox actions = new HBox(8, select, move, pan, center);
+        actions.setFillHeight(false);
+
+        VBox shell = new VBox(8,
+                title,
+                selectionLabel,
+                layerLabel,
+                hint,
+                actions,
+                new Separator());
+        shell.setPadding(new Insets(12));
+        shell.getStyleClass().add("editor-summary-card");
+
+        return shell;
+    }
+
+    private void updateWorkspaceSummary() {
+        if (state.getProject() == null) {
+            workspaceSummaryLabel.setText("Untitled map • 0 layers • 0 placements");
+            return;
+        }
+        int layers = state.getProject().getLayers().size();
+        int placements = state.getProject().getPlacements().size();
+        String projectName = state.getProject().getName();
+        if (projectName == null || projectName.isBlank()) {
+            projectName = "Untitled map";
+        }
+        workspaceSummaryLabel.setText(String.format(java.util.Locale.ROOT,
+                "%s • %d layers • %d placements", projectName, layers, placements));
+    }
+
     private Node buildRightPanel() {
+        Accordion accordion = new Accordion();
 
-        VBox backgroundBox = buildBackgroundPanel();
-        VBox referenceBox = buildReferencePanel();
-        VBox gridBox = buildGridPanel();
-        VBox terrainBox = buildTerrainPanel();
-        VBox wallBox = buildWallPanel();
-        VBox fogBox = buildFogPanel();
-        VBox microLocationBox = buildMicroLocationPanel();
-        VBox selectionBox = buildPropertiesPanel();
-        VBox layersBox = buildLayerPanel();
+        TitledPane backgroundPane = new TitledPane("Background", buildBackgroundPanel());
+        TitledPane referencePane = new TitledPane("Reference", buildReferencePanel());
+        TitledPane gridPane = new TitledPane("Grid & snap", buildGridPanel());
+        TitledPane terrainPane = new TitledPane("Terrain", buildTerrainPanel());
+        TitledPane wallPane = new TitledPane("Walls", buildWallPanel());
+        TitledPane fogPane = new TitledPane("Fog of war", buildFogPanel());
+        TitledPane microPane = new TitledPane("Micro-locations", buildMicroLocationPanel());
+        TitledPane selectionPane = new TitledPane("Selection", buildPropertiesPanel());
+        TitledPane layersPane = new TitledPane("Layers", buildLayerPanel());
 
-        VBox outer = new VBox(12, backgroundBox, referenceBox, gridBox, terrainBox, wallBox, fogBox, microLocationBox, selectionBox, layersBox);
+        selectionPane.setExpanded(true);
+        layersPane.setExpanded(true);
+
+        accordion.getPanes().addAll(backgroundPane, referencePane, gridPane, terrainPane, wallPane, fogPane, microPane, selectionPane, layersPane);
+        accordion.setExpandedPane(selectionPane);
+
+        VBox outer = new VBox(12, buildInspectorSummary(), accordion);
         outer.setPadding(new Insets(12));
-        outer.setPrefWidth(320);
+        outer.setPrefWidth(340);
+        outer.getStyleClass().add("editor-inspector-shell");
+
 
         ScrollPane scroll = new ScrollPane(outer);
         scroll.setFitToWidth(true);
-        scroll.setPrefWidth(320);
+        scroll.setPrefWidth(340);
+        scroll.getStyleClass().add("editor-side-scroll");
+
         return scroll;
+    }
+
+
+    private Node buildStatusBar() {
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+
+        Label title = new Label();
+        title.textProperty().bind(documentTitle);
+
+        HBox bar = new HBox(12,
+                title,
+                spacer,
+                toolStatusLabel,
+                viewStatusLabel,
+                gridStatusLabel,
+                selectionStatusLabel,
+                layerStatusLabel
+        );
+        bar.setPadding(new Insets(10, 14, 10, 14));
+        bar.getStyleClass().add("editor-status-bar");
+        return bar;
     }
 
     private VBox buildLayerPanel() {
@@ -912,7 +1086,7 @@ public class MapEditorPane extends BorderPane {
         placementRowSpinner.setValueFactory(new SpinnerValueFactory.IntegerSpinnerValueFactory(0, 9999, 0));
         placementWidthSpinner.setValueFactory(new SpinnerValueFactory.IntegerSpinnerValueFactory(1, 9999, 1));
         placementHeightSpinner.setValueFactory(new SpinnerValueFactory.IntegerSpinnerValueFactory(1, 9999, 1));
-        placementGridSizeSpinner.setValueFactory(new SpinnerValueFactory.IntegerSpinnerValueFactory(1, 10, 1));
+        placementGridSizeSpinner.setValueFactory(new SpinnerValueFactory.IntegerSpinnerValueFactory(1, PlacementSizingRules.MAX_TOKEN_GRID_SIZE, 1));
         placementRotationSpinner.setValueFactory(new SpinnerValueFactory.DoubleSpinnerValueFactory(0, 360, 0, 15));
         placementRotationSpinner.setEditable(true);
 
@@ -1035,7 +1209,7 @@ public class MapEditorPane extends BorderPane {
         box.setPrefWidth(280);
 
         Label title = new Label("Micro locations");
-        title.setStyle("-fx-font-size: 15px; -fx-font-weight: bold;");
+        title.getStyleClass().add("editor-panel-title");
 
         microLocationList.setPrefHeight(180);
         microLocationList.setCellFactory(list -> new ListCell<>() {
@@ -1544,22 +1718,32 @@ public class MapEditorPane extends BorderPane {
             if (state.selectedPlacement() != null) {
                 selectionLabel.setText("Selected: " + displayName(state.selectedPlacement().getName(), state.selectedPlacement().getAssetId()));
                 layerLabel.setText("Layer: " + safeLayerName(state.selectedPlacement().getLayerId()));
+                selectionStatusLabel.setText(selectionLabel.getText());
+                layerStatusLabel.setText(layerLabel.getText());
             } else if (state.selectedWallPath() != null) {
                 String wallName = state.selectedWallPath().getName() == null ? state.selectedWallPath().getId() : state.selectedWallPath().getName();
                 String vertexInfo = state.getSelectedWallVertexIndex() >= 0 ? " | Vertex: " + state.getSelectedWallVertexIndex() : "";
                 selectionLabel.setText("Wall: " + wallName + vertexInfo);
                 layerLabel.setText("Layer: Walls");
+                selectionStatusLabel.setText(selectionLabel.getText());
+                layerStatusLabel.setText(layerLabel.getText());
             } else if (state.getSelectedMicroLocationId() != null && state.getProject() != null && state.getProject().findMicroLocation(state.getSelectedMicroLocationId()).isPresent()) {
                 MicroLocationDto zone = state.getProject().findMicroLocation(state.getSelectedMicroLocationId()).orElse(null);
                 String zoneName = zone == null ? state.getSelectedMicroLocationId() : displayName(zone.getName(), zone.getId());
                 selectionLabel.setText("Micro location: " + zoneName + " @ " + (zone == null ? "?" : zone.getCol() + "," + zone.getRow()) + " " + (zone == null ? "" : zone.getWidth() + "x" + zone.getHeight()));
                 layerLabel.setText("Layer: map zones");
+                selectionStatusLabel.setText(selectionLabel.getText());
+                layerStatusLabel.setText(layerLabel.getText());
             } else if (state.selectedAsset() != null) {
                 selectionLabel.setText("Asset: " + state.selectedAsset().getName());
                 layerLabel.setText("Layer: " + safeLayerName(state.getSelectedLayerId()));
+                selectionStatusLabel.setText(selectionLabel.getText());
+                layerStatusLabel.setText(layerLabel.getText());
             } else {
                 selectionLabel.setText("Nothing selected");
                 layerLabel.setText("Layer: " + safeLayerName(state.getSelectedLayerId()));
+                selectionStatusLabel.setText(selectionLabel.getText());
+                layerStatusLabel.setText(layerLabel.getText());
             }
             refreshPlacementForm();
             refreshBackgroundForm();
@@ -1623,7 +1807,7 @@ public class MapEditorPane extends BorderPane {
     private void syncPlacementSize(MapPlacement placement, int size) {
         if (placement == null) return;
         if (placement.getKind() == PlacementKind.TOKEN || placement.getKind() == PlacementKind.SPAWN) {
-            int normalized = Math.max(1, Math.min(10, size));
+            int normalized = PlacementSizingRules.clampTokenGridSize(size);
             placement.setGridSize(normalized);
             placement.setWidth(normalized);
             placement.setHeight(normalized);
@@ -2009,6 +2193,19 @@ public class MapEditorPane extends BorderPane {
         refreshSelection();
     }
 
+
+    private void refreshStatusBar() {
+        String toolName = state.getActiveTool() == null ? "Select" : state.getActiveTool().getDisplayName();
+        toolStatusLabel.setText("Tool: " + toolName);
+        viewStatusLabel.setText(String.format(java.util.Locale.ROOT,
+                "Zoom: %.2fx • Pan: %.0f, %.0f", state.getZoom(), state.getViewOffsetX(), state.getViewOffsetY()));
+        gridStatusLabel.setText("Snap: " + (state.isSnapToGrid() ? "on" : "off")
+                + " • Fog: " + (state.isFogPreviewEnabled() ? "on" : "off"));
+        selectionStatusLabel.setText(selectionLabel.getText());
+        layerStatusLabel.setText(layerLabel.getText());
+        updateWorkspaceSummary();
+    }
+
     private void refreshLayerList() {
         if (state.getProject() == null) return;
         if (syncingLayerSelection) return;
@@ -2091,17 +2288,19 @@ public class MapEditorPane extends BorderPane {
         }
         try {
             MapProject snapshot = project.copy();
-            Path targetRoot = documentRoot;
-            if (targetRoot == null) {
-                DirectoryChooser chooser = new DirectoryChooser();
-                chooser.setTitle("Save map workspace");
-                var dir = chooser.showDialog(getScene() == null ? null : getScene().getWindow());
-                if (dir == null) {
-                    return;
-                }
-                targetRoot = dir.toPath();
+            String defaultName = project.getName() != null && !project.getName().isBlank()
+                    ? project.getName()
+                    : documentTitle.get();
+            TextInputDialog dialog = new TextInputDialog(defaultName == null || defaultName.isBlank() ? "finished" : defaultName);
+            dialog.setTitle("Save finished map");
+            dialog.setHeaderText("Название папки для карты");
+            dialog.setContentText("Folder name:");
+            var result = dialog.showAndWait();
+            if (result.isEmpty()) {
+                return;
             }
-            repository.saveWorkspace(targetRoot, snapshot);
+            String folderName = result.get().trim();
+            Path targetRoot = repository.saveFinished(snapshot, folderName);
             setDocumentRoot(targetRoot);
         } catch (Exception ex) {
             showError("Save failed", ex);
@@ -2132,6 +2331,10 @@ public class MapEditorPane extends BorderPane {
     private void loadProject() {
         DirectoryChooser chooser = new DirectoryChooser();
         chooser.setTitle("Load map workspace");
+        Path finished = repository.finishedDir();
+        if (Files.isDirectory(finished)) {
+            chooser.setInitialDirectory(finished.toFile());
+        }
         var dir = chooser.showDialog(getScene() == null ? null : getScene().getWindow());
         if (dir == null) return;
         try {
@@ -2330,7 +2533,10 @@ public class MapEditorPane extends BorderPane {
         VBoxWrapper(String title, Node content) {
             setSpacing(10);
             setPadding(new Insets(12));
-            getChildren().addAll(new Label(title), content);
+            getStyleClass().add("editor-panel-shell");
+            Label header = new Label(title);
+            header.getStyleClass().add("editor-panel-shell__title");
+            getChildren().addAll(header, content);
             VBox.setVgrow(content, Priority.ALWAYS);
         }
     }

@@ -3,6 +3,8 @@ package com.avalon.dnd.server.model;
 import com.avalon.dnd.shared.GridConfig;
 import com.avalon.dnd.shared.MicroLocationDto;
 
+import com.fasterxml.jackson.databind.JsonNode;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -18,14 +20,14 @@ public class MapEditorProjectImportDto {
     private String name;
     private String description;
     private GridConfig grid;
-    private Object backgroundLayer;
-    private Object referenceOverlayLayer;
-    private Object terrainLayer;
-    private Object wallLayer;
-    private Object fogSettings;
+    private JsonNode backgroundLayer;
+    private JsonNode referenceOverlayLayer;
+    private JsonNode terrainLayer;
+    private JsonNode wallLayer;
+    private JsonNode fogSettings;
     private List<MicroLocationDto> microLocations = new ArrayList<>();
     private List<String> assetPackIds = new ArrayList<>();
-    private List<Object> layers = new ArrayList<>();
+    private List<JsonNode> layers = new ArrayList<>();
     private List<PlacementDto> placements = new ArrayList<>();
 
     public MapEditorProjectImportDto() {}
@@ -40,16 +42,21 @@ public class MapEditorProjectImportDto {
     public void setDescription(String description) { this.description = description; }
     public GridConfig getGrid() { return grid; }
     public void setGrid(GridConfig grid) { this.grid = grid; }
-    public Object getBackgroundLayer() { return backgroundLayer; }
-    public void setBackgroundLayer(Object backgroundLayer) { this.backgroundLayer = backgroundLayer; }
-    public Object getReferenceOverlayLayer() { return referenceOverlayLayer; }
-    public void setReferenceOverlayLayer(Object referenceOverlayLayer) { this.referenceOverlayLayer = referenceOverlayLayer; }
-    public Object getTerrainLayer() { return terrainLayer; }
-    public void setTerrainLayer(Object terrainLayer) { this.terrainLayer = terrainLayer; }
-    public Object getWallLayer() { return wallLayer; }
-    public void setWallLayer(Object wallLayer) { this.wallLayer = wallLayer; }
-    public Object getFogSettings() { return fogSettings; }
-    public void setFogSettings(Object fogSettings) { this.fogSettings = fogSettings; }
+    public JsonNode getBackgroundLayer() { return backgroundLayer; }
+    public void setBackgroundLayer(Object backgroundLayer) { this.backgroundLayer = com.avalon.dnd.shared.JsonPayloads.toNode(backgroundLayer); }
+    public void setBackgroundLayer(JsonNode backgroundLayer) { this.backgroundLayer = backgroundLayer; }
+    public JsonNode getReferenceOverlayLayer() { return referenceOverlayLayer; }
+    public void setReferenceOverlayLayer(Object referenceOverlayLayer) { this.referenceOverlayLayer = com.avalon.dnd.shared.JsonPayloads.toNode(referenceOverlayLayer); }
+    public void setReferenceOverlayLayer(JsonNode referenceOverlayLayer) { this.referenceOverlayLayer = referenceOverlayLayer; }
+    public JsonNode getTerrainLayer() { return terrainLayer; }
+    public void setTerrainLayer(Object terrainLayer) { this.terrainLayer = com.avalon.dnd.shared.JsonPayloads.toNode(terrainLayer); }
+    public void setTerrainLayer(JsonNode terrainLayer) { this.terrainLayer = terrainLayer; }
+    public JsonNode getWallLayer() { return wallLayer; }
+    public void setWallLayer(Object wallLayer) { this.wallLayer = com.avalon.dnd.shared.JsonPayloads.toNode(wallLayer); }
+    public void setWallLayer(JsonNode wallLayer) { this.wallLayer = wallLayer; }
+    public JsonNode getFogSettings() { return fogSettings; }
+    public void setFogSettings(Object fogSettings) { this.fogSettings = com.avalon.dnd.shared.JsonPayloads.toNode(fogSettings); }
+    public void setFogSettings(JsonNode fogSettings) { this.fogSettings = fogSettings; }
     public List<MicroLocationDto> getMicroLocations() { return microLocations; }
     public void setMicroLocations(List<MicroLocationDto> microLocations) {
         this.microLocations = microLocations == null ? new ArrayList<>() : new ArrayList<>(microLocations);
@@ -58,8 +65,8 @@ public class MapEditorProjectImportDto {
     public void setAssetPackIds(List<String> assetPackIds) {
         this.assetPackIds = assetPackIds == null ? new ArrayList<>() : new ArrayList<>(assetPackIds);
     }
-    public List<Object> getLayers() { return layers; }
-    public void setLayers(List<Object> layers) {
+    public List<JsonNode> getLayers() { return layers; }
+    public void setLayers(List<JsonNode> layers) {
         this.layers = layers == null ? new ArrayList<>() : new ArrayList<>(layers);
     }
     public List<PlacementDto> getPlacements() { return placements; }

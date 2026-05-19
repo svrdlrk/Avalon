@@ -8,6 +8,7 @@ import com.avalon.dnd.server.model.Token;
 import com.avalon.dnd.server.service.MapBattleRulesService;
 import com.avalon.dnd.server.service.SessionService;
 import com.avalon.dnd.shared.GridConfig;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.avalon.dnd.shared.MapLayoutUpdateDto;
 import com.avalon.dnd.shared.TokenDto;
 import com.avalon.dnd.shared.WsEventType;
@@ -42,7 +43,7 @@ public class MapImportController {
             session.getObjects().clear();
 
             session.setGrid(dto.getGrid() == null ? new GridConfig(64, 20, 20) : dto.getGrid());
-            session.setBackgroundUrl(extractBackgroundUrl(dto.getBackgroundLayer()));
+            session.setBackgroundUrl(com.avalon.dnd.server.service.AssetUrlNormalizer.normalize(extractBackgroundUrl(dto.getBackgroundLayer())));
             session.setReferenceOverlayLayer(dto.getReferenceOverlayLayer());
             session.setTerrainLayer(dto.getTerrainLayer());
             session.setWallLayer(dto.getWallLayer());
@@ -66,7 +67,7 @@ public class MapImportController {
                                 sessionId
                         );
                         token.setGridSize(Math.max(1, placement.getGridSize()));
-                        token.setImageUrl(placement.getImageUrl());
+                        token.setImageUrl(com.avalon.dnd.server.service.AssetUrlNormalizer.normalize(placement.getImageUrl()));
                         token.setDayVision(placement.getDayVision());
                         token.setNightVision(placement.getNightVision());
                         session.getTokens().put(token.getId(), token);
@@ -82,7 +83,7 @@ public class MapImportController {
                                 h,
                                 sessionId,
                                 Math.max(1, placement.getGridSize()),
-                                placement.getImageUrl(),
+                                com.avalon.dnd.server.service.AssetUrlNormalizer.normalize(placement.getImageUrl()),
                                 placement.isBlocksMovement(),
                                 placement.isBlocksSight()
                         );
@@ -95,6 +96,9 @@ public class MapImportController {
             long version = session.incrementVersion();
             battleRulesService.computeVisibility(session);
             MapLayoutUpdateDto baseLayout = battleRulesService.buildMapLayout(session, null);
+            messaging.convertAndSend(
+                    "/topic/session/" + sessionId,
+                    new WsMessage<>(WsEventType.MAP_UPDATED, sessionId, version, baseLayout));
             for (var player : session.getPlayers().values()) {
                 MapLayoutUpdateDto layout = new MapLayoutUpdateDto(
                         baseLayout.getGrid(),
@@ -135,11 +139,16 @@ public class MapImportController {
         return fallbackId;
     }
 
-    private static String extractBackgroundUrl(Object backgroundLayer) {
-        if (!(backgroundLayer instanceof java.util.Map<?, ?> map)) {
+    private static String extractBackgroundUrl(JsonNode backgroundLayer) {
+        if (backgroundLayer == null || backgroundLayer.isNull() || backgroundLayer.isMissingNode()) {
             return null;
         }
-        Object imageUrl = map.get("imageUrl");
-        return imageUrl == null ? null : String.valueOf(imageUrl);
+        for (String key : new String[]{"imageUrl", "image", "path", "src", "url", "file", "imagePath", "assetPath", "backgroundUrl"}) {
+            JsonNode value = backgroundLayer.get(key);
+            if (value != null && !value.isNull() && !value.asText("").isBlank()) {
+                return value.asText();
+            }
+        }
+        return null;
     }
 }

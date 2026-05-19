@@ -3,6 +3,7 @@ package com.avalon.dnd.server.websocket;
 import com.avalon.dnd.server.model.GameSession;
 import com.avalon.dnd.server.model.Player;
 import com.avalon.dnd.server.service.MapBattleRulesService;
+import com.avalon.dnd.server.service.AssetUrlNormalizer;
 import com.avalon.dnd.server.service.MapObjectService;
 import com.avalon.dnd.server.service.SessionService;
 import com.avalon.dnd.server.service.SessionValidationService;
@@ -77,7 +78,7 @@ public class SessionWsController {
                         .map(p -> new PlayerDto(p.getId(), p.getName(), p.getRole().name()))
                         .toList(),
                 session.getObjects().values().stream().map(MapObjectService::toDto).toList(),
-                session.getBackgroundUrl(),
+                AssetUrlNormalizer.normalize(session.getBackgroundUrl()),
                 session.getInitiativeState(),
                 battleRulesService.getVisibilityForPlayer(session, forPlayerId),
                 session.getReferenceOverlayLayer(),

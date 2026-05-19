@@ -1,5 +1,10 @@
 export type Role = 'DM' | 'PLAYER';
 
+export type JsonPrimitive = string | number | boolean | null;
+type JsonObject = { [key: string]: JsonValue };
+type JsonArray = JsonValue[];
+export type JsonValue = JsonPrimitive | JsonObject | JsonArray;
+
 export interface MicroLocationDto {
     id: string;
     name: string;
@@ -36,6 +41,21 @@ export interface TokenDto {
     blocksSight?: boolean;
 }
 
+export interface TokenVisibilitySnapshotDto {
+    id: string;
+    name: string;
+    col: number;
+    row: number;
+    ownerId: string | null;
+    hp: number;
+    maxHp: number;
+    gridSize: number;
+    imageUrl: string | null;
+    dayVision?: number;
+    nightVision?: number;
+    facingAngleDeg?: number;
+}
+
 export interface PlayerDto {
     id:   string;
     name: string;
@@ -61,7 +81,7 @@ export interface MapObjectDto {
 export interface VisibilityStateDto {
     visibleCells: boolean[][];
     exploredCells?: string[];
-    tokenSnapshots?: Record<string, TokenDto>;
+    tokenSnapshots?: Record<string, TokenVisibilitySnapshotDto>;
     objectSnapshots?: Record<string, MapObjectDto>;
 }
 
@@ -83,10 +103,10 @@ export interface SessionStateDto {
     initiative?:   InitiativeStateDto;
     visibility?:   VisibilityStateDto;
     visibilityShareSuggestions?: VisibilityShareSuggestionDto[];
-    referenceOverlayLayer?: unknown;
-    terrainLayer?: unknown;
-    wallLayer?: unknown;
-    fogSettings?: unknown;
+    referenceOverlayLayer?: JsonValue;
+    terrainLayer?: JsonValue;
+    wallLayer?: JsonValue;
+    fogSettings?: JsonValue;
     microLocations?: MicroLocationDto[];
     assetPackIds?: string[];
 }
@@ -98,10 +118,10 @@ export interface MapLayoutUpdateDto {
     backgroundUrl?: string;
     visibility?:    VisibilityStateDto;
     visibilityShareSuggestions?: VisibilityShareSuggestionDto[];
-    referenceOverlayLayer?: unknown;
-    terrainLayer?: unknown;
-    wallLayer?: unknown;
-    fogSettings?: unknown;
+    referenceOverlayLayer?: JsonValue;
+    terrainLayer?: JsonValue;
+    wallLayer?: JsonValue;
+    fogSettings?: JsonValue;
     microLocations?: MicroLocationDto[];
     assetPackIds?: string[];
 }

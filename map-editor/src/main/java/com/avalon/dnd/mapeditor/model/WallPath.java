@@ -1,10 +1,14 @@
 package com.avalon.dnd.mapeditor.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class WallPath {
 
     private String id = UUID.randomUUID().toString();
@@ -96,14 +100,17 @@ public class WallPath {
         return true;
     }
 
+    @JsonIgnore
     public boolean isEndpointIndex(int index) {
         return index <= 0 || index >= points.size() - 1;
     }
 
+    @JsonIgnore
     public WallPoint getFirstPoint() {
         return points.isEmpty() ? null : points.get(0);
     }
 
+    @JsonIgnore
     public WallPoint getLastPoint() {
         return points.isEmpty() ? null : points.get(points.size() - 1);
     }

@@ -1,337 +1,149 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { wsClient } from '../net/wsClient';
 import { useGameStore } from '../store/gameStore';
-import { DEFAULT_SERVER_BASE_URL } from '../config/runtime';
-
-const STORAGE_KEYS = {
-    serverUrl: 'avalon.connection.serverUrl',
-    sessionId: 'avalon.connection.sessionId',
-    playerName: 'avalon.connection.playerName',
-    isDm: 'avalon.connection.isDm',
-    autoConnect: 'avalon.connection.autoConnect',
-};
-
-const s: Record<string, React.CSSProperties> = {
-    overlay: {
-        position: 'fixed',
-        top: '16px',
-        left: '16px',
-        zIndex: 50,
-        maxWidth: 'min(92vw, 420px)',
-    },
-    connectedBar: {
-        display: 'flex',
-        alignItems: 'center',
-        gap: '12px',
-        background: '#18181b',
-        border: '1px solid #3f3f46',
-        borderRadius: '8px',
-        padding: '10px 16px',
-        fontSize: '14px',
-    },
-    dot: {
-        color: '#22c55e',
-        fontWeight: 700,
-    },
-    sessionHint: {
-        color: '#a1a1aa',
-        fontFamily: 'monospace',
-    },
-    disconnectBtn: {
-        padding: '4px 12px',
-        background: '#dc2626',
-        color: '#fff',
-        border: 'none',
-        borderRadius: '6px',
-        cursor: 'pointer',
-        fontSize: '13px',
-    },
-    panel: {
-        background: 'linear-gradient(180deg, #1a1a22 0%, #121218 100%)',
-        border: '1px solid #3f3f46',
-        borderRadius: '18px',
-        padding: '20px',
-        width: '100%',
-        boxShadow: '0 12px 40px rgba(0,0,0,0.45)',
-        backdropFilter: 'blur(12px)',
-    },
-    title: {
-        margin: '0 0 8px',
-        fontSize: '20px',
-        fontWeight: 700,
-        color: '#f4f4f5',
-    },
-    input: {
-        display: 'block',
-        width: '100%',
-        marginBottom: '12px',
-        padding: '10px 14px',
-        background: '#27272a',
-        border: '1px solid #3f3f46',
-        borderRadius: '7px',
-        color: '#f4f4f5',
-        fontSize: '15px',
-        outline: 'none',
-        boxSizing: 'border-box',
-    },
-    checkRow: {
-        display: 'flex',
-        alignItems: 'center',
-        gap: '8px',
-        marginBottom: '16px',
-        color: '#a1a1aa',
-        fontSize: '14px',
-        cursor: 'pointer',
-    },
-    connectBtn: {
-        display: 'block',
-        width: '100%',
-        padding: '12px',
-        background: '#2563eb',
-        color: '#fff',
-        border: 'none',
-        borderRadius: '7px',
-        fontSize: '16px',
-        fontWeight: 600,
-        cursor: 'pointer',
-    },
-    connectBtnDisabled: {
-        background: '#3f3f46',
-        cursor: 'not-allowed',
-    },
-};
+import { useConnectionState } from '../hooks/useConnectionState';
+import ConnectionForm from './ConnectionForm';
 
 const ConnectionPanel: React.FC = () => {
-    const [serverUrl, setServerUrl] = useState(DEFAULT_SERVER_BASE_URL);
-    const [sessionId, setSessionId] = useState('');
-    const [playerName, setPlayerName] = useState('');
-    const [isDm, setIsDm] = useState(false);
-    const [isConnected, setIsConnected] = useState(false);
-    const [status, setStatus] = useState('');
-    const autoConnectAttempted = useRef(false);
+    const {
+        serverUrl,
+        sessionId,
+        playerName,
+        isDm,
+        autoConnect,
+        status,
+        isConnected,
+        canConnect,
+        connectionSummary,
+        setServerUrl,
+        setSessionId,
+        setPlayerName,
+        setIsDm,
+        setAutoConnect,
+        connect,
+        disconnect,
+        copySessionId,
+    } = useConnectionState();
 
-    const myPlayerId = useGameStore((s) => s.myPlayerId);
-    const players = useGameStore((s) => s.players);
-    const visibilityShareSuggestions = useGameStore((s) => s.visibilityShareSuggestions);
+    const [showAdvanced, setShowAdvanced] = useState(false);
+    const myPlayerId = useGameStore((state) => state.myPlayerId);
+    const players = useGameStore((state) => state.players);
+    const visibilityShareSuggestions = useGameStore((state) => state.visibilityShareSuggestions);
 
-    useEffect(() => {
-        try {
-            const savedServerUrl = localStorage.getItem(STORAGE_KEYS.serverUrl);
-            const savedSessionId = localStorage.getItem(STORAGE_KEYS.sessionId);
-            const savedPlayerName = localStorage.getItem(STORAGE_KEYS.playerName);
-            const savedIsDm = localStorage.getItem(STORAGE_KEYS.isDm);
-            if (savedServerUrl) setServerUrl(savedServerUrl);
-            if (savedSessionId) setSessionId(savedSessionId);
-            if (savedPlayerName) setPlayerName(savedPlayerName);
-            if (savedIsDm != null) setIsDm(savedIsDm === 'true');
-
-            const shouldAutoConnect = localStorage.getItem(STORAGE_KEYS.autoConnect) === 'true';
-            if (shouldAutoConnect && savedServerUrl && savedSessionId && savedPlayerName && !autoConnectAttempted.current) {
-                autoConnectAttempted.current = true;
-                setTimeout(() => {
-                    wsClient.connect(
-                        savedServerUrl,
-                        savedSessionId,
-                        savedPlayerName,
-                        savedIsDm === 'true',
-                        () => {
-                            setIsConnected(true);
-                            setStatus('');
-                        },
-                    );
-                }, 0);
-            }
-        } catch {
-            // ignore storage errors
-        }
-    }, []);
-
-    useEffect(() => {
-        try {
-            localStorage.setItem(STORAGE_KEYS.serverUrl, serverUrl);
-            localStorage.setItem(STORAGE_KEYS.sessionId, sessionId);
-            localStorage.setItem(STORAGE_KEYS.playerName, playerName);
-            localStorage.setItem(STORAGE_KEYS.isDm, String(isDm));
-        } catch {
-            // ignore storage errors
-        }
-    }, [serverUrl, sessionId, playerName, isDm]);
-
-    const handleConnect = () => {
-        if (!sessionId.trim() || !playerName.trim()) {
-            setStatus('Заполни все поля');
-            return;
-        }
-        setStatus('Подключение...');
-        try {
-            localStorage.setItem(STORAGE_KEYS.autoConnect, 'true');
-        } catch {
-            // ignore storage errors
-        }
-        wsClient.connect(
-            serverUrl.trim() || DEFAULT_SERVER_BASE_URL,
-            sessionId.trim(),
-            playerName.trim(),
-            isDm,
-            () => {
-                setIsConnected(true);
-                setStatus('');
-            }
-        );
-    };
-
-    const handleDisconnect = () => {
-        wsClient.disconnect();
-        setIsConnected(false);
-        try {
-            localStorage.setItem(STORAGE_KEYS.autoConnect, 'false');
-        } catch {
-            // ignore storage errors
-        }
-    };
+    const pendingSuggestions = useMemo(() => visibilityShareSuggestions ?? [], [visibilityShareSuggestions]);
 
     const approveSuggestion = (suggestionId: string) => {
         wsClient.approveVisibilityShare(suggestionId);
     };
 
-    const pendingSuggestions = useMemo(() => visibilityShareSuggestions ?? [], [visibilityShareSuggestions]);
-
-    if (isConnected && myPlayerId) {
+    if (isConnected) {
         return (
-            <div style={s.overlay}>
-                <div style={{ display: 'grid', gap: '10px' }}>
-                    <div style={s.connectedBar}>
-                        <span style={s.dot}>● Подключено</span>
-                        <span style={s.sessionHint}>
-                            {sessionId.slice(0, 8)}…
-                        </span>
-                        <button
-                            style={{
-                                ...s.disconnectBtn,
-                                background: '#374151',
-                            }}
-                            onClick={() => {
-                                try {
-                                    navigator.clipboard?.writeText(sessionId);
-                                    setStatus('ID сессии скопирован');
-                                } catch {
-                                    setStatus('Не удалось скопировать ID');
-                                }
-                            }}
-                        >
-                            Скопировать ID
-                        </button>
-                        <button style={s.disconnectBtn} onClick={handleDisconnect}>
-                            Выйти
-                        </button>
+            <aside className="connection-dock connection-dock--compact">
+                <div className="connection-dock__row">
+                    <div>
+                        <div className="connection-dock__badge">Connected</div>
+                        <div className="connection-dock__meta">
+                            {isDm ? 'DM mode' : 'Player mode'} · {connectionSummary}
+                        </div>
                     </div>
+                    <button
+                        type="button"
+                        className="hud-button hud-button--ghost"
+                        onClick={() => setShowAdvanced((value) => !value)}
+                        aria-expanded={showAdvanced}
+                    >
+                        {showAdvanced ? 'Less' : 'More'}
+                    </button>
+                </div>
 
-                    {isDm && pendingSuggestions.length > 0 && (
-                        <div style={{ ...s.panel, width: '380px' }}>
-                            <h3 style={{ margin: '0 0 12px', fontSize: '16px', color: '#f4f4f5' }}>
-                                Подсказки для общего обзора
-                            </h3>
-                            <div style={{ display: 'grid', gap: '10px' }}>
-                                {pendingSuggestions.map((item) => {
+                <div className="connection-dock__chips">
+                    <span className="hud-chip">Player {playerName.trim() || '—'}</span>
+                    <span className="hud-chip hud-chip--strong">ID {myPlayerId?.slice(0, 6) ?? '—'}</span>
+                </div>
+
+                {showAdvanced && (
+                    <div className="connection-dock__stack">
+                        <div className="connection-dock__buttons">
+                            <button type="button" className="hud-button" onClick={() => void copySessionId()}>Copy ID</button>
+                            <button type="button" className="hud-button hud-button--danger" onClick={disconnect}>Leave</button>
+                        </div>
+
+                        {isDm && pendingSuggestions.length > 0 && (
+                            <div className="connection-dock__suggestions">
+                                <div className="connection-dock__section-title">Visibility suggestions</div>
+                                {pendingSuggestions.slice(0, 3).map((item) => {
                                     const names = item.playerIds
-                                        .map((id) => players[id]?.name ?? id.slice(0, 8))
+                                        .map((id) => players[id]?.name ?? id.slice(0, 6))
                                         .join(', ');
+
                                     return (
-                                        <div key={item.suggestionId} style={{ border: '1px solid #3f3f46', borderRadius: '8px', padding: '10px', background: '#101014' }}>
-                                            <div style={{ color: '#e4e4e7', fontSize: '14px', marginBottom: '6px' }}>
-                                                {names}
+                                        <div key={item.suggestionId} className="connection-dock__suggestion">
+                                            <div className="connection-dock__suggestion-title">{names}</div>
+                                            <div className="connection-dock__suggestion-body">
+                                                {item.reason ?? 'Information may become shared'}
                                             </div>
-                                            <div style={{ color: '#a1a1aa', fontSize: '13px', marginBottom: '6px' }}>
-                                                {item.reason ?? 'Информация может стать общей'}
+                                            <div className="connection-dock__buttons">
+                                                <span className="hud-chip">
+                                                    {item.trigger === 'room'
+                                                        ? 'Auto: same room'
+                                                        : item.trigger === 'distance'
+                                                            ? 'Auto: close enough'
+                                                            : item.autoSuggested
+                                                                ? 'Auto-suggested'
+                                                                : 'Manual'}
+                                                </span>
+                                                <button
+                                                    type="button"
+                                                    className="hud-button hud-button--accent"
+                                                    onClick={() => approveSuggestion(item.suggestionId)}
+                                                >
+                                                    Approve
+                                                </button>
                                             </div>
-                                            <div style={{ color: '#71717a', fontSize: '12px', marginBottom: '10px' }}>
-                                                {item.trigger === 'room' ? 'Авто: одна комната'
-                                                    : item.trigger === 'distance' ? 'Авто: близко'
-                                                    : item.autoSuggested ? 'Авто-подсказка' : 'Ручная подсказка'}
-                                            </div>
-                                            <button
-                                                style={{
-                                                    ...s.connectBtn,
-                                                    padding: '8px 10px',
-                                                    fontSize: '14px',
-                                                }}
-                                                onClick={() => approveSuggestion(item.suggestionId)}
-                                            >
-                                                Подтвердить общий обзор
-                                            </button>
                                         </div>
                                     );
                                 })}
                             </div>
-                        </div>
-                    )}
-                </div>
-                </div>
+                        )}
+                    </div>
+                )}
+
+            </aside>
         );
     }
 
-    const canConnect = sessionId.trim().length > 0 && playerName.trim().length > 0;
-
     return (
-        <div style={s.overlay}>
-            <div style={s.panel}>
-                <h2 style={s.title}>⚔ Avalon DnD</h2>
-                <p style={{ margin: '0 0 16px', color: '#a1a1aa', fontSize: '13px', lineHeight: 1.4 }}>
-                    Подключись к сессии, чтобы войти в игру и синхронизироваться с сервером.
-                </p>
-
-                <input
-                    style={s.input}
-                    type="text"
-                    placeholder="Адрес сервера"
-                    value={serverUrl}
-                    onChange={e => setServerUrl(e.target.value)}
-                />
-
-                <input
-                    style={s.input}
-                    type="text"
-                    placeholder="ID сессии (от DM)"
-                    value={sessionId}
-                    onChange={e => setSessionId(e.target.value)}
-                />
-
-                <input
-                    style={s.input}
-                    type="text"
-                    placeholder="Твоё имя"
-                    value={playerName}
-                    onChange={e => setPlayerName(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && canConnect && handleConnect()}
-                />
-
-                <label style={s.checkRow}>
-                    <input
-                        type="checkbox"
-                        checked={isDm}
-                        onChange={e => setIsDm(e.target.checked)}
-                    />
-                    Войти как DM
-                </label>
-
-                <button
-                    style={{
-                        ...s.connectBtn,
-                        ...(canConnect ? {} : s.connectBtnDisabled),
-                    }}
-                    disabled={!canConnect}
-                    onClick={handleConnect}
-                >
-                    Присоединиться
-                </button>
-
-                {status && (
-                    <p style={{ marginTop: '12px', color: '#a1a1aa', fontSize: '14px', textAlign: 'center' }}>
-                        {status}
+        <aside className="connection-panel">
+            <div className="connection-panel__frame">
+                <div className="connection-panel__hero">
+                    <div className="connection-panel__eyebrow">Battle access</div>
+                    <h2 className="connection-panel__title">Avalon DnD</h2>
+                    <p className="connection-panel__subtitle">
+                        Connect to a session and keep the map responsive, compact, and readable during live play.
                     </p>
-                )}
+                </div>
+
+                <ConnectionForm
+                    compact
+                    serverUrl={serverUrl}
+                    sessionId={sessionId}
+                    playerName={playerName}
+                    isDm={isDm}
+                    autoConnect={autoConnect}
+                    canConnect={canConnect}
+                    status={status}
+                    primaryLabel="Join session"
+                    secondaryLabel="The compact dock stays readable on small screens and keeps reconnect friction low."
+                    onServerUrlChange={setServerUrl}
+                    onSessionIdChange={setSessionId}
+                    onPlayerNameChange={setPlayerName}
+                    onIsDmChange={setIsDm}
+                    onAutoConnectChange={setAutoConnect}
+                    onConnect={() => void connect()}
+                    showSessionAction={false}
+                />
             </div>
-        </div>
+        </aside>
     );
 };
 

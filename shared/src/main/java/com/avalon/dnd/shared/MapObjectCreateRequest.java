@@ -1,5 +1,7 @@
 package com.avalon.dnd.shared;
 
+import com.avalon.dnd.shared.PlacementSizingRules;
+
 public class MapObjectCreateRequest {
 
     private String type;
@@ -28,7 +30,7 @@ public class MapObjectCreateRequest {
         this.row = row;
         this.width = width;
         this.height = height;
-        this.gridSize = gridSize;
+        this.gridSize = PlacementSizingRules.clampObjectGridSize(gridSize);
         this.imageUrl = imageUrl;
         this.blocksMovement = false;
         this.blocksSight = false;
@@ -50,7 +52,7 @@ public class MapObjectCreateRequest {
     public void setRow(int row) { this.row = row; }
     public void setWidth(int width) { this.width = width; }
     public void setHeight(int height) { this.height = height; }
-    public void setGridSize(int gridSize) { this.gridSize = gridSize; }
+    public void setGridSize(int gridSize) { this.gridSize = PlacementSizingRules.clampObjectGridSize(gridSize); }
     public void setImageUrl(String imageUrl) { this.imageUrl = imageUrl; }
     public void setMicroLocationId(String microLocationId) { this.microLocationId = microLocationId; }
     public void setBlocksMovement(boolean blocksMovement) { this.blocksMovement = blocksMovement; }

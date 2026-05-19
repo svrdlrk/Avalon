@@ -1,3 +1,31 @@
+function currentBrowserOrigin(): string | null {
+    if (typeof window === 'undefined' || !window.location?.hostname) return null;
+    const host = window.location.hostname.trim();
+    if (!host) return null;
+    const port = window.location.port ? `:${window.location.port}` : '';
+    return `${window.location.protocol}//${host}${port}`;
+}
+
+function rewriteLoopbackBase(serverBaseUrl: string): string {
+    const trimmed = serverBaseUrl.trim().replace(/\/+$/, '');
+    const browserOrigin = currentBrowserOrigin();
+    if (!browserOrigin) return trimmed;
+
+    try {
+        const server = new URL(trimmed);
+        const browser = new URL(browserOrigin);
+        const loopbackHosts = new Set(['localhost', '127.0.0.1', '[::1]']);
+        if (loopbackHosts.has(server.hostname.toLowerCase()) && !loopbackHosts.has(browser.hostname.toLowerCase())) {
+            const port = server.port || '8080';
+            return `${browser.protocol}//${browser.hostname}:${port}`;
+        }
+    } catch {
+        // ignore and keep original value
+    }
+
+    return trimmed;
+}
+
 export function extractAssetPath(raw: string): string | null {
     if (!raw) return null;
 
@@ -37,20 +65,32 @@ export function normalizeAssetUrl(imageUrl: string | null | undefined, serverBas
     const trimmed = imageUrl.trim();
     if (!trimmed) return null;
 
-    // Keep any absolute URI scheme intact (http, https, file, data, jar, etc.),
-    // but do not misclassify Windows paths like C:\assets\image.png.
-    const hasUriScheme = /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed) && !/^[a-zA-Z]:[\\/]/.test(trimmed);
+    const baseUrl = rewriteLoopbackBase(serverBaseUrl);
+
+    // Keep HTTP/data URLs intact, but try to convert local file URIs and
+    // absolute filesystem paths into web paths served from /uploads/**.
+    const hasUriScheme = /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed) && !/^[a-zA-Z]:[\/]/.test(trimmed);
     if (hasUriScheme) {
+        const relative = extractAssetPath(trimmed);
+        if (relative) {
+            return encodeURI(`${baseUrl}${relative.startsWith('/') ? relative : `/${relative}`}`);
+        }
         return encodeURI(trimmed);
     }
 
-    const baseUrl = serverBaseUrl.replace(/\/$/, '');
     const relative = extractAssetPath(trimmed);
     if (relative) {
         return encodeURI(`${baseUrl}${relative.startsWith('/') ? relative : `/${relative}`}`);
     }
 
     const cleaned = trimmed.replace(/\\/g, '/');
+    const lower = cleaned.toLowerCase();
+
+    if (lower.startsWith('/maps/') || lower.startsWith('maps/')) {
+        const noSlash = cleaned.replace(/^\/+/, '');
+        return encodeURI(`${baseUrl}/uploads/${noSlash}`);
+    }
+
     if (cleaned.startsWith('/')) {
         return encodeURI(`${baseUrl}${cleaned}`);
     }

@@ -1,5 +1,7 @@
 package com.avalon.dnd.shared;
 
+import com.fasterxml.jackson.databind.JsonNode;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -16,10 +18,10 @@ public class SessionStateDto {
     private java.util.List<VisibilityShareSuggestionDto> visibilityShareSuggestions = new java.util.ArrayList<>();
 
     // Optional editor metadata (opaque to battle clients).
-    private Object referenceOverlayLayer;
-    private Object terrainLayer;
-    private Object wallLayer;
-    private Object fogSettings;
+    private JsonNode referenceOverlayLayer;
+    private JsonNode terrainLayer;
+    private JsonNode wallLayer;
+    private JsonNode fogSettings;
     private List<MicroLocationDto> microLocations = new ArrayList<>();
     private List<String> assetPackIds = new ArrayList<>();
 
@@ -31,7 +33,7 @@ public class SessionStateDto {
                            List<PlayerDto> players,
                            List<MapObjectDto> objects,
                            String backgroundUrl) {
-        this(myPlayerId, grid, tokens, players, objects, backgroundUrl, null, null, null, null, null, null, null, null, null);
+        this(myPlayerId, grid, tokens, players, objects, backgroundUrl, null, null, (com.fasterxml.jackson.databind.JsonNode) null, (com.fasterxml.jackson.databind.JsonNode) null, (com.fasterxml.jackson.databind.JsonNode) null, (com.fasterxml.jackson.databind.JsonNode) null, null, null, null);
     }
 
     public SessionStateDto(String myPlayerId,
@@ -41,7 +43,7 @@ public class SessionStateDto {
                            List<MapObjectDto> objects,
                            String backgroundUrl,
                            InitiativeStateDto initiative) {
-        this(myPlayerId, grid, tokens, players, objects, backgroundUrl, initiative, null, null, null, null, null, null, null, null);
+        this(myPlayerId, grid, tokens, players, objects, backgroundUrl, initiative, null, (com.fasterxml.jackson.databind.JsonNode) null, (com.fasterxml.jackson.databind.JsonNode) null, (com.fasterxml.jackson.databind.JsonNode) null, (com.fasterxml.jackson.databind.JsonNode) null, null, null, null);
     }
 
     public SessionStateDto(String myPlayerId,
@@ -56,6 +58,31 @@ public class SessionStateDto {
                            Object terrainLayer,
                            Object wallLayer,
                            Object fogSettings,
+                           List<MicroLocationDto> microLocations,
+                           List<String> assetPackIds,
+                           java.util.List<VisibilityShareSuggestionDto> visibilityShareSuggestions) {
+        this(myPlayerId, grid, tokens, players, objects, backgroundUrl, initiative, visibility,
+                JsonPayloads.toNode(referenceOverlayLayer),
+                JsonPayloads.toNode(terrainLayer),
+                JsonPayloads.toNode(wallLayer),
+                JsonPayloads.toNode(fogSettings),
+                microLocations,
+                assetPackIds,
+                visibilityShareSuggestions);
+    }
+
+    public SessionStateDto(String myPlayerId,
+                           GridConfig grid,
+                           List<TokenDto> tokens,
+                           List<PlayerDto> players,
+                           List<MapObjectDto> objects,
+                           String backgroundUrl,
+                           InitiativeStateDto initiative,
+                           VisibilityStateDto visibility,
+                           JsonNode referenceOverlayLayer,
+                           JsonNode terrainLayer,
+                           JsonNode wallLayer,
+                           JsonNode fogSettings,
                            List<MicroLocationDto> microLocations,
                            List<String> assetPackIds,
                            java.util.List<VisibilityShareSuggestionDto> visibilityShareSuggestions) {
@@ -84,10 +111,10 @@ public class SessionStateDto {
     public String getBackgroundUrl() { return backgroundUrl; }
     public InitiativeStateDto getInitiative() { return initiative; }
     public VisibilityStateDto getVisibility() { return visibility; }
-    public Object getReferenceOverlayLayer() { return referenceOverlayLayer; }
-    public Object getTerrainLayer() { return terrainLayer; }
-    public Object getWallLayer() { return wallLayer; }
-    public Object getFogSettings() { return fogSettings; }
+    public JsonNode getReferenceOverlayLayer() { return referenceOverlayLayer; }
+    public JsonNode getTerrainLayer() { return terrainLayer; }
+    public JsonNode getWallLayer() { return wallLayer; }
+    public JsonNode getFogSettings() { return fogSettings; }
     public List<MicroLocationDto> getMicroLocations() { return microLocations; }
     public List<String> getAssetPackIds() { return assetPackIds; }
     public java.util.List<VisibilityShareSuggestionDto> getVisibilityShareSuggestions() { return visibilityShareSuggestions; }
@@ -100,10 +127,14 @@ public class SessionStateDto {
     public void setBackgroundUrl(String v) { this.backgroundUrl = v; }
     public void setInitiative(InitiativeStateDto v) { this.initiative = v; }
     public void setVisibility(VisibilityStateDto v) { this.visibility = v; }
-    public void setReferenceOverlayLayer(Object v) { this.referenceOverlayLayer = v; }
-    public void setTerrainLayer(Object v) { this.terrainLayer = v; }
-    public void setWallLayer(Object v) { this.wallLayer = v; }
-    public void setFogSettings(Object v) { this.fogSettings = v; }
+    public void setReferenceOverlayLayer(Object v) { this.referenceOverlayLayer = JsonPayloads.toNode(v); }
+    public void setReferenceOverlayLayer(JsonNode v) { this.referenceOverlayLayer = v; }
+    public void setTerrainLayer(Object v) { this.terrainLayer = JsonPayloads.toNode(v); }
+    public void setTerrainLayer(JsonNode v) { this.terrainLayer = v; }
+    public void setWallLayer(Object v) { this.wallLayer = JsonPayloads.toNode(v); }
+    public void setWallLayer(JsonNode v) { this.wallLayer = v; }
+    public void setFogSettings(Object v) { this.fogSettings = JsonPayloads.toNode(v); }
+    public void setFogSettings(JsonNode v) { this.fogSettings = v; }
     public void setMicroLocations(List<MicroLocationDto> microLocations) {
         this.microLocations.clear();
         if (microLocations != null) this.microLocations.addAll(microLocations);

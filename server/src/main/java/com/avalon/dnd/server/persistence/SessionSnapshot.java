@@ -5,6 +5,7 @@ import com.avalon.dnd.shared.GridConfig;
 import com.avalon.dnd.shared.InitiativeStateDto;
 import com.avalon.dnd.shared.VisibilityStateDto;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.databind.JsonNode;
 
 import java.util.List;
 
@@ -18,10 +19,10 @@ public class SessionSnapshot {
     public String             id;
     public GridConfig         grid;
     public String             backgroundUrl;
-    public Object             referenceOverlayLayer;
-    public Object             terrainLayer;
-    public Object             wallLayer;
-    public Object             fogSettings;
+    public JsonNode           referenceOverlayLayer;
+    public JsonNode           terrainLayer;
+    public JsonNode           wallLayer;
+    public JsonNode           fogSettings;
     public List<String>       assetPackIds;
     public long               version;
     public List<PlayerSnapshot>     players;

@@ -1,5 +1,7 @@
 package com.avalon.dnd.shared;
 
+import com.avalon.dnd.shared.PlacementSizingRules;
+
 public class TokenDto {
 
     private String id;
@@ -17,6 +19,8 @@ public class TokenDto {
     private int dayVision;
     /** Радиус обзора ночью. */
     private int nightVision;
+    /** Угол поворота токена в градусах относительно изображения, смотрящего вниз. */
+    private int facingAngleDeg;
 
     public TokenDto() {}
 
@@ -43,10 +47,11 @@ public class TokenDto {
         this.ownerId = ownerId;
         this.hp = hp;
         this.maxHp = maxHp;
-        this.gridSize = Math.max(1, Math.min(4, gridSize));
+        this.gridSize = PlacementSizingRules.clampTokenGridSize(gridSize);
         this.imageUrl = imageUrl;
         this.dayVision = Math.max(0, dayVision);
         this.nightVision = Math.max(0, nightVision);
+        this.facingAngleDeg = 0;
     }
 
     public String getId() { return id; }
@@ -60,6 +65,7 @@ public class TokenDto {
     public String getImageUrl() { return imageUrl; }
     public int getDayVision() { return dayVision; }
     public int getNightVision() { return nightVision; }
+    public int getFacingAngleDeg() { return facingAngleDeg; }
 
     public void setId(String id) { this.id = id; }
     public void setName(String name) { this.name = name; }
@@ -68,8 +74,9 @@ public class TokenDto {
     public void setOwnerId(String ownerId) { this.ownerId = ownerId; }
     public void setHp(int hp) { this.hp = hp; }
     public void setMaxHp(int maxHp) { this.maxHp = maxHp; }
-    public void setGridSize(int gridSize) { this.gridSize = Math.max(1, Math.min(4, gridSize)); }
+    public void setGridSize(int gridSize) { this.gridSize = PlacementSizingRules.clampTokenGridSize(gridSize); }
     public void setImageUrl(String imageUrl) { this.imageUrl = imageUrl; }
     public void setDayVision(int dayVision) { this.dayVision = Math.max(0, dayVision); }
     public void setNightVision(int nightVision) { this.nightVision = Math.max(0, nightVision); }
+    public void setFacingAngleDeg(int facingAngleDeg) { this.facingAngleDeg = facingAngleDeg; }
 }

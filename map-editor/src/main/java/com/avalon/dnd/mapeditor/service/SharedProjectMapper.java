@@ -1,18 +1,26 @@
 package com.avalon.dnd.mapeditor.service;
 
+import com.avalon.dnd.mapeditor.model.FogSettings;
 import com.avalon.dnd.mapeditor.model.MapPlacement;
 import com.avalon.dnd.mapeditor.model.MapProject;
 import com.avalon.dnd.mapeditor.model.PlacementKind;
+import com.avalon.dnd.mapeditor.model.ReferenceOverlayLayer;
+import com.avalon.dnd.mapeditor.model.TerrainLayer;
+import com.avalon.dnd.mapeditor.model.WallLayer;
 import com.avalon.dnd.shared.GridConfig;
+import com.avalon.dnd.shared.JsonPayloads;
 import com.avalon.dnd.shared.MapLayoutUpdateDto;
 import com.avalon.dnd.shared.MapObjectDto;
 import com.avalon.dnd.shared.MicroLocationDto;
 import com.avalon.dnd.shared.TokenDto;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.util.ArrayList;
 import java.util.List;
 
 public final class SharedProjectMapper {
+
+    private static final ObjectMapper MAPPER = new ObjectMapper().findAndRegisterModules();
 
     private SharedProjectMapper() {}
 
@@ -71,10 +79,10 @@ public final class SharedProjectMapper {
         MapProject project = MapProject.createBlank(id, name);
         project.setGrid(dto.getGrid() == null ? new GridConfig(64, 40, 30) : dto.getGrid());
         project.setBackgroundUrl(dto.getBackgroundUrl());
-        project.setReferenceOverlayLayer(dto.getReferenceOverlayLayer() instanceof com.avalon.dnd.mapeditor.model.ReferenceOverlayLayer rol ? rol : null);
-        project.setTerrainLayer(dto.getTerrainLayer() instanceof com.avalon.dnd.mapeditor.model.TerrainLayer tl ? tl : null);
-        project.setWallLayer(dto.getWallLayer() instanceof com.avalon.dnd.mapeditor.model.WallLayer wl ? wl : null);
-        project.setFogSettings(dto.getFogSettings() instanceof com.avalon.dnd.mapeditor.model.FogSettings fs ? fs : null);
+        project.setReferenceOverlayLayer(read(dto.getReferenceOverlayLayer(), ReferenceOverlayLayer.class));
+        project.setTerrainLayer(read(dto.getTerrainLayer(), TerrainLayer.class));
+        project.setWallLayer(read(dto.getWallLayer(), WallLayer.class));
+        project.setFogSettings(read(dto.getFogSettings(), FogSettings.class));
         project.setMicroLocations(dto.getMicroLocations());
         project.setAssetPackIds(dto.getAssetPackIds());
 
@@ -118,5 +126,15 @@ public final class SharedProjectMapper {
         }
 
         return project;
+    }
+
+    private static <T> T read(Object value, Class<T> type) {
+        if (value == null) {
+            return null;
+        }
+        if (type.isInstance(value)) {
+            return type.cast(value);
+        }
+        return MAPPER.convertValue(value, type);
     }
 }

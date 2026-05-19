@@ -3,7 +3,7 @@ import {
     Stage, Layer, Rect, Line, Circle, Text, Group, Image as KonvaImage,
 } from 'react-konva';
 import { useGameStore } from '../store/gameStore';
-import type { TokenDto, MapObjectDto, MicroLocationDto, VisibilityStateDto } from '../types/types';
+import type { TokenDto, MapObjectDto, VisibilityStateDto } from '../types/types';
 import { wsClient } from '../net/wsClient';
 import useImage from '../hooks/useImage';
 import type Konva from 'konva';
@@ -51,45 +51,6 @@ function isAnyCellExplored(explored: Set<string>, col: number, row: number, widt
     return false;
 }
 
-function findMicroLocationIdAtCell(microLocations: MicroLocationDto[], col: number, row: number): string | null {
-    for (const zone of microLocations) {
-        if (!zone) continue;
-        const w = Math.max(1, zone.width ?? 1);
-        const h = Math.max(1, zone.height ?? 1);
-        if (col >= zone.col && col < zone.col + w && row >= zone.row && row < zone.row + h) {
-            return zone.id;
-        }
-    }
-    return null;
-}
-
-function findMicroLocationIdForToken(token: TokenDto, microLocations: MicroLocationDto[]): string | null {
-    const gs = Math.max(1, token.gridSize ?? 1);
-    for (let r = token.row; r < token.row + gs; r++) {
-        for (let c = token.col; c < token.col + gs; c++) {
-            const zoneId = findMicroLocationIdAtCell(microLocations, c, r);
-            if (zoneId) return zoneId;
-        }
-    }
-    return null;
-}
-
-function getActiveMicroLocationId(tokens: Record<string, TokenDto>, microLocations: MicroLocationDto[], myPlayerId: string | null): string | null {
-    if (!myPlayerId) return null;
-    for (const token of Object.values(tokens)) {
-        if (token.ownerId !== myPlayerId) continue;
-        const zoneId = findMicroLocationIdForToken(token, microLocations);
-        if (zoneId) return zoneId;
-    }
-    return null;
-}
-
-function shouldRenderScene(entityZoneId: string | null, activeZoneId: string | null, isDm: boolean) {
-    if (isDm) return true;
-    if (!activeZoneId) return !entityZoneId;
-    return entityZoneId === activeZoneId;
-}
-
 function cloneToken(token: TokenDto): TokenDto {
     return { ...token };
 }
@@ -104,12 +65,14 @@ const TokenShape: React.FC<{
     token: TokenDto;
     isMyToken: boolean;
     isDm: boolean;
+    isSelected: boolean;
     cellSize: number;
     offsetX: number;
     offsetY: number;
+    onSelect: () => void;
     onDragStart: () => void;
     onDragEnd: (e: any, token: TokenDto) => void;
-}> = React.memo(({ token, isMyToken, isDm, cellSize, offsetX, offsetY, onDragStart, onDragEnd }) => {
+}> = React.memo(({ token, isMyToken, isDm, isSelected, cellSize, offsetX, offsetY, onSelect, onDragStart, onDragEnd }) => {
     const gs = Math.max(1, token.gridSize ?? 1);
 
     // Group positioned at top-left of the token cell(s)
@@ -122,6 +85,7 @@ const TokenShape: React.FC<{
 
     const isNpc = token.ownerId === null;
     const canDrag = isMyToken || isDm;
+    const facingAngle = token.facingAngleDeg ?? 0;
 
     const [tokenImage] = useRemoteImage(token.imageUrl);
     const [hovered, setHovered] = useState(false);
@@ -132,8 +96,8 @@ const TokenShape: React.FC<{
     const hpRatio     = token.maxHp > 0 ? Math.max(0, Math.min(1, token.hp / token.maxHp)) : 1;
     const barW        = size - 10;
 
-    // HP visible only to owner of this token or DM
-    const showHp = token.maxHp > 0 && (isDm || isMyToken);
+    // HP visible to player-owned tokens or DM
+    const showHp = token.maxHp > 0 && (isDm || token.ownerId !== null);
 
     return (
         <Group
@@ -147,7 +111,36 @@ const TokenShape: React.FC<{
             onDragEnd={(e) => onDragEnd(e, token)}
             onMouseEnter={() => setHovered(true)}
             onMouseLeave={() => setHovered(false)}
+            onMouseDown={(e) => {
+                e.cancelBubble = true;
+                onSelect();
+            }}
+            onTouchStart={(e) => {
+                e.cancelBubble = true;
+                onSelect();
+            }}
+            onClick={(e) => {
+                e.cancelBubble = true;
+                onSelect();
+            }}
+            onTap={(e) => {
+                e.cancelBubble = true;
+                onSelect();
+            }}
+            onDblClick={(e) => {
+                e.cancelBubble = true;
+                onSelect();
+            }}
         >
+            {/* Invisible interactive hit area (critical for image-based tokens) */}
+            <Circle
+                x={cx}
+                y={cy}
+                radius={radius + 12}
+                fill="rgba(0,0,0,0.01)"
+                listening={true}
+            />
+
             {/* Glow ring for own token */}
             {isMyToken && !tokenImage && (
                 <Circle x={cx} y={cy} radius={radius + 3} fill="rgba(241,196,15,0.25)" />
@@ -168,12 +161,31 @@ const TokenShape: React.FC<{
             )}
             {/* Token image clipped to circle */}
             {tokenImage && (
-                <KonvaImage
-                    image={tokenImage}
-                    x={cx - radius} y={cy - radius}
-                    width={radius * 2} height={radius * 2}
-                    cornerRadius={radius}
-                    opacity={0.95}
+                <Group x={cx} y={cy} rotation={facingAngle} listening={false}>
+                    <KonvaImage
+                        image={tokenImage}
+                        x={-radius}
+                        y={-radius}
+                        width={radius * 2}
+                        height={radius * 2}
+                        cornerRadius={radius}
+                        opacity={0.95}
+                        listening={false}
+                    />
+                </Group>
+            )}
+
+            {isSelected && (
+                <Circle
+                    x={cx}
+                    y={cy}
+                    radius={radius + 7}
+                    stroke="rgba(245, 158, 11, 0.95)"
+                    strokeWidth={2}
+                    dash={[8, 4]}
+                    shadowColor="rgba(245, 158, 11, 0.55)"
+                    shadowBlur={10}
+                    shadowOpacity={0.7}
                     listening={false}
                 />
             )}
@@ -204,7 +216,7 @@ const TokenShape: React.FC<{
                 </>
             )}
 
-            {/* Tooltip — HP shown only to owner / DM */}
+            {/* Tooltip — HP shown to player-owned tokens or DM */}
             {hovered && (
                 <Group x={size + 4} y={0}>
                     <Rect x={0} y={0} width={140} height={showHp ? 72 : 56}
@@ -286,14 +298,37 @@ const BattleMap: React.FC = () => {
     const tokens = useGameStore((s) => s.tokens);
     const objects = useGameStore((s) => s.objects);
     const myPlayerId = useGameStore((s) => s.myPlayerId);
+    const selectedTokenId = useGameStore((s) => s.selectedTokenId);
+    const setSelectedTokenId = useGameStore((s) => s.setSelectedTokenId);
+    const clearSelection = useGameStore((s) => s.clearSelection);
     const backgroundUrl = useGameStore((s) => s.backgroundUrl);
     const players = useGameStore((s) => s.players);
     const terrainLayer = useGameStore((s) => s.terrainLayer);
     const wallLayer = useGameStore((s) => s.wallLayer);
     const fogSettings = useGameStore((s) => s.fogSettings);
-    const microLocations = useGameStore((s) => s.microLocations);
     const visibility = useGameStore((s) => s.visibility);
     const stageRef = useRef<Konva.Stage>(null);
+
+    const [viewport, setViewport] = useState(() => ({
+        width: typeof window !== 'undefined' ? window.innerWidth : 1280,
+        height: typeof window !== 'undefined' ? window.innerHeight : 720,
+    }));
+
+    useEffect(() => {
+        const update = () => setViewport({
+            width: window.innerWidth,
+            height: window.innerHeight,
+        });
+
+        update();
+        window.addEventListener('resize', update);
+        window.addEventListener('orientationchange', update);
+
+        return () => {
+            window.removeEventListener('resize', update);
+            window.removeEventListener('orientationchange', update);
+        };
+    }, []);
 
     // FIX: use a React state for stageDraggable so JSX prop stays in sync
     const [stageDraggable, setStageDraggable] = useState(true);
@@ -318,8 +353,6 @@ const BattleMap: React.FC = () => {
         const fog = fogSettings && typeof fogSettings === 'object' ? (fogSettings as Record<string, any>) : null;
         return fog ? Boolean(fog.retainExploredCells ?? true) : true;
     }, [fogSettings]);
-
-    const activeMicroLocationId = useMemo(() => getActiveMicroLocationId(tokens, microLocations, myPlayerId), [tokens, microLocations, myPlayerId]);
 
     const fogMemoryRef = useRef<{
         explored: Set<string>;
@@ -364,7 +397,7 @@ const BattleMap: React.FC = () => {
     const fogExplored = serverVisibility ? new Set(serverVisibility.exploredCells ?? []) : (retainExploredCells ? fogMemoryRef.current.explored : new Set<string>());
 
     const renderObjects = useMemo(() => {
-        const allObjects = Object.values(objects).filter((obj) => shouldRenderScene(obj.microLocationId ?? null, activeMicroLocationId, isDm));
+        const allObjects = Object.values(objects);
         if (isDm) return allObjects;
         if (!visibleCells) return [];
         if (serverVisibility) {
@@ -400,19 +433,20 @@ const BattleMap: React.FC = () => {
             }
         });
         return result;
-    }, [objects, visibleCells, fogEnabled, fogExplored, retainExploredCells, activeMicroLocationId, isDm, serverVisibility]);
+    }, [objects, visibleCells, fogEnabled, fogExplored, retainExploredCells, isDm, serverVisibility]);
 
     const renderTokens = useMemo(() => {
-        const sceneTokens = Object.values(tokens).filter((token) => {
-            const zoneId = findMicroLocationIdForToken(token, microLocations);
-            return shouldRenderScene(zoneId, activeMicroLocationId, isDm);
-        });
+        const sceneTokens = Object.values(tokens);
         if (isDm) return sceneTokens;
         if (!visibleCells) return [];
+
+        const isOwnedByMe = (token: TokenDto) => token.ownerId != null && token.ownerId === myPlayerId;
+
         if (serverVisibility) {
             const memory = serverVisibility.tokenSnapshots ?? {};
             return sceneTokens.flatMap((token) => {
                 const gs = Math.max(1, token.gridSize ?? 1);
+                if (isOwnedByMe(token)) return [token];
                 if (isAnyCellVisible(visibleCells, token.col, token.row, gs, gs)) return [token];
                 const snap = memory[token.id];
                 if (snap && isAnyCellExplored(fogExplored, snap.col, snap.row, gs, gs)) return [snap];
@@ -422,14 +456,14 @@ const BattleMap: React.FC = () => {
         if (!retainExploredCells) {
             return sceneTokens.filter((token) => {
                 const gs = Math.max(1, token.gridSize ?? 1);
-                return isAnyCellVisible(visibleCells, token.col, token.row, gs, gs);
+                return isOwnedByMe(token) || isAnyCellVisible(visibleCells, token.col, token.row, gs, gs);
             });
         }
         const memory = fogMemoryRef.current.tokens;
         const result: TokenDto[] = [];
         sceneTokens.forEach((token) => {
             const gs = Math.max(1, token.gridSize ?? 1);
-            if (isAnyCellVisible(visibleCells, token.col, token.row, gs, gs)) {
+            if (isOwnedByMe(token) || isAnyCellVisible(visibleCells, token.col, token.row, gs, gs)) {
                 result.push(token);
                 return;
             }
@@ -439,7 +473,7 @@ const BattleMap: React.FC = () => {
             }
         });
         return result;
-    }, [tokens, microLocations, visibleCells, fogEnabled, fogExplored, retainExploredCells, activeMicroLocationId, isDm, serverVisibility]);
+    }, [tokens, visibleCells, fogEnabled, fogExplored, retainExploredCells, isDm, serverVisibility, myPlayerId]);
 
     // FIX: set React state, not imperative Konva call, so re-renders respect it
     const handleTokenDragStart = useCallback(() => {
@@ -500,34 +534,166 @@ const BattleMap: React.FC = () => {
             return;
         }
 
-        // Snap to grid
+        const updatedToken: TokenDto = {
+            ...token,
+            col: clampedCol,
+            row: clampedRow,
+        };
+
+        // Snap both the Konva node and the React store so the player view
+        // updates immediately while the server broadcast catches up.
         node.position({
             x: grid.offsetX + clampedCol * grid.cellSize,
             y: grid.offsetY + clampedRow * grid.cellSize,
         });
+        useGameStore.getState().moveToken(updatedToken);
 
         wsClient.send('/token.move', {
             tokenId: token.id,
             toCol: clampedCol,
             toRow: clampedRow,
         });
+        // Request a state re-sync so the authoritative server state always
+        // wins and both clients converge even when a move is rejected by
+        // collision / path rules or a broadcast is delayed.
+        wsClient.send('/session.sync', {});
     }, [grid, tokens, objects]);
+
+
+    const clampScale = (value: number) => Math.max(0.22, Math.min(4, value));
+
+    const applyStageTransform = useCallback((scale: number, x: number, y: number) => {
+        const stage = stageRef.current;
+        if (!stage) return;
+
+        const nextScale = clampScale(scale);
+        stage.scale({ x: nextScale, y: nextScale });
+        stage.position({ x, y });
+        stage.batchDraw();
+    }, []);
+
+    const zoomAtCenter = useCallback((direction: 1 | -1) => {
+        const stage = stageRef.current;
+        if (!stage) return;
+
+        const oldScale = stage.scaleX() || 1;
+        const nextScale = clampScale(oldScale * (direction > 0 ? 1.12 : 0.89));
+        const focusX = viewport.width / 2;
+        const focusY = viewport.height / 2;
+        const mousePointTo = {
+            x: (focusX - stage.x()) / oldScale,
+            y: (focusY - stage.y()) / oldScale,
+        };
+
+        applyStageTransform(
+            nextScale,
+            focusX - mousePointTo.x * nextScale,
+            focusY - mousePointTo.y * nextScale,
+        );
+    }, [applyStageTransform, viewport.height, viewport.width]);
+
+    const resetView = useCallback(() => {
+        applyStageTransform(1, 0, 0);
+    }, [applyStageTransform]);
+
+    const fitView = useCallback(() => {
+        if (!grid) return;
+        const gridPixelW = grid.cols * grid.cellSize;
+        const gridPixelH = grid.rows * grid.cellSize;
+        const availableW = Math.max(320, viewport.width - 24);
+        const availableH = Math.max(320, viewport.height - 24);
+        const scale = clampScale(Math.min(availableW / Math.max(1, gridPixelW), availableH / Math.max(1, gridPixelH), 1));
+        const x = (viewport.width - gridPixelW * scale) / 2 - grid.offsetX * scale;
+        const y = (viewport.height - gridPixelH * scale) / 2 - grid.offsetY * scale;
+        applyStageTransform(scale, x, y);
+    }, [applyStageTransform, grid, viewport.height, viewport.width]);
+
+    const centerSelectedToken = useCallback(() => {
+        if (!grid || !selectedTokenId) return;
+        const stage = stageRef.current;
+        const token = tokens[selectedTokenId];
+        if (!stage || !token) return;
+
+        const scale = clampScale(stage.scaleX() || 1);
+        const tokenSize = Math.max(1, token.gridSize ?? 1);
+        const centerX = (grid.offsetX + (token.col + tokenSize / 2) * grid.cellSize) * scale;
+        const centerY = (grid.offsetY + (token.row + tokenSize / 2) * grid.cellSize) * scale;
+        const x = viewport.width / 2 - centerX;
+        const y = viewport.height / 2 - centerY;
+        applyStageTransform(scale, x, y);
+    }, [applyStageTransform, grid, selectedTokenId, tokens, viewport.height, viewport.width]);
+
+    useEffect(() => {
+        const onCommand = (event: Event) => {
+            const custom = event as CustomEvent;
+            const type = String(custom.type);
+            if (type === 'avalon-map:zoom-in') zoomAtCenter(1);
+            if (type === 'avalon-map:zoom-out') zoomAtCenter(-1);
+            if (type === 'avalon-map:reset') resetView();
+            if (type === 'avalon-map:fit') fitView();
+            if (type === 'avalon-map:center-selected') centerSelectedToken();
+        };
+
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
+            if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
+
+            if (event.key === '+' || event.key === '=') {
+                event.preventDefault();
+                zoomAtCenter(1);
+            } else if (event.key === '-' || event.key === '_') {
+                event.preventDefault();
+                zoomAtCenter(-1);
+            } else if (event.key === '0') {
+                event.preventDefault();
+                resetView();
+            } else if (event.key.toLowerCase() === 'f') {
+                event.preventDefault();
+                fitView();
+            } else if (event.key.toLowerCase() === 'c') {
+                event.preventDefault();
+                centerSelectedToken();
+            }
+        };
+
+        window.addEventListener('avalon-map:zoom-in', onCommand);
+        window.addEventListener('avalon-map:zoom-out', onCommand);
+        window.addEventListener('avalon-map:reset', onCommand);
+        window.addEventListener('avalon-map:fit', onCommand);
+        window.addEventListener('avalon-map:center-selected', onCommand);
+        window.addEventListener('keydown', onKeyDown);
+
+        return () => {
+            window.removeEventListener('avalon-map:zoom-in', onCommand);
+            window.removeEventListener('avalon-map:zoom-out', onCommand);
+            window.removeEventListener('avalon-map:reset', onCommand);
+            window.removeEventListener('avalon-map:fit', onCommand);
+            window.removeEventListener('avalon-map:center-selected', onCommand);
+            window.removeEventListener('keydown', onKeyDown);
+        };
+    }, [centerSelectedToken, fitView, resetView, zoomAtCenter]);
 
     if (!grid) {
         return (
-            <div style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                height: '100vh', color: '#9ca3af', fontSize: '18px', background: '#0f1117',
-            }}>
-                Подключитесь к сессии...
+            <div className="battle-map battle-map--empty">
+                <div className="battle-map__empty-card">
+                    <div className="battle-map__empty-eyebrow">Awaiting session</div>
+                    <h2>Подключитесь к сессии</h2>
+                    <p>После соединения здесь появится карта, инициатива и тактические слои.</p>
+                    <div className="battle-map__empty-hints">
+                        <span className="hud-chip">Join session</span>
+                        <span className="hud-chip">Load map</span>
+                        <span className="hud-chip">Start combat</span>
+                    </div>
+                </div>
             </div>
         );
     }
 
     const gridPixelW = grid.cols * grid.cellSize;
     const gridPixelH = grid.rows * grid.cellSize;
-    const stageW     = Math.max(window.innerWidth,  grid.offsetX + gridPixelW + 100);
-    const stageH     = Math.max(window.innerHeight, grid.offsetY + gridPixelH + 100);
+    const stageW     = Math.max(viewport.width,  grid.offsetX + gridPixelW + 100);
+    const stageH     = Math.max(viewport.height, grid.offsetY + gridPixelH + 100);
 
     const gridLines: React.ReactNode[] = [];
     for (let c = 0; c <= grid.cols; c++) {
@@ -548,11 +714,17 @@ const BattleMap: React.FC = () => {
     }
 
     return (
-        <div style={{ background: '#0f1117', overflow: 'hidden', width: '100vw', height: '100vh' }}>
+        <div className="battle-map" style={{ background: 'transparent', overflow: 'hidden', width: '100vw', height: '100dvh', touchAction: 'none' }}>
             <Stage
                 ref={stageRef}
                 width={stageW}
                 height={stageH}
+                onMouseDown={(e) => {
+                    if (e.target === e.currentTarget) clearSelection();
+                }}
+                onTouchStart={(e) => {
+                    if (e.target === e.currentTarget) clearSelection();
+                }}
                 // FIX: controlled via React state — not overwritten on re-render
                 draggable={stageDraggable}
                 onWheel={(e) => {
@@ -646,9 +818,11 @@ const BattleMap: React.FC = () => {
                             token={token}
                             isMyToken={token.ownerId === myPlayerId}
                             isDm={isDm}
+                            isSelected={token.id === selectedTokenId}
                             cellSize={grid.cellSize}
                             offsetX={grid.offsetX}
                             offsetY={grid.offsetY}
+                            onSelect={() => setSelectedTokenId(token.id)}
                             onDragStart={handleTokenDragStart}
                             onDragEnd={handleDragEnd}
                         />

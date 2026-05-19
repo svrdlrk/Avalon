@@ -1,251 +1,154 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useGameStore } from '../store/gameStore';
-import { wsClient } from '../net/wsClient';
 import { normalizeAssetUrl } from '../utils/assetUrl';
+import { wsClient } from '../net/wsClient';
+import { dispatchMapCommand } from '../utils/mapCommands';
 
-/**
- * InitiativeBar — горизонтальная панель инициативы вверху экрана.
- * - Авто-скролл до активного токена при смене хода.
- * - Число инициативы не показывается (только имя + аватар).
- */
 const InitiativeBar: React.FC = () => {
-    const initiative = useGameStore((s) => s.initiative);
-    const tokens = useGameStore((s) => s.tokens);
-    const myPlayerId = useGameStore((s) => s.myPlayerId);
-    const scrollRef   = useRef<HTMLDivElement>(null);
-    const activeRef   = useRef<HTMLDivElement>(null);
+    const initiative = useGameStore((state) => state.initiative);
+    const tokens = useGameStore((state) => state.tokens);
+    const players = useGameStore((state) => state.players);
+    const myPlayerId = useGameStore((state) => state.myPlayerId);
+    const setSelectedTokenId = useGameStore((state) => state.setSelectedTokenId);
+    const scrollRef = useRef<HTMLDivElement>(null);
+    const activeRef = useRef<HTMLButtonElement>(null);
+    const [isCompactViewport, setIsCompactViewport] = useState(() => {
+        if (typeof window === 'undefined') return false;
+        return window.matchMedia('(max-width: 760px)').matches;
+    });
+    const [isCollapsed, setIsCollapsed] = useState(() => {
+        if (typeof window === 'undefined') return false;
+        return window.matchMedia('(max-width: 760px)').matches;
+    });
 
-    // Auto-scroll to active entry whenever currentIndex changes
     useEffect(() => {
-        if (!activeRef.current || !scrollRef.current) return;
+        if (typeof window === 'undefined') return;
+
+        const compactQuery = window.matchMedia('(max-width: 760px)');
+        const update = () => {
+            setIsCompactViewport(compactQuery.matches);
+            if (compactQuery.matches) {
+                setIsCollapsed(true);
+            }
+        };
+
+        update();
+        compactQuery.addEventListener('change', update);
+        return () => compactQuery.removeEventListener('change', update);
+    }, []);
+
+    useEffect(() => {
+        if (!activeRef.current || !initiative?.entries?.length) return;
+        if (isCollapsed && isCompactViewport) return;
         activeRef.current.scrollIntoView({
             behavior: 'smooth',
             block: 'nearest',
             inline: 'center',
         });
-    }, [initiative?.currentIndex]);
+    }, [initiative?.currentIndex, isCollapsed, isCompactViewport]);
 
     if (!initiative || initiative.entries.length === 0) return null;
 
+    const currentEntry = initiative.entries[initiative.currentIndex];
+    const currentToken = currentEntry ? tokens[currentEntry.tokenId] : null;
+
     return (
-        <div style={styles.bar}>
-            <span style={styles.label}>⚔ Ход</span>
-
-            <div ref={scrollRef} style={styles.scroll}>
-                {initiative.entries.map((entry, idx) => {
-                    const token    = tokens[entry.tokenId];
-                    const isMine   = token?.ownerId === myPlayerId;
-                    const isActive = idx === initiative.currentIndex;
-                    const imgUrl   = normalizeAssetUrl(token?.imageUrl ?? null, wsClient.getServerBaseUrl());
-
-                    return (
-                        <div
-                            key={entry.tokenId + '-' + idx}
-                            ref={isActive ? activeRef : null}
-                            style={{
-                                ...styles.entry,
-                                ...(isActive ? styles.entryActive : {}),
-                                ...(isMine && !isActive ? styles.entryMine : {}),
+        <section className={`initiative-rail ${isCollapsed ? 'initiative-rail--collapsed' : ''}`} aria-label="Initiative order">
+            <div className="initiative-rail__header">
+                <div>
+                    <div className="initiative-rail__eyebrow">Initiative</div>
+                    <div className="initiative-rail__title">
+                        {currentEntry ? `Now acting: ${currentEntry.name}` : 'Initiative active'}
+                    </div>
+                </div>
+                <div className="initiative-rail__header-actions">
+                    <div className="initiative-rail__summary">
+                        {currentToken?.ownerId === myPlayerId ? 'Your turn soon' : 'Combat pacing ready'}
+                    </div>
+                    {currentEntry && (
+                        <button
+                            className="hud-button hud-button--ghost initiative-rail__focus"
+                            type="button"
+                            onClick={() => {
+                                setSelectedTokenId(currentEntry.tokenId);
+                                dispatchMapCommand('center-selected', { tokenId: currentEntry.tokenId });
                             }}
-                            title={entry.name}
                         >
-                            {/* Avatar */}
-                            <div style={{
-                                ...styles.avatar,
-                                border: isActive
-                                    ? '2px solid #f1c40f'
-                                    : isMine
-                                        ? '2px solid #4a90d9'
-                                        : '2px solid #555',
-                            }}>
-                                {imgUrl ? (
-                                    <img
-                                        src={imgUrl}
-                                        alt={entry.name}
-                                        style={styles.avatarImg}
-                                        onError={(e) => {
-                                            (e.target as HTMLImageElement).style.display = 'none';
-                                        }}
-                                    />
-                                ) : (
-                                    <div style={{
-                                        ...styles.avatarFallback,
-                                        background: isActive ? '#c9a227'
-                                            : isMine ? '#2980b9' : '#5a3e28',
-                                    }}>
-                                        {entry.name.charAt(0).toUpperCase()}
-                                    </div>
-                                )}
-
-                                {/* Animated ring on active token */}
-                                {isActive && <div style={styles.activePulse} />}
-                            </div>
-
-                            {/* Name only — no initiative number */}
-                            <div style={{
-                                ...styles.entryName,
-                                color: isActive ? '#f1c40f' : isMine ? '#93c5fd' : '#e5e7eb',
-                                fontWeight: isActive ? 700 : 400,
-                            }}>
-                                {entry.name.length > 7
-                                    ? entry.name.slice(0, 6) + '…'
-                                    : entry.name}
-                            </div>
-
-                            {/* HP bar for own tokens */}
-                            {token && token.maxHp > 0 && isMine && (
-                                <div style={styles.hpBarWrap}>
-                                    <div style={{
-                                        ...styles.hpBarFill,
-                                        width: `${Math.max(0, Math.min(100, (token.hp / token.maxHp) * 100))}%`,
-                                        background: token.hp / token.maxHp > 0.5 ? '#2ecc71'
-                                            : token.hp / token.maxHp > 0.25 ? '#f39c12' : '#e74c3c',
-                                    }} />
-                                </div>
-                            )}
-                        </div>
-                    );
-                })}
+                            Focus active
+                        </button>
+                    )}
+                    <button
+                        className="hud-button hud-button--ghost initiative-rail__toggle"
+                        type="button"
+                        onClick={() => setIsCollapsed((value) => !value)}
+                    >
+                        {isCollapsed ? 'Show turns' : 'Hide turns'}
+                    </button>
+                </div>
             </div>
 
-            {/* Current turn summary */}
-            {initiative.entries[initiative.currentIndex] && (
-                <div style={styles.currentTurn}>
-                    Ход: <strong>{initiative.entries[initiative.currentIndex].name}</strong>
+            {!isCollapsed && (
+                <div ref={scrollRef} className="initiative-rail__scroll initiative-scroll">
+                    {initiative.entries.map((entry, index) => {
+                        const token = tokens[entry.tokenId];
+                        const isMine = token?.ownerId === myPlayerId;
+                        const isActive = index === initiative.currentIndex;
+                        const imgUrl = normalizeAssetUrl(token?.imageUrl ?? null, wsClient.getServerBaseUrl());
+                        const canSeeHp = Boolean(token?.ownerId);
+                        const hpRatio = token && canSeeHp && token.maxHp > 0 ? Math.max(0, Math.min(100, (token.hp / token.maxHp) * 100)) : 100;
+                        const ownerName = token?.ownerId ? players[token.ownerId]?.name : null;
+
+                        return (
+                            <button
+                                key={`${entry.tokenId}-${index}`}
+                                ref={isActive ? activeRef : null}
+                                className={[
+                                    'initiative-card',
+                                    isActive ? 'initiative-card--active' : '',
+                                    isMine && !isActive ? 'initiative-card--mine' : '',
+                                ].filter(Boolean).join(' ')}
+                                type="button"
+                                title={entry.name}
+                                onClick={() => setSelectedTokenId(entry.tokenId)}
+                            >
+                                <div className="initiative-card__avatar" aria-hidden="true">
+                                    {imgUrl ? (
+                                        <img
+                                            src={imgUrl}
+                                            alt={entry.name}
+                                            className="initiative-card__image"
+                                            onError={(event) => {
+                                                (event.target as HTMLImageElement).style.display = 'none';
+                                            }}
+                                        />
+                                    ) : (
+                                        <span className="initiative-card__fallback">{entry.name.charAt(0).toUpperCase()}</span>
+                                    )}
+                                </div>
+
+                                <div className="initiative-card__content">
+                                    <div className="initiative-card__name">{entry.name}</div>
+                                    <div className="initiative-card__meta">
+                                        {entry.initiative}
+                                        {ownerName ? ` · ${ownerName}` : ''}
+                                    </div>
+                                    <div className="initiative-card__track">
+                                        <span
+                                            className={`initiative-card__fill ${canSeeHp ? '' : 'initiative-card__fill--hidden'}`.trim()}
+                                            style={{ width: `${hpRatio}%` }}
+                                            aria-hidden="true"
+                                        />
+                                    </div>
+                                </div>
+
+                                {isActive && <span className="initiative-card__glow" aria-hidden="true" />}
+                            </button>
+                        );
+                    })}
                 </div>
             )}
-        </div>
+        </section>
     );
-};
-
-// ================================================================ styles
-
-const styles: Record<string, React.CSSProperties> = {
-    bar: {
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        zIndex: 100,
-        display: 'flex',
-        alignItems: 'center',
-        gap: '8px',
-        background: 'linear-gradient(to bottom, rgba(8,8,18,0.98), rgba(10,10,20,0.88))',
-        borderBottom: '1px solid rgba(255,255,255,0.08)',
-        padding: '6px 12px',
-        backdropFilter: 'blur(10px)',
-        boxShadow: '0 2px 20px rgba(0,0,0,0.7)',
-        height: '76px',
-        boxSizing: 'border-box',
-    },
-    label: {
-        color: '#c9a227',
-        fontSize: '11px',
-        fontWeight: 700,
-        whiteSpace: 'nowrap',
-        letterSpacing: '0.06em',
-        minWidth: '36px',
-        textTransform: 'uppercase',
-    },
-    scroll: {
-        display: 'flex',
-        alignItems: 'center',
-        gap: '4px',
-        overflowX: 'auto',
-        flex: 1,
-        paddingBottom: '2px',
-        // Hide scrollbar on webkit
-        WebkitOverflowScrolling: 'touch',
-        scrollbarWidth: 'none',
-        msOverflowStyle: 'none',
-    } as React.CSSProperties,
-    entry: {
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        gap: '2px',
-        minWidth: '50px',
-        maxWidth: '50px',
-        padding: '2px 3px',
-        borderRadius: '8px',
-        background: 'rgba(255,255,255,0.03)',
-        transition: 'transform 0.2s ease, background 0.2s ease, box-shadow 0.2s ease',
-        cursor: 'default',
-        flexShrink: 0,
-    },
-    entryActive: {
-        background: 'rgba(241,196,15,0.12)',
-        transform: 'scale(1.1)',
-        boxShadow: '0 0 12px rgba(241,196,15,0.35)',
-    },
-    entryMine: {
-        background: 'rgba(74,144,217,0.1)',
-    },
-    avatar: {
-        width: '36px',
-        height: '36px',
-        borderRadius: '50%',
-        overflow: 'visible',
-        position: 'relative',
-        flexShrink: 0,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    avatarImg: {
-        width: '36px',
-        height: '36px',
-        objectFit: 'cover',
-        borderRadius: '50%',
-    },
-    avatarFallback: {
-        width: '36px',
-        height: '36px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        color: '#fff',
-        fontSize: '15px',
-        fontWeight: 700,
-        borderRadius: '50%',
-    },
-    activePulse: {
-        position: 'absolute',
-        inset: '-4px',
-        borderRadius: '50%',
-        border: '2px solid #f1c40f',
-        animation: 'initiativePulse 1.4s ease-in-out infinite',
-        pointerEvents: 'none',
-    },
-    entryName: {
-        fontSize: '9px',
-        textAlign: 'center',
-        lineHeight: 1.2,
-        maxWidth: '48px',
-        overflow: 'hidden',
-        textOverflow: 'ellipsis',
-        whiteSpace: 'nowrap',
-    },
-    hpBarWrap: {
-        width: '42px',
-        height: '3px',
-        background: 'rgba(0,0,0,0.5)',
-        borderRadius: '2px',
-        overflow: 'hidden',
-    },
-    hpBarFill: {
-        height: '100%',
-        borderRadius: '2px',
-        transition: 'width 0.4s ease',
-    },
-    currentTurn: {
-        color: '#d1d5db',
-        fontSize: '11px',
-        whiteSpace: 'nowrap',
-        minWidth: '110px',
-        textAlign: 'right',
-        paddingRight: '4px',
-    },
 };
 
 export default InitiativeBar;

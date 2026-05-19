@@ -1,5 +1,7 @@
 package com.avalon.dnd.shared;
 
+import com.avalon.dnd.shared.PlacementSizingRules;
+
 public class TokenCreateRequest {
 
     private String name;
@@ -33,7 +35,7 @@ public class TokenCreateRequest {
         this.ownerId = ownerId;
         this.hp = hp;
         this.maxHp = maxHp;
-        this.gridSize = gridSize;
+        this.gridSize = PlacementSizingRules.clampTokenGridSize(gridSize);
         this.imageUrl = imageUrl;
         this.dayVision = Math.max(0, dayVision);
         this.nightVision = Math.max(0, nightVision);
@@ -56,7 +58,7 @@ public class TokenCreateRequest {
     public void setOwnerId(String ownerId) { this.ownerId = ownerId; }
     public void setHp(int hp) { this.hp = hp; }
     public void setMaxHp(int maxHp) { this.maxHp = maxHp; }
-    public void setGridSize(int gridSize) { this.gridSize = gridSize; }
+    public void setGridSize(int gridSize) { this.gridSize = PlacementSizingRules.clampTokenGridSize(gridSize); }
     public void setImageUrl(String imageUrl) { this.imageUrl = imageUrl; }
     public void setDayVision(int dayVision) { this.dayVision = Math.max(0, dayVision); }
     public void setNightVision(int nightVision) { this.nightVision = Math.max(0, nightVision); }

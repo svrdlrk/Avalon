@@ -990,18 +990,15 @@ public class MapEditorCanvas extends Canvas {
         if (url == null || url.isBlank()) return null;
         String resolved = resolveImageSource(url.trim());
         if (resolved == null || resolved.isBlank()) return null;
-        Image image = new Image(resolved, true);
-        image.progressProperty().addListener((obs, oldValue, newValue) -> {
-            if (newValue.doubleValue() >= 1.0) {
-                Platform.runLater(this::requestRender);
+        try {
+            Image image = new Image(resolved, false);
+            if (image.isError() || image.getWidth() <= 0 || image.getHeight() <= 0) {
+                return null;
             }
-        });
-        image.errorProperty().addListener((obs, oldValue, isError) -> {
-            if (Boolean.TRUE.equals(isError)) {
-                Platform.runLater(this::requestRender);
-            }
-        });
-        return image;
+            return image;
+        } catch (Exception ex) {
+            return null;
+        }
     }
 
     private double worldToScreenX(double worldX) {

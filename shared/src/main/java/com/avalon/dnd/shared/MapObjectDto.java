@@ -1,5 +1,7 @@
 package com.avalon.dnd.shared;
 
+import com.avalon.dnd.shared.PlacementSizingRules;
+
 public class MapObjectDto {
 
     private String id;
@@ -37,7 +39,7 @@ public class MapObjectDto {
         this.row = row;
         this.width = width;
         this.height = height;
-        this.gridSize = Math.max(1, Math.min(4, gridSize));
+        this.gridSize = PlacementSizingRules.clampObjectGridSize(gridSize);
         this.imageUrl = imageUrl;
         this.blocksMovement = blocksMovement;
         this.blocksSight = blocksSight;
@@ -54,7 +56,7 @@ public class MapObjectDto {
     public String getMicroLocationId() { return microLocationId; }
     public boolean isBlocksMovement() { return blocksMovement; }
     public boolean isBlocksSight() { return blocksSight; }
-    public void setGridSize(int gridSize) { this.gridSize = Math.max(1, Math.min(4, gridSize)); }
+    public void setGridSize(int gridSize) { this.gridSize = PlacementSizingRules.clampObjectGridSize(gridSize); }
     public void setImageUrl(String imageUrl) { this.imageUrl = imageUrl; }
     public void setMicroLocationId(String microLocationId) { this.microLocationId = microLocationId; }
     public void setBlocksMovement(boolean blocksMovement) { this.blocksMovement = blocksMovement; }

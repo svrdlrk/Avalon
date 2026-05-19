@@ -48,9 +48,13 @@ public class MapProject {
         copy.wallLayer = this.wallLayer == null ? new WallLayer() : this.wallLayer.copy();
         copy.fogSettings = this.fogSettings == null ? new FogSettings() : this.fogSettings.copy();
         copy.backgroundUrl = copy.backgroundLayer.getImageUrl();
-        copy.assetPackIds.addAll(this.assetPackIds);
-        for (MicroLocationDto zone : microLocations) {
-            if (zone != null) copy.microLocations.add(copyMicroLocation(zone));
+        if (this.assetPackIds != null) {
+            copy.assetPackIds.addAll(this.assetPackIds);
+        }
+        if (this.microLocations != null) {
+            for (MicroLocationDto zone : this.microLocations) {
+                if (zone != null) copy.microLocations.add(copyMicroLocation(zone));
+            }
         }
 
         GridConfig gridCopy = new GridConfig();
@@ -67,11 +71,19 @@ public class MapProject {
         }
         copy.grid = gridCopy;
 
-        for (MapLayer layer : layers) {
-            copy.layers.add(layer.copy());
+        if (this.layers != null) {
+            for (MapLayer layer : layers) {
+                if (layer != null) {
+                    copy.layers.add(layer.copy());
+                }
+            }
         }
-        for (MapPlacement placement : placements) {
-            copy.placements.add(placement.copy());
+        if (this.placements != null) {
+            for (MapPlacement placement : placements) {
+                if (placement != null) {
+                    copy.placements.add(placement.copy());
+                }
+            }
         }
         if (copy.layers.isEmpty()) {
             copy.ensureDefaultLayers();

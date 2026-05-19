@@ -75,7 +75,7 @@ public class MapObjectService {
                 o.getCol(), o.getRow(),
                 o.getWidth(), o.getHeight(),
                 o.getGridSize(),
-                o.getImageUrl(),
+                AssetUrlNormalizer.normalize(o.getImageUrl()),
                 o.isBlocksMovement(),
                 o.isBlocksSight()
         );

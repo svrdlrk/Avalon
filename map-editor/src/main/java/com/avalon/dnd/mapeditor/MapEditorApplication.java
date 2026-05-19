@@ -5,6 +5,7 @@ import com.avalon.dnd.mapeditor.model.MapProject;
 import com.avalon.dnd.mapeditor.service.AssetCatalogLoader;
 import com.avalon.dnd.mapeditor.service.ProjectRepository;
 import com.avalon.dnd.mapeditor.ui.MapEditorPane;
+import com.avalon.dnd.mapeditor.ui.MapEditorStyles;
 import javafx.application.Application;
 import javafx.geometry.Insets;
 import javafx.scene.Scene;
@@ -47,6 +48,9 @@ public class MapEditorApplication extends Application {
         root.setCenter(tabPane);
 
         Scene scene = new Scene(root, 1440, 900);
+        root.getStyleClass().add("map-editor-app");
+        tabPane.getStyleClass().add("map-editor-tabs");
+        MapEditorStyles.apply(scene);
         stage.setTitle("Avalon Map Editor");
         stage.setScene(scene);
         stage.show();
@@ -90,6 +94,10 @@ public class MapEditorApplication extends Application {
     private void chooseWorkspaceAndOpen(Stage owner) {
         DirectoryChooser chooser = new DirectoryChooser();
         chooser.setTitle("Open map workspace");
+        Path finished = repository.finishedDir();
+        if (Files.isDirectory(finished)) {
+            chooser.setInitialDirectory(finished.toFile());
+        }
         var dir = chooser.showDialog(owner);
         if (dir == null) {
             return;
@@ -173,15 +181,12 @@ public class MapEditorApplication extends Application {
         alert.showAndWait();
     }
 
-    private void showInfo(String title, String message) {
-        Alert alert = new Alert(Alert.AlertType.INFORMATION);
-        alert.setTitle(title);
-        alert.setHeaderText(title);
-        alert.setContentText(message);
-        alert.showAndWait();
-    }
 
     public static void main(String[] args) {
+        String os = System.getProperty("os.name", "").toLowerCase();
+        if (os.contains("win")) {
+            System.setProperty("prism.order", "sw");
+        }
         launch(args);
     }
 }

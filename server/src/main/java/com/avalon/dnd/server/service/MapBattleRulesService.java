@@ -5,9 +5,12 @@ import com.avalon.dnd.server.model.MapObject;
 import com.avalon.dnd.server.model.Player;
 import com.avalon.dnd.server.model.Token;
 import com.avalon.dnd.shared.GridConfig;
+import com.avalon.dnd.shared.JsonPayloads;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.avalon.dnd.shared.MapLayoutUpdateDto;
 import com.avalon.dnd.shared.MapObjectDto;
 import com.avalon.dnd.shared.TokenDto;
+import com.avalon.dnd.shared.TokenVisibilitySnapshotDto;
 import com.avalon.dnd.shared.VisibilityShareSuggestionDto;
 import com.avalon.dnd.shared.VisibilityStateDto;
 import org.springframework.stereotype.Service;
@@ -26,7 +29,7 @@ import java.util.stream.Collectors;
 /**
  * Server-side gameplay rules derived from map-editor metadata.
  * Keeps the implementation independent from the editor module by reading
- * opaque JSON-like objects (LinkedHashMap / ArrayList) produced by Jackson.
+ * opaque JsonNode payloads and converting them to maps/lists only at the boundary.
  */
 @Service
 public class MapBattleRulesService {
@@ -73,14 +76,10 @@ public class MapBattleRulesService {
             return false;
         }
 
-        for (Cell step : lineCells(token.getCol(), token.getRow(), toCol, toRow)) {
-            if (intersectsBlocked(blocked, step.col, step.row, size, size)) {
-                return false;
-            }
-            if (intersectsAnyToken(session, token.getId(), step.col, step.row, size, size)) {
-                return false;
-            }
-        }
+        // Only validate the destination rectangle here. Path-based blocking
+        // caused overly strict rejections on imported maps (especially when
+        // walls/terrain metadata is dense). The destination still cannot land
+        // inside blocked geometry or overlap other tokens.
         return true;
     }
 
@@ -103,6 +102,7 @@ public class MapBattleRulesService {
             session.setSharedVisibilityState(result.sharedState());
             session.setVisibilityShareSuggestions(result.suggestions());
             session.setVisibilityState(result.mergedState());
+            updateNpcFacing(session);
         }
         return result.mergedState();
     }
@@ -140,7 +140,7 @@ public class MapBattleRulesService {
                 session.getGrid(),
                 session.getTokens().values().stream().map(this::toTokenDto).toList(),
                 session.getObjects().values().stream().map(this::toObjectDto).toList(),
-                session.getBackgroundUrl(),
+                AssetUrlNormalizer.normalize(session.getBackgroundUrl()),
                 visibility,
                 session.getReferenceOverlayLayer(),
                 session.getTerrainLayer(),
@@ -164,7 +164,7 @@ public class MapBattleRulesService {
 
         int rows = Math.max(0, grid.getRows());
         int cols = Math.max(0, grid.getCols());
-        Object fogSettings = session == null ? null : session.getFogSettings();
+        JsonNode fogSettings = session == null ? null : session.getFogSettings();
         boolean enabled = isFogEnabled(fogSettings);
         boolean revealFromTokens = isRevealFromTokensEnabled(fogSettings);
         boolean retainExploredCells = isRetainExploredCellsEnabled(fogSettings);
@@ -384,7 +384,7 @@ public class MapBattleRulesService {
     }
 
     private Map<String, List<VisibilitySource>> buildSourcesByPlayer(GameSession session,
-                                                                      Object fogSettings,
+                                                                      JsonNode fogSettings,
                                                                       boolean revealFromTokens) {
         Map<String, List<VisibilitySource>> sourcesByPlayer = new LinkedHashMap<>();
         if (session == null || !revealFromTokens) {
@@ -410,7 +410,7 @@ public class MapBattleRulesService {
     private VisibilityStateDto buildVisibilityStateForSources(GameSession session,
                                                               int rows,
                                                               int cols,
-                                                              Object fogSettings,
+                                                              JsonNode fogSettings,
                                                               boolean retainExploredCells,
                                                               VisibilityStateDto previous,
                                                               Collection<VisibilitySource> sources) {
@@ -463,7 +463,7 @@ public class MapBattleRulesService {
                                                      boolean retainExploredCells,
                                                      VisibilityStateDto previous) {
         LinkedHashSet<String> explored = new LinkedHashSet<>();
-        LinkedHashMap<String, TokenDto> tokenSnapshots = new LinkedHashMap<>();
+        LinkedHashMap<String, TokenVisibilitySnapshotDto> tokenSnapshots = new LinkedHashMap<>();
         LinkedHashMap<String, MapObjectDto> objectSnapshots = new LinkedHashMap<>();
 
         if (retainExploredCells && previous != null) {
@@ -489,7 +489,7 @@ public class MapBattleRulesService {
                 if (token == null) return;
                 int gs = Math.max(1, token.getGridSize());
                 if (isAnyCellVisible(visible, token.getCol(), token.getRow(), gs, gs)) {
-                    tokenSnapshots.put(token.getId(), toTokenDto(token));
+                    tokenSnapshots.put(token.getId(), toTokenSnapshotDto(token));
                 }
             });
             session.getObjects().values().forEach(obj -> {
@@ -648,7 +648,7 @@ public class MapBattleRulesService {
         LinkedHashSet<String> explored = new LinkedHashSet<>();
         if (left.getExploredCells() != null) explored.addAll(left.getExploredCells());
         if (right.getExploredCells() != null) explored.addAll(right.getExploredCells());
-        LinkedHashMap<String, TokenDto> tokenSnapshots = new LinkedHashMap<>();
+        LinkedHashMap<String, TokenVisibilitySnapshotDto> tokenSnapshots = new LinkedHashMap<>();
         if (left.getTokenSnapshots() != null) tokenSnapshots.putAll(left.getTokenSnapshots());
         if (right.getTokenSnapshots() != null) tokenSnapshots.putAll(right.getTokenSnapshots());
         LinkedHashMap<String, MapObjectDto> objectSnapshots = new LinkedHashMap<>();
@@ -739,8 +739,9 @@ public class MapBattleRulesService {
                 .toList();
     }
 
-    private boolean isNightMode(Object fogSettings) {
-        if (fogSettings instanceof Map<?, ?> fogMap) {
+    private boolean isNightMode(JsonNode fogSettings) {
+        Map<String, Object> fogMap = JsonPayloads.toMap(fogSettings);
+        if (!fogMap.isEmpty()) {
             Object value = fogMap.get("timeOfDay");
             if (value instanceof String text) {
                 String normalized = text.trim().toLowerCase();
@@ -776,8 +777,9 @@ public class MapBattleRulesService {
         return Math.max(0, radius);
     }
 
-    private int resolveSharedVisionDistance(Object fogSettings, int fallback) {
-        if (fogSettings instanceof Map<?, ?> fogMap) {
+    private int resolveSharedVisionDistance(JsonNode fogSettings, int fallback) {
+        Map<String, Object> fogMap = JsonPayloads.toMap(fogSettings);
+        if (!fogMap.isEmpty()) {
             int distance = readInt(firstNonNull(
                     fogMap.get("sharedVisionDistance"),
                     fogMap.get("visibilityGroupDistance"),
@@ -797,34 +799,107 @@ public class MapBattleRulesService {
         return null;
     }
 
-    private boolean isFogEnabled(Object fogSettings) {
-        if (fogSettings instanceof Map<?, ?> fogMap) {
+    private boolean isFogEnabled(JsonNode fogSettings) {
+        Map<String, Object> fogMap = JsonPayloads.toMap(fogSettings);
+        if (!fogMap.isEmpty()) {
             return readBoolean(fogMap.get("enabled"), true);
         }
         return true;
     }
 
-    private boolean isRevealFromTokensEnabled(Object fogSettings) {
-        if (fogSettings instanceof Map<?, ?> fogMap) {
+    private boolean isRevealFromTokensEnabled(JsonNode fogSettings) {
+        Map<String, Object> fogMap = JsonPayloads.toMap(fogSettings);
+        if (!fogMap.isEmpty()) {
             return readBoolean(fogMap.get("revealFromTokens"), true);
         }
         return true;
     }
 
-    private boolean isRetainExploredCellsEnabled(Object fogSettings) {
-        if (fogSettings instanceof Map<?, ?> fogMap) {
+    private boolean isRetainExploredCellsEnabled(JsonNode fogSettings) {
+        Map<String, Object> fogMap = JsonPayloads.toMap(fogSettings);
+        if (!fogMap.isEmpty()) {
             return readBoolean(fogMap.get("retainExploredCells"), true);
         }
         return true;
     }
 
     private TokenDto toTokenDto(Token t) {
-        return new TokenDto(
+        TokenDto dto = new TokenDto(
                 t.getId(), t.getName(), t.getCol(), t.getRow(), t.getOwnerId(),
                 t.getHp(), t.getMaxHp(),
                 t.getGridSize(), t.getImageUrl(),
                 t.getDayVision(), t.getNightVision()
         );
+        dto.setFacingAngleDeg(t.getFacingAngleDeg());
+        return dto;
+    }
+
+    private TokenVisibilitySnapshotDto toTokenSnapshotDto(Token t) {
+        TokenVisibilitySnapshotDto dto = new TokenVisibilitySnapshotDto(
+                t.getId(), t.getName(), t.getCol(), t.getRow(), t.getOwnerId(),
+                t.getHp(), t.getMaxHp(),
+                t.getGridSize(), t.getImageUrl(),
+                t.getDayVision(), t.getNightVision(),
+                t.getFacingAngleDeg()
+        );
+        return dto;
+    }
+
+    private void updateNpcFacing(GameSession session) {
+        if (session == null || session.getTokens() == null || session.getTokens().isEmpty()) {
+            return;
+        }
+        GridConfig grid = session.getGrid();
+        if (grid == null) {
+            return;
+        }
+        boolean nightMode = isNightMode(session.getFogSettings());
+        boolean[][] blockers = buildBlockedCells(session, true);
+        for (Token npc : session.getTokens().values()) {
+            if (npc == null || npc.getOwnerId() != null) continue;
+            int angle = computeNpcFacingAngle(session, npc, blockers, nightMode);
+            if (angle != Integer.MIN_VALUE) {
+                npc.setFacingAngleDeg(angle);
+            }
+        }
+    }
+
+    private int computeNpcFacingAngle(GameSession session, Token npc, boolean[][] blockers, boolean nightMode) {
+        if (session == null || npc == null) {
+            return Integer.MIN_VALUE;
+        }
+        double originX = npc.getCol() + Math.max(1, npc.getGridSize()) / 2.0;
+        double originY = npc.getRow() + Math.max(1, npc.getGridSize()) / 2.0;
+        int radius = resolveVisionRadius(npc, nightMode, 6);
+        double bestDistSq = Double.POSITIVE_INFINITY;
+        Integer bestAngle = null;
+        for (Token playerToken : session.getTokens().values()) {
+            if (playerToken == null || playerToken.getOwnerId() == null) continue;
+            double targetX = playerToken.getCol() + Math.max(1, playerToken.getGridSize()) / 2.0;
+            double targetY = playerToken.getRow() + Math.max(1, playerToken.getGridSize()) / 2.0;
+            double dx = targetX - originX;
+            double dy = targetY - originY;
+            double distSq = dx * dx + dy * dy;
+            if (radius > 0 && distSq > (double) radius * radius) continue;
+            int targetCol = (int) Math.round(targetX);
+            int targetRow = (int) Math.round(targetY);
+            if (blockers != null && !hasLineOfSight((int) Math.round(originX), (int) Math.round(originY), targetCol, targetRow, blockers)) {
+                continue;
+            }
+            if (distSq < bestDistSq) {
+                bestDistSq = distSq;
+                // Image faces down by default, so rotate relative to that orientation.
+                bestAngle = normalizeFacingAngleDeg(Math.toDegrees(Math.atan2(dy, dx)) - 90.0);
+            }
+        }
+        return bestAngle == null ? Integer.MIN_VALUE : bestAngle;
+    }
+
+    private int normalizeFacingAngleDeg(double angle) {
+        int normalized = (int) Math.round(angle) % 360;
+        if (normalized <= -180) normalized += 360;
+        if (normalized > 180) normalized -= 360;
+        return normalized;
     }
 
     private MapObjectDto toObjectDto(MapObject o) {
@@ -840,6 +915,9 @@ public class MapBattleRulesService {
     }
 
     private boolean[][] buildBlockedCells(GameSession session, boolean forSight) {
+        if (session == null || session.getGrid() == null) {
+            return new boolean[0][0];
+        }
         GridConfig grid = session.getGrid();
         int rows = Math.max(0, grid.getRows());
         int cols = Math.max(0, grid.getCols());
@@ -852,8 +930,8 @@ public class MapBattleRulesService {
             markRect(blocked, obj.getCol(), obj.getRow(), Math.max(1, obj.getWidth()), Math.max(1, obj.getHeight()));
         }
 
-        Object terrainLayer = session.getTerrainLayer();
-        if (terrainLayer instanceof Map<?, ?> terrainMap) {
+        Map<String, Object> terrainMap = JsonPayloads.toMap(session.getTerrainLayer());
+        if (!terrainMap.isEmpty()) {
             Object cells = terrainMap.get("cells");
             if (cells instanceof List<?> list) {
                 for (Object cellObj : list) {
@@ -871,8 +949,8 @@ public class MapBattleRulesService {
             }
         }
 
-        Object wallLayer = session.getWallLayer();
-        if (wallLayer instanceof Map<?, ?> wallMap) {
+        Map<String, Object> wallMap = JsonPayloads.toMap(session.getWallLayer());
+        if (!wallMap.isEmpty()) {
             Object paths = wallMap.get("paths");
             if (paths instanceof List<?> list) {
                 double cellSize = Math.max(1.0, grid.getCellSize());

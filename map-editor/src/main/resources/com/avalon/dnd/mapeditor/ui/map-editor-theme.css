@@ -1,0 +1,381 @@
+/* Avalon Map Editor — dark glass / game-editor theme */
+
+* {
+    -fx-font-family: "Inter", "Segoe UI", "Roboto", sans-serif;
+}
+
+.root {
+    -fx-base: #0f172a;
+    -fx-background: #050816;
+    -fx-accent: #d4af37;
+    -fx-focus-color: #d4af37;
+    -fx-faint-focus-color: rgba(212, 175, 55, 0.18);
+}
+
+.label {
+    -fx-text-fill: #dbe5f5;
+}
+
+.map-editor-app,
+.asset-browser-root,
+.editor-workspace,
+.editor-inspector-shell,
+.editor-card,
+.editor-summary-card,
+.editor-panel-shell,
+.editor-toolbar,
+.editor-status-bar,
+.asset-browser-sidebar,
+.asset-browser-main,
+.tab-pane,
+.tool-bar,
+.scroll-pane,
+.split-pane {
+    -fx-background-insets: 0;
+}
+
+.map-editor-app,
+.asset-browser-root,
+.editor-workspace {
+    -fx-background-color:
+        radial-gradient(center 22% 12%, radius 38%, rgba(92, 60, 182, 0.18), transparent),
+        radial-gradient(center 82% 2%, radius 34%, rgba(37, 99, 235, 0.16), transparent),
+        linear-gradient(to bottom, #0a1020, #050816);
+}
+
+.tool-bar {
+    -fx-background-color: linear-gradient(to bottom, rgba(10, 16, 31, 0.96), rgba(7, 12, 22, 0.95));
+    -fx-border-color: rgba(148, 163, 184, 0.16);
+    -fx-border-width: 0 0 1 0;
+    -fx-padding: 0.55em 0.8em 0.7em 0.8em;
+    -fx-spacing: 10;
+}
+
+.tool-bar .label {
+    -fx-text-fill: #cbd5e1;
+}
+
+.map-editor-tabs .tab-header-area .tab-header-background {
+    -fx-background-color: linear-gradient(to bottom, rgba(8, 13, 25, 0.96), rgba(5, 8, 16, 0.96));
+    -fx-border-color: rgba(148, 163, 184, 0.12);
+    -fx-border-width: 0 0 1 0;
+}
+
+.tab-pane .tab {
+    -fx-background-color: rgba(15, 23, 42, 0.90);
+    -fx-background-radius: 12 12 0 0;
+    -fx-border-color: rgba(148, 163, 184, 0.12);
+    -fx-border-width: 1 1 0 1;
+}
+
+.tab-pane .tab:selected {
+    -fx-background-color: rgba(25, 36, 57, 0.98);
+    -fx-border-color: rgba(212, 175, 55, 0.45);
+}
+
+.tab-pane .tab .tab-label {
+    -fx-text-fill: #dbe5f5;
+    -fx-font-weight: 700;
+}
+
+.button,
+.toggle-button {
+    -fx-background-color: linear-gradient(to bottom, rgba(30, 41, 59, 0.98), rgba(15, 23, 42, 0.98));
+    -fx-text-fill: #e8eef8;
+    -fx-background-radius: 12;
+    -fx-border-radius: 12;
+    -fx-border-color: rgba(148, 163, 184, 0.16);
+    -fx-border-width: 1;
+    -fx-padding: 0.5em 0.95em;
+}
+
+.button:hover,
+.toggle-button:hover {
+    -fx-background-color: linear-gradient(to bottom, rgba(41, 55, 81, 1), rgba(24, 33, 49, 1));
+    -fx-border-color: rgba(212, 175, 55, 0.55);
+}
+
+.button:pressed,
+.toggle-button:pressed {
+    -fx-background-color: linear-gradient(to bottom, rgba(12, 18, 29, 1), rgba(18, 24, 35, 1));
+}
+
+.toggle-button:selected {
+    -fx-background-color: linear-gradient(to bottom, rgba(212, 175, 55, 0.96), rgba(160, 123, 18, 0.98));
+    -fx-text-fill: #0b1020;
+    -fx-font-weight: 800;
+}
+
+.primary-action,
+.asset-browser-primary {
+    -fx-background-color: linear-gradient(to bottom, rgba(212, 175, 55, 0.98), rgba(160, 123, 18, 0.98));
+    -fx-text-fill: #0b1020;
+    -fx-font-weight: 800;
+}
+
+.primary-action--disabled {
+    -fx-opacity: 0.55;
+}
+
+.text-field,
+.combo-box-base,
+.spinner,
+.list-view,
+.tree-view,
+.table-view,
+.choice-box {
+    -fx-background-color: rgba(12, 18, 30, 0.96);
+    -fx-control-inner-background: rgba(12, 18, 30, 0.96);
+    -fx-text-fill: #e5edf8;
+    -fx-border-color: rgba(148, 163, 184, 0.18);
+    -fx-border-radius: 12;
+    -fx-background-radius: 12;
+}
+
+.text-field:focused,
+.combo-box-base:focused,
+.spinner:focused,
+.list-view:focused,
+.tree-view:focused,
+.table-view:focused {
+    -fx-border-color: rgba(212, 175, 55, 0.65);
+}
+
+.combo-box .list-cell,
+.combo-box .button-cell,
+.list-cell,
+.table-cell,
+.tree-cell {
+    -fx-text-fill: #e5edf8;
+    -fx-background-color: transparent;
+}
+
+.scroll-pane,
+.scroll-pane .viewport,
+.scroll-pane .content {
+    -fx-background: transparent;
+    -fx-background-color: transparent;
+}
+
+.editor-side-scroll,
+.editor-panel-scroll,
+.asset-browser-tree,
+.asset-browser-list {
+    -fx-background: transparent;
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+}
+
+.split-pane,
+.split-pane-divider {
+    -fx-background-color: transparent;
+}
+
+.split-pane-divider {
+    -fx-background-color: rgba(148, 163, 184, 0.14);
+    -fx-padding: 0 1 0 1;
+}
+
+.editor-toolbar {
+    -fx-background-color: linear-gradient(to bottom, rgba(10, 16, 31, 0.98), rgba(7, 12, 22, 0.96));
+    -fx-border-color: rgba(148, 163, 184, 0.16);
+    -fx-border-width: 1;
+    -fx-border-radius: 22;
+    -fx-background-radius: 22;
+    -fx-padding: 14 16 14 16;
+    -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.28), 24, 0.24, 0, 10);
+}
+
+.editor-page-title {
+    -fx-font-size: 20px;
+    -fx-font-weight: 900;
+    -fx-text-fill: #f8fafc;
+}
+
+.editor-page-subtitle {
+    -fx-font-size: 12px;
+    -fx-text-fill: #94a3b8;
+}
+
+.editor-header-title .label:first-child {
+    -fx-font-size: 17px;
+    -fx-font-weight: 800;
+    -fx-text-fill: #f8fafc;
+}
+
+.editor-header-title .label:last-child {
+    -fx-text-fill: #9fb0c8;
+    -fx-font-size: 12px;
+}
+
+.editor-toolbar-group-shell {
+    -fx-background-color: rgba(11, 17, 29, 0.82);
+    -fx-border-color: rgba(148, 163, 184, 0.14);
+    -fx-background-radius: 18;
+    -fx-border-radius: 18;
+    -fx-padding: 10 12 12 12;
+}
+
+.editor-toolbar-group__title {
+    -fx-font-size: 11px;
+    -fx-font-weight: 800;
+    -fx-text-fill: #9fb0c8;
+}
+
+.editor-toolbar-group__content {
+    -fx-background-color: transparent;
+}
+
+.editor-panel-shell,
+.editor-card,
+.editor-summary-card,
+.editor-inspector-shell,
+.asset-browser-sidebar,
+.asset-browser-main,
+.asset-browser-search {
+    -fx-background-color: rgba(10, 16, 28, 0.94);
+    -fx-border-color: rgba(148, 163, 184, 0.14);
+    -fx-border-radius: 20;
+    -fx-background-radius: 20;
+}
+
+.editor-panel-shell {
+    -fx-padding: 12;
+}
+
+.editor-panel-shell__title,
+.editor-panel-title {
+    -fx-font-size: 15px;
+    -fx-font-weight: 800;
+    -fx-text-fill: #f8fafc;
+}
+
+.editor-panel-hint {
+    -fx-text-fill: #94a3b8;
+    -fx-font-size: 12px;
+}
+
+.editor-panel-note {
+    -fx-text-fill: #cbd5e1;
+    -fx-font-size: 11px;
+}
+
+.editor-summary-card {
+    -fx-padding: 12;
+}
+
+.editor-inspector-shell {
+    -fx-padding: 0;
+    -fx-background-color: rgba(8, 13, 25, 0.72);
+}
+
+.editor-status-bar {
+    -fx-background-color: linear-gradient(to bottom, rgba(8, 12, 20, 0.96), rgba(6, 10, 18, 0.96));
+    -fx-border-color: rgba(148, 163, 184, 0.12);
+    -fx-border-width: 1 0 0 0;
+    -fx-padding: 10 14 10 14;
+    -fx-spacing: 12;
+}
+
+.editor-status-bar .label,
+.tool-chip,
+.status-chip,
+.workspace-hint,
+.asset-browser-hint,
+.asset-browser-count {
+    -fx-text-fill: #c9d6ea;
+}
+
+.workspace-hint,
+.asset-browser-hint {
+    -fx-font-size: 11px;
+}
+
+.status-chip {
+    -fx-background-color: rgba(15, 23, 42, 0.96);
+    -fx-border-color: rgba(148, 163, 184, 0.16);
+    -fx-border-radius: 999;
+    -fx-background-radius: 999;
+    -fx-padding: 0.35em 0.8em;
+}
+
+.editor-canvas-scroll {
+    -fx-background: transparent;
+    -fx-background-color: transparent;
+    -fx-border-color: rgba(148, 163, 184, 0.14);
+    -fx-border-radius: 20;
+    -fx-background-radius: 20;
+}
+
+.editor-canvas-scroll .viewport {
+    -fx-background-color: #111827;
+}
+
+.editor-workspace {
+    -fx-background-color: #0b1220;
+}
+
+.accordion .titled-pane > .title {
+    -fx-background-color: linear-gradient(to bottom, rgba(15, 23, 42, 0.96), rgba(10, 16, 28, 0.96));
+    -fx-background-radius: 12 12 0 0;
+    -fx-text-fill: #edf2ff;
+    -fx-border-color: rgba(148, 163, 184, 0.12);
+    -fx-padding: 0.35em 0.65em 0.35em 0.85em;
+}
+
+.accordion .titled-pane > .content {
+    -fx-background-color: rgba(8, 13, 25, 0.96);
+    -fx-border-color: rgba(148, 163, 184, 0.12);
+    -fx-padding: 0.15em 0.15em 0.25em 0.15em;
+}
+
+.accordion .titled-pane .title .text {
+    -fx-fill: #e5edf8;
+    -fx-font-weight: 700;
+}
+
+.grid-pane .label,
+.vbox .label,
+.hbox .label {
+    -fx-text-fill: #dbe5f5;
+}
+
+.list-view .virtual-flow .scroll-bar,
+.tree-view .virtual-flow .scroll-bar,
+.table-view .virtual-flow .scroll-bar {
+    -fx-background-color: transparent;
+}
+
+.asset-browser-root {
+    -fx-padding: 14;
+}
+
+.asset-browser-search {
+    -fx-padding: 0.9em 1em;
+}
+
+.asset-browser-sidebar,
+.asset-browser-main {
+    -fx-padding: 12;
+}
+
+.asset-browser-tree .tree-cell:selected,
+.asset-browser-list .list-cell:selected {
+    -fx-background-color: rgba(212, 175, 55, 0.16);
+    -fx-text-fill: #fff4c5;
+}
+
+.asset-browser-secondary {
+    -fx-background-color: linear-gradient(to bottom, rgba(30, 41, 59, 0.98), rgba(15, 23, 42, 0.98));
+}
+
+.asset-browser-cell__title {
+    -fx-font-size: 13px;
+    -fx-font-weight: 800;
+    -fx-text-fill: #f8fafc;
+}
+
+.asset-browser-cell__subtitle {
+    -fx-font-size: 11px;
+    -fx-text-fill: #94a3b8;
+}

@@ -1,5 +1,7 @@
 package com.avalon.dnd.mapeditor.model;
 
+import com.avalon.dnd.shared.PlacementSizingRules;
+
 public class MapPlacement {
 
     private String id;
@@ -184,7 +186,7 @@ public class MapPlacement {
     public void setNpc(boolean npc) { this.npc = npc; }
 
     private void syncTokenSize(int size) {
-        int normalized = Math.max(1, Math.min(10, size));
+        int normalized = PlacementSizingRules.clampTokenGridSize(size);
         this.gridSize = normalized;
         if (isTokenKind()) {
             this.width = normalized;

@@ -5,12 +5,19 @@ import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.stage.Stage;
 
+import java.util.concurrent.atomic.AtomicBoolean;
+
 public class DmApp extends Application {
+
+    private final AtomicBoolean launcherClosedNotified = new AtomicBoolean(false);
+    private MainStage mainStage;
+
     @Override
-    public void start(Stage primaryStage) throws Exception {
-        // Вызываем твой крутой интерфейс
-        new MainStage(primaryStage).show();
+    public void start(Stage primaryStage) {
+        mainStage = new MainStage(primaryStage);
+        mainStage.show();
         primaryStage.setOnCloseRequest(event -> {
+            disposeMainStage();
             notifyLauncherClosed();
             Platform.exit();
             System.exit(0);
@@ -20,11 +27,23 @@ public class DmApp extends Application {
 
     @Override
     public void stop() {
+        disposeMainStage();
         notifyLauncherClosed();
         System.out.println("DM-клиент закрыт");
     }
 
+    private void disposeMainStage() {
+        if (mainStage != null) {
+            mainStage.dispose();
+            mainStage = null;
+        }
+    }
+
     private void notifyLauncherClosed() {
+        if (!launcherClosedNotified.compareAndSet(false, true)) {
+            return;
+        }
+
         String controlUrl = System.getProperty("avalon.launcher.controlUrl");
         if (controlUrl == null || controlUrl.isBlank()) {
             controlUrl = System.getenv("AVALON_LAUNCHER_CONTROL_URL");

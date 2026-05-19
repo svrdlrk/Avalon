@@ -1,0 +1,223 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { DEFAULT_SERVER_BASE_URL, suggestServerBaseUrl } from '../config/runtime';
+import { wsClient } from '../net/wsClient';
+import { useGameStore } from '../store/gameStore';
+
+const STORAGE_KEYS = {
+    serverUrl: 'avalon.connection.serverUrl',
+    sessionId: 'avalon.connection.sessionId',
+    playerName: 'avalon.connection.playerName',
+    isDm: 'avalon.connection.isDm',
+    autoConnect: 'avalon.connection.autoConnect',
+};
+
+const DEFAULT_GRID = { cellSize: 64, cols: 20, rows: 20, offsetX: 0, offsetY: 0 };
+
+function safeTrim(value: string): string {
+    return value.trim();
+}
+
+function readSavedValue(key: string, fallback = ''): string {
+    if (typeof window === 'undefined' || typeof localStorage === 'undefined') {
+        return fallback;
+    }
+    try {
+        return localStorage.getItem(key) ?? fallback;
+    } catch {
+        return fallback;
+    }
+}
+
+function readInitialConnectionState() {
+    const savedServerUrl = readSavedValue(STORAGE_KEYS.serverUrl, DEFAULT_SERVER_BASE_URL);
+    const savedSessionId = readSavedValue(STORAGE_KEYS.sessionId);
+    const savedPlayerName = readSavedValue(STORAGE_KEYS.playerName);
+    const savedIsDm = readSavedValue(STORAGE_KEYS.isDm, 'false');
+    const savedAutoConnect = readSavedValue(STORAGE_KEYS.autoConnect, 'false');
+
+    return {
+        serverUrl: suggestServerBaseUrl(savedServerUrl),
+        sessionId: savedSessionId,
+        playerName: savedPlayerName,
+        isDm: savedIsDm === 'true',
+        autoConnect: savedAutoConnect === 'true',
+    };
+}
+
+function persistConnectionState(serverUrl: string, sessionId: string, playerName: string, isDm: boolean, autoConnect: boolean) {
+    if (typeof window === 'undefined' || typeof localStorage === 'undefined') {
+        return;
+    }
+    try {
+        localStorage.setItem(STORAGE_KEYS.serverUrl, serverUrl);
+        localStorage.setItem(STORAGE_KEYS.sessionId, sessionId);
+        localStorage.setItem(STORAGE_KEYS.playerName, playerName);
+        localStorage.setItem(STORAGE_KEYS.isDm, String(isDm));
+        localStorage.setItem(STORAGE_KEYS.autoConnect, String(autoConnect));
+    } catch {
+        // Ignore storage failures in private mode / denied storage.
+    }
+}
+
+function resetGameStore() {
+    useGameStore.setState({
+        sessionId: null,
+        myPlayerId: null,
+        selectedTokenId: null,
+        grid: DEFAULT_GRID,
+        tokens: {},
+        objects: {},
+        players: {},
+        backgroundUrl: null,
+        initiative: null,
+        referenceOverlayLayer: null,
+        terrainLayer: null,
+        wallLayer: null,
+        fogSettings: null,
+        visibility: null,
+        visibilityShareSuggestions: [],
+        microLocations: [],
+        assetPackIds: [],
+    });
+}
+
+export interface UseConnectionStateResult {
+    serverUrl: string;
+    sessionId: string;
+    playerName: string;
+    isDm: boolean;
+    autoConnect: boolean;
+    status: string | null;
+    isConnected: boolean;
+    canConnect: boolean;
+    connectionSummary: string;
+    setServerUrl: (value: string) => void;
+    setSessionId: (value: string) => void;
+    setPlayerName: (value: string) => void;
+    setIsDm: (value: boolean) => void;
+    setAutoConnect: (value: boolean) => void;
+    connect: () => boolean;
+    disconnect: () => void;
+    copySessionId: () => Promise<boolean>;
+}
+
+export function useConnectionState(): UseConnectionStateResult {
+    const initial = useMemo(readInitialConnectionState, []);
+    const [serverUrl, setServerUrl] = useState(() => initial.serverUrl);
+    const [sessionId, setSessionId] = useState(() => initial.sessionId);
+    const [playerName, setPlayerName] = useState(() => initial.playerName);
+    const [isDm, setIsDm] = useState(() => initial.isDm);
+    const [autoConnect, setAutoConnect] = useState(() => initial.autoConnect);
+    const [status, setStatus] = useState<string | null>(null);
+    const autoConnectAttempted = useRef(false);
+    const storeSessionId = useGameStore((state) => state.sessionId);
+    const storePlayerId = useGameStore((state) => state.myPlayerId);
+    const isConnected = storeSessionId != null && storePlayerId != null;
+
+    useEffect(() => {
+        persistConnectionState(serverUrl, sessionId, playerName, isDm, autoConnect);
+    }, [serverUrl, sessionId, playerName, isDm, autoConnect]);
+
+    const canConnect = safeTrim(sessionId).length > 0 && safeTrim(playerName).length > 0;
+
+    const connectionSummary = useMemo(() => {
+        const trimmed = safeTrim(sessionId);
+        if (!trimmed) {
+            return 'Not connected';
+        }
+        return `${trimmed.slice(0, 8)}${trimmed.length > 8 ? '…' : ''}`;
+    }, [sessionId]);
+
+    const connect = useCallback(() => {
+        if (!canConnect) {
+            setStatus('Enter session ID and name');
+            return false;
+        }
+
+        const normalizedServer = suggestServerBaseUrl(serverUrl) || DEFAULT_SERVER_BASE_URL;
+        const normalizedSessionId = safeTrim(sessionId);
+        const normalizedPlayerName = safeTrim(playerName);
+
+        setServerUrl(normalizedServer);
+        setSessionId(normalizedSessionId);
+        setPlayerName(normalizedPlayerName);
+        persistConnectionState(normalizedServer, normalizedSessionId, normalizedPlayerName, isDm, autoConnect);
+        setStatus('Connecting…');
+
+        wsClient.connect(
+            normalizedServer,
+            normalizedSessionId,
+            normalizedPlayerName,
+            isDm,
+            () => {
+                setStatus(null);
+            },
+        );
+        return true;
+    }, [autoConnect, canConnect, serverUrl, sessionId, playerName, isDm]);
+
+    useEffect(() => {
+        if (!autoConnect) {
+            autoConnectAttempted.current = false;
+            return;
+        }
+
+        if (autoConnectAttempted.current || isConnected || !canConnect) {
+            return;
+        }
+
+        autoConnectAttempted.current = true;
+        const timeoutId = window.setTimeout(() => {
+            connect();
+        }, 0);
+
+        return () => window.clearTimeout(timeoutId);
+    }, [autoConnect, canConnect, connect, isConnected]);
+
+    const disconnect = useCallback(() => {
+        wsClient.disconnect();
+        resetGameStore();
+        setStatus('Disconnected');
+        setAutoConnect(false);
+    }, []);
+
+    const copySessionId = useCallback(async () => {
+        const value = safeTrim(sessionId);
+        if (!value) {
+            setStatus('No session ID to copy');
+            return false;
+        }
+
+        try {
+            if (!navigator.clipboard?.writeText) {
+                throw new Error('Clipboard unavailable');
+            }
+            await navigator.clipboard.writeText(value);
+            setStatus('Session ID copied');
+            return true;
+        } catch {
+            setStatus('Copy failed');
+            return false;
+        }
+    }, [sessionId]);
+
+    return {
+        serverUrl,
+        sessionId,
+        playerName,
+        isDm,
+        autoConnect,
+        status,
+        isConnected,
+        canConnect,
+        connectionSummary,
+        setServerUrl,
+        setSessionId,
+        setPlayerName,
+        setIsDm,
+        setAutoConnect,
+        connect,
+        disconnect,
+        copySessionId,
+    };
+}

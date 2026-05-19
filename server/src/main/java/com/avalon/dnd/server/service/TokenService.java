@@ -137,14 +137,16 @@ public class TokenService {
 
     // Конвертация модели → DTO
     public static TokenDto toDto(Token t) {
-        return new TokenDto(
+        TokenDto dto = new TokenDto(
                 t.getId(), t.getName(),
                 t.getCol(), t.getRow(),
                 t.getOwnerId(),
                 t.getHp(), t.getMaxHp(),
-                t.getGridSize(), t.getImageUrl(),
+                t.getGridSize(), AssetUrlNormalizer.normalize(t.getImageUrl()),
                 t.getDayVision(), t.getNightVision()
         );
+        dto.setFacingAngleDeg(t.getFacingAngleDeg());
+        return dto;
     }
 
     private boolean canMove(Token token, Player player) {

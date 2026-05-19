@@ -77,20 +77,26 @@ public final class AssetBrowserWindow {
         stage.initModality(effectiveModality);
 
         BorderPane root = new BorderPane();
-        root.setPadding(new Insets(12));
+        root.getStyleClass().add("asset-browser-root");
+        root.setPadding(new Insets(14));
 
         TextField searchField = new TextField();
+        searchField.getStyleClass().add("asset-browser-search");
         searchField.setPromptText("Search assets...");
 
         TreeView<String> categoryTree = new TreeView<>();
+        categoryTree.getStyleClass().add("asset-browser-tree");
         categoryTree.setShowRoot(true);
         categoryTree.setPrefWidth(260);
 
         ListView<AssetDefinition> assetList = new ListView<>();
+        assetList.getStyleClass().add("asset-browser-list");
         assetList.setCellFactory(list -> new AssetCell());
 
         Label countLabel = new Label();
+        countLabel.getStyleClass().add("asset-browser-count");
         Label hintLabel = new Label("Double-click an asset to select it");
+        hintLabel.getStyleClass().add("asset-browser-hint");
 
         List<AssetDefinition> allAssets = catalog == null ? List.of() : catalog.getAssets().stream()
                 .filter(Objects::nonNull)
@@ -142,6 +148,7 @@ public final class AssetBrowserWindow {
         });
 
         Button chooseButton = new Button("Select");
+        chooseButton.getStyleClass().add("asset-browser-primary");
         chooseButton.setDefaultButton(true);
         chooseButton.setOnAction(e -> {
             AssetDefinition selected = assetList.getSelectionModel().getSelectedItem();
@@ -154,6 +161,7 @@ public final class AssetBrowserWindow {
         });
 
         Button closeButton = new Button("Close");
+        closeButton.getStyleClass().add("asset-browser-secondary");
         closeButton.setOnAction(e -> stage.close());
 
         HBox bottomBar = new HBox(10, countLabel, new Separator(), hintLabel, new Separator(), chooseButton, closeButton);
@@ -162,19 +170,22 @@ public final class AssetBrowserWindow {
         HBox.setHgrow(countLabel, Priority.NEVER);
         HBox.setHgrow(hintLabel, Priority.ALWAYS);
 
-        VBox left = new VBox(8, new Label("Catalogs"), categoryTree);
+        VBox left = new VBox(10, new Label("Catalogs"), categoryTree);
+        left.getStyleClass().add("asset-browser-sidebar");
         left.setPrefWidth(260);
         VBox.setVgrow(categoryTree, Priority.ALWAYS);
 
-        VBox center = new VBox(8, new Label("Assets"), assetList, bottomBar);
+        VBox center = new VBox(10, new Label("Assets"), assetList, bottomBar);
+        center.getStyleClass().add("asset-browser-main");
         VBox.setVgrow(assetList, Priority.ALWAYS);
 
         root.setTop(searchField);
-        BorderPane.setMargin(searchField, new Insets(0, 0, 10, 0));
+        BorderPane.setMargin(searchField, new Insets(0, 0, 12, 0));
         root.setLeft(left);
         root.setCenter(center);
 
         Scene scene = new Scene(root, width, height);
+        MapEditorStyles.apply(scene);
         stage.setScene(scene);
         refreshList.run();
         stage.show();
@@ -407,8 +418,8 @@ public final class AssetBrowserWindow {
             imageView.setFitWidth(42);
             imageView.setFitHeight(42);
             imageView.setPreserveRatio(true);
-            title.setStyle("-fx-font-weight: bold;");
-            subtitle.setStyle("-fx-text-fill: -fx-text-inner-color; -fx-opacity: 0.7;");
+            title.getStyleClass().add("asset-browser-cell__title");
+            subtitle.getStyleClass().add("asset-browser-cell__subtitle");
             root.setAlignment(Pos.CENTER_LEFT);
             textBox.setFillWidth(true);
         }

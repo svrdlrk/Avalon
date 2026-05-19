@@ -7,6 +7,7 @@ import com.avalon.dnd.shared.TokenDto;
 import javafx.scene.canvas.Canvas;
 import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.image.Image;
+import javafx.scene.input.MouseButton;
 import javafx.scene.input.MouseEvent;
 import javafx.scene.paint.Color;
 import javafx.scene.text.Font;
@@ -26,6 +27,9 @@ public class BattleMapCanvas extends Canvas {
     private double dragOffsetX, dragOffsetY;
     private Image backgroundImage;
     private String currentBackgroundUrl = null;
+    private double zoom = 1.0;
+    private double offsetX = 0.0;
+    private double offsetY = 0.0;
 
     private final Map<String, Image> imageCache = new LinkedHashMap<>(128, 0.75f, true) {
         @Override
@@ -34,6 +38,16 @@ public class BattleMapCanvas extends Canvas {
         }
     };
     private TokenDto hoveredToken = null;
+    private final Runnable stateChangeListener = this::renderAndResize;
+    private boolean disposed = false;
+
+    private boolean panning = false;
+    private boolean panArmed = false;
+    private double panStartX;
+    private double panStartY;
+    private double panOriginOffsetX;
+    private double panOriginOffsetY;
+    private static final double PAN_THRESHOLD = 5.0;
 
     // FIX: guard flag — prevents renderAndResize from running while a previous
     // resize is still being processed by the JavaFX render thread.
@@ -42,17 +56,36 @@ public class BattleMapCanvas extends Canvas {
     private boolean resizePending = false;
 
     public BattleMapCanvas() {
-        ClientState.getInstance().addChangeListener(this::renderAndResize);
+        ClientState.getInstance().addChangeListener(stateChangeListener);
 
         setOnMousePressed(e -> {
             onMousePressed(e);
-            if (draggingToken != null) e.consume();
+            if (draggingToken != null) {
+                e.consume();
+                return;
+            }
+            if (e.getButton() == MouseButton.MIDDLE || e.isSecondaryButtonDown()) {
+                beginPan(e);
+                e.consume();
+                return;
+            }
+            if (e.getButton() == MouseButton.PRIMARY) {
+                armPan(e);
+            }
         });
         setOnMouseDragged(e -> {
+            if (handlePanDrag(e)) {
+                e.consume();
+                return;
+            }
             onMouseDragged(e);
             e.consume();
         });
         setOnMouseReleased(e -> {
+            if (finishPan(e)) {
+                e.consume();
+                return;
+            }
             onMouseReleased(e);
             e.consume();
         });
@@ -72,10 +105,13 @@ public class BattleMapCanvas extends Canvas {
     // FIX: coalesce rapid resize calls so we never resize a canvas that is
     // still being rendered — avoids the RTTexture NPE on large grids.
     private void renderAndResize() {
-        if (resizePending) return;
+        if (disposed || resizePending) return;
         resizePending = true;
         javafx.application.Platform.runLater(() -> {
             resizePending = false;
+            if (disposed) {
+                return;
+            }
             GridConfig g = grid();
             double width  = g.getOffsetX() + (double) g.getCols() * g.getCellSize();
             double height = g.getOffsetY() + (double) g.getRows() * g.getCellSize();
@@ -92,8 +128,16 @@ public class BattleMapCanvas extends Canvas {
     }
 
     public void render() {
+        if (disposed) {
+            return;
+        }
         GraphicsContext gc = getGraphicsContext2D();
         GridConfig grid = grid();
+
+        gc.save();
+        gc.clearRect(0, 0, getWidth(), getHeight());
+        gc.translate(offsetX, offsetY);
+        gc.scale(zoom, zoom);
 
         if (backgroundImage != null && !backgroundImage.isError()
                 && backgroundImage.getWidth() > 0) {
@@ -111,6 +155,102 @@ public class BattleMapCanvas extends Canvas {
         drawTokens(gc, grid);
         highlightPendingCell(gc, grid);
         if (hoveredToken != null) drawTooltip(gc, grid, hoveredToken);
+        gc.restore();
+    }
+
+    public void panBy(double dx, double dy) {
+        if (disposed) {
+            return;
+        }
+        offsetX += dx;
+        offsetY += dy;
+        render();
+    }
+
+    public void setPan(double x, double y) {
+        if (disposed) {
+            return;
+        }
+        offsetX = x;
+        offsetY = y;
+        render();
+    }
+
+    public boolean isPanning() {
+        return panning;
+    }
+
+    public TokenDto getTokenAt(double screenX, double screenY) {
+        GridConfig grid = grid();
+        int cell = grid.getCellSize();
+        int ox = grid.getOffsetX();
+        int oy = grid.getOffsetY();
+        double worldX = (screenX - offsetX) / zoom;
+        double worldY = (screenY - offsetY) / zoom;
+        int col = (int) ((worldX - ox) / cell);
+        int row = (int) ((worldY - oy) / cell);
+        for (TokenDto t : ClientState.getInstance().getTokens().values()) {
+            int gs = Math.max(1, t.getGridSize());
+            if (col >= t.getCol() && col < t.getCol() + gs
+                    && row >= t.getRow() && row < t.getRow() + gs) {
+                return t;
+            }
+        }
+        return null;
+    }
+
+    private void armPan(MouseEvent e) {
+        panArmed = true;
+        panning = false;
+        panStartX = e.getX();
+        panStartY = e.getY();
+        panOriginOffsetX = offsetX;
+        panOriginOffsetY = offsetY;
+    }
+
+    private void beginPan(MouseEvent e) {
+        panArmed = false;
+        panning = true;
+        panStartX = e.getX();
+        panStartY = e.getY();
+        panOriginOffsetX = offsetX;
+        panOriginOffsetY = offsetY;
+        setCursor(javafx.scene.Cursor.MOVE);
+    }
+
+    private boolean handlePanDrag(MouseEvent e) {
+        if (draggingToken != null) {
+            return false;
+        }
+        if (!panArmed && !panning) {
+            return false;
+        }
+        double dx = e.getX() - panStartX;
+        double dy = e.getY() - panStartY;
+        if (!panning && Math.hypot(dx, dy) >= PAN_THRESHOLD) {
+            panning = true;
+            setCursor(javafx.scene.Cursor.MOVE);
+        }
+        if (!panning) {
+            return false;
+        }
+        offsetX = panOriginOffsetX + dx;
+        offsetY = panOriginOffsetY + dy;
+        render();
+        return true;
+    }
+
+    private boolean finishPan(MouseEvent e) {
+        if (panning || panArmed) {
+            if (panning) {
+                setCursor(javafx.scene.Cursor.DEFAULT);
+            }
+            boolean wasPanning = panning;
+            panArmed = false;
+            panning = false;
+            return wasPanning;
+        }
+        return false;
     }
 
     // ---- grid ----
@@ -155,6 +295,7 @@ public class BattleMapCanvas extends Canvas {
 
         boolean mine  = myId != null && myId.equals(token.getOwnerId());
         boolean isNpc = token.getOwnerId() == null;
+        double facingAngle = token.getFacingAngleDeg();
 
         Color borderColor = mine  ? Color.web("#c9a227")
                 : isNpc ? Color.web("#e74c3c")
@@ -168,10 +309,12 @@ public class BattleMapCanvas extends Canvas {
         Image img = getTokenImage(token);
         if (img != null && !img.isError()) {
             gc.save();
+            gc.translate(x + w / 2, y + h / 2);
+            gc.rotate(facingAngle);
             gc.beginPath();
-            gc.arc(x + w / 2, y + h / 2, w / 2 - 3, h / 2 - 3, 0, 360);
+            gc.arc(0, 0, w / 2 - 3, h / 2 - 3, 0, 360);
             gc.clip();
-            gc.drawImage(img, x + 3, y + 3, w - 6, h - 6);
+            gc.drawImage(img, -w / 2 + 3, -h / 2 + 3, w - 6, h - 6);
             gc.restore();
         } else {
             Color fill = mine ? Color.web("#c9a227")
@@ -303,8 +446,10 @@ public class BattleMapCanvas extends Canvas {
         int cell = grid.getCellSize();
         int ox = grid.getOffsetX();
         int oy = grid.getOffsetY();
-        int col = (int) ((e.getX() - ox) / cell);
-        int row = (int) ((e.getY() - oy) / cell);
+        double worldX = (e.getX() - offsetX) / zoom;
+        double worldY = (e.getY() - offsetY) / zoom;
+        int col = (int) ((worldX - ox) / cell);
+        int row = (int) ((worldY - oy) / cell);
 
         TokenDto found = null;
         for (TokenDto t : ClientState.getInstance().getTokens().values()) {
@@ -322,8 +467,10 @@ public class BattleMapCanvas extends Canvas {
         int cell = grid.getCellSize();
         int ox = grid.getOffsetX();
         int oy = grid.getOffsetY();
-        int col = (int) ((e.getX() - ox) / cell);
-        int row = (int) ((e.getY() - oy) / cell);
+        double worldX = (e.getX() - offsetX) / zoom;
+        double worldY = (e.getY() - offsetY) / zoom;
+        int col = (int) ((worldX - ox) / cell);
+        int row = (int) ((worldY - oy) / cell);
 
         if (col < 0 || col >= grid.getCols() || row < 0 || row >= grid.getRows()) return;
 
@@ -338,8 +485,8 @@ public class BattleMapCanvas extends Canvas {
         if (draggingToken == null) {
             ClientState.getInstance().setPendingPlaceCell(col, row);
         } else {
-            dragOffsetX = e.getX() - (ox + draggingToken.getCol() * cell);
-            dragOffsetY = e.getY() - (oy + draggingToken.getRow() * cell);
+            dragOffsetX = worldX - (ox + draggingToken.getCol() * cell);
+            dragOffsetY = worldY - (oy + draggingToken.getRow() * cell);
         }
     }
 
@@ -349,27 +496,28 @@ public class BattleMapCanvas extends Canvas {
         GraphicsContext gc = getGraphicsContext2D();
         int cell = grid().getCellSize();
         int gs   = Math.max(1, draggingToken.getGridSize());
-        double x = e.getX() - dragOffsetX;
-        double y = e.getY() - dragOffsetY;
-        double w = gs * cell;
+        double worldX = (e.getX() - offsetX) / zoom - dragOffsetX;
+        double worldY = (e.getY() - offsetY) / zoom - dragOffsetY;
+        double screenX = worldX * zoom + offsetX;
+        double screenY = worldY * zoom + offsetY;
+        double drawW = gs * cell * zoom;
 
-        String myId = ClientState.getInstance().getPlayerId();
         gc.setGlobalAlpha(0.7);
         Image img = getTokenImage(draggingToken);
         if (img != null && !img.isError()) {
             gc.save();
             gc.beginPath();
-            gc.arc(x + w / 2, y + w / 2, w / 2 - 3, w / 2 - 3, 0, 360);
+            gc.arc(screenX + drawW / 2, screenY + drawW / 2, drawW / 2 - 3, drawW / 2 - 3, 0, 360);
             gc.clip();
-            gc.drawImage(img, x + 3, y + 3, w - 6, w - 6);
+            gc.drawImage(img, screenX + 3, screenY + 3, drawW - 6, drawW - 6);
             gc.restore();
         } else {
             gc.setFill(Color.web("#4a90d9", 0.6));
-            gc.fillOval(x + 3, y + 3, w - 6, w - 6);
+            gc.fillOval(screenX + 3, screenY + 3, drawW - 6, drawW - 6);
         }
         gc.setStroke(Color.web("#4a90d9"));
         gc.setLineWidth(2);
-        gc.strokeOval(x + 3, y + 3, w - 6, w - 6);
+        gc.strokeOval(screenX + 3, screenY + 3, drawW - 6, drawW - 6);
         gc.setGlobalAlpha(1.0);
     }
 
@@ -382,8 +530,8 @@ public class BattleMapCanvas extends Canvas {
         int oy   = grid.getOffsetY();
         int gs   = Math.max(1, draggingToken.getGridSize());
 
-        double tokenX = e.getX() - dragOffsetX;
-        double tokenY = e.getY() - dragOffsetY;
+        double tokenX = (e.getX() - offsetX) / zoom - dragOffsetX;
+        double tokenY = (e.getY() - offsetY) / zoom - dragOffsetY;
 
         int newCol = (int) Math.round((tokenX - ox) / cell);
         int newRow = (int) Math.round((tokenY - oy) / cell);
@@ -399,8 +547,8 @@ public class BattleMapCanvas extends Canvas {
     }
 
     private void drawReferenceOverlay(GraphicsContext gc) {
-        Object overlay = ClientState.getInstance().getReferenceOverlayLayer();
-        if (!(overlay instanceof java.util.Map<?, ?> map)) {
+        Map<String, Object> map = ClientState.getInstance().getReferenceOverlayLayerMap();
+        if (map == null) {
             return;
         }
 
@@ -432,8 +580,8 @@ public class BattleMapCanvas extends Canvas {
 
 
     private void drawTerrainLayer(GraphicsContext gc) {
-        Object terrain = ClientState.getInstance().getTerrainLayer();
-        if (!(terrain instanceof java.util.Map<?, ?> map)) {
+        Map<String, Object> map = ClientState.getInstance().getTerrainLayerMap();
+        if (map == null) {
             return;
         }
         Object cellsObj = map.get("cells");
@@ -458,8 +606,8 @@ public class BattleMapCanvas extends Canvas {
     }
 
     private void drawWallLayer(GraphicsContext gc) {
-        Object wall = ClientState.getInstance().getWallLayer();
-        if (!(wall instanceof java.util.Map<?, ?> map)) {
+        Map<String, Object> map = ClientState.getInstance().getWallLayerMap();
+        if (map == null) {
             return;
         }
         Object pathsObj = map.get("paths");
@@ -502,9 +650,12 @@ public class BattleMapCanvas extends Canvas {
         return imageCache.computeIfAbsent("ref:" + fullUrl, u -> {
             try {
                 String encoded = encodeUrl(fullUrl);
-                Image img = new Image(encoded, true);
+                Image img = new Image(encoded, false);
                 img.progressProperty().addListener((obs, old, p) -> {
-                    if (p.doubleValue() >= 1.0) javafx.application.Platform.runLater(this::render);
+                    if (disposed) return;
+                    if (p.doubleValue() >= 1.0) javafx.application.Platform.runLater(() -> {
+                        if (!disposed) render();
+                    });
                 });
                 return img;
             } catch (Exception ex) {
@@ -534,6 +685,44 @@ public class BattleMapCanvas extends Canvas {
         return Math.max(min, Math.min(max, v));
     }
 
+    public void setZoom(double zoom) {
+        this.zoom = Math.max(0.2, Math.min(4.0, zoom));
+        render();
+    }
+
+    public double getZoom() {
+        return zoom;
+    }
+
+    public void zoomBy(double factor) {
+        setZoom(this.zoom * factor);
+    }
+
+    public void resetView() {
+        this.zoom = 1.0;
+        this.offsetX = 0.0;
+        this.offsetY = 0.0;
+        render();
+    }
+
+    public void centerView() {
+        GridConfig grid = grid();
+        double contentW = grid.getOffsetX() + (double) grid.getCols() * grid.getCellSize();
+        double contentH = grid.getOffsetY() + (double) grid.getRows() * grid.getCellSize();
+        this.offsetX = (getWidth() - contentW * zoom) / 2.0;
+        this.offsetY = (getHeight() - contentH * zoom) / 2.0;
+        render();
+    }
+
+    public void fitView(double viewportW, double viewportH) {
+        GridConfig grid = grid();
+        double contentW = Math.max(1, grid.getOffsetX() + (double) grid.getCols() * grid.getCellSize());
+        double contentH = Math.max(1, grid.getOffsetY() + (double) grid.getRows() * grid.getCellSize());
+        double target = Math.min(viewportW / contentW, viewportH / contentH);
+        setZoom(Math.max(0.35, Math.min(1.0, target)));
+        centerView();
+    }
+
     // ---- images ----
 
     private Image getTokenImage(TokenDto token) {
@@ -544,9 +733,12 @@ public class BattleMapCanvas extends Canvas {
         return imageCache.computeIfAbsent(fullUrl, u -> {
             try {
                 String encoded = encodeUrl(u);
-                Image img = new Image(encoded, true);
+                Image img = new Image(encoded, false);
                 img.progressProperty().addListener((obs, old, p) -> {
-                    if (p.doubleValue() >= 1.0) javafx.application.Platform.runLater(this::render);
+                    if (disposed) return;
+                    if (p.doubleValue() >= 1.0) javafx.application.Platform.runLater(() -> {
+                        if (!disposed) render();
+                    });
                 });
                 img.errorProperty().addListener((obs, old, err) -> {
                     if (err) System.err.println("[canvas] Failed to load image: " + encoded);
@@ -566,9 +758,12 @@ public class BattleMapCanvas extends Canvas {
         return imageCache.computeIfAbsent("obj:" + fullUrl, u -> {
             try {
                 String encoded = encodeUrl(fullUrl);
-                Image img = new Image(encoded, true);
+                Image img = new Image(encoded, false);
                 img.progressProperty().addListener((obs, old, p) -> {
-                    if (p.doubleValue() >= 1.0) javafx.application.Platform.runLater(this::render);
+                    if (disposed) return;
+                    if (p.doubleValue() >= 1.0) javafx.application.Platform.runLater(() -> {
+                        if (!disposed) render();
+                    });
                 });
                 return img;
             } catch (Exception ex) {
@@ -588,9 +783,15 @@ public class BattleMapCanvas extends Canvas {
         }
 
         String cleaned = trimmed.replace('\\', '/');
+        String lower = cleaned.toLowerCase(java.util.Locale.ROOT);
         String relative = extractAssetPath(cleaned);
         if (relative != null) {
             return joinServerUrl(relative);
+        }
+
+        if (lower.startsWith("/maps/") || lower.startsWith("maps/")) {
+            String noSlash = cleaned.replaceFirst("^/+", "");
+            return joinServerUrl("/uploads/" + noSlash);
         }
 
         if (cleaned.startsWith("/")) {
@@ -645,6 +846,9 @@ public class BattleMapCanvas extends Canvas {
      * so that JavaFX Image can load the URL correctly.
      */
     public void setBackground(String fullUrl) {
+        if (disposed) {
+            return;
+        }
         String resolved = resolveServerUrl(fullUrl);
         if (resolved == null || resolved.equals(currentBackgroundUrl)) {
             return;   // <-- ИСПРАВЛЕНИЕ: не перезагружаем фон при каждом notifyMapChanged()
@@ -654,7 +858,7 @@ public class BattleMapCanvas extends Canvas {
 
         String encoded = encodeUrl(resolved);
         try {
-            backgroundImage = new Image(encoded, true);
+            backgroundImage = new Image(encoded, false);
         } catch (Exception ex) {
             System.err.println("[canvas] Failed to load background: " + encoded + " -> " + ex.getMessage());
             backgroundImage = null;
@@ -669,6 +873,22 @@ public class BattleMapCanvas extends Canvas {
                 }
             }
         });
+    }
+
+    public void dispose() {
+        disposed = true;
+        ClientState.getInstance().removeChangeListener(stateChangeListener);
+        setOnMousePressed(null);
+        setOnMouseDragged(null);
+        setOnMouseReleased(null);
+        setOnMouseMoved(null);
+        setOnScroll(null);
+        draggingToken = null;
+        hoveredToken = null;
+        panning = false;
+        panArmed = false;
+        setCursor(javafx.scene.Cursor.DEFAULT);
+        imageCache.clear();
     }
 
     /**

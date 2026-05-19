@@ -1,0 +1,355 @@
+.root {
+    -fx-font-family: "Segoe UI", "Inter", "Roboto", sans-serif;
+    -fx-base: #0f172a;
+    -fx-background: #0b1220;
+    -fx-accent: #d4af37;
+    -fx-focus-color: #d4af37;
+    -fx-faint-focus-color: rgba(212, 175, 55, 0.15);
+}
+
+.label {
+    -fx-text-fill: #dbe5f5;
+}
+
+.editor-toolbar,
+.dm-header,
+.dm-connect-card,
+.editor-status-bar,
+.editor-vbox-wrapper,
+.editor-inspector-shell,
+.dm-sidebar,
+.dm-connect-shell,
+.dm-connect-root,
+.dm-root,
+.editor-workspace,
+.dm-workspace {
+    -fx-background-insets: 0;
+}
+
+.editor-toolbar {
+    -fx-background-color: linear-gradient(to bottom, rgba(15, 23, 42, 0.98), rgba(7, 12, 20, 0.98));
+    -fx-border-color: rgba(148, 163, 184, 0.14);
+    -fx-border-width: 0 0 1 0;
+}
+
+.editor-header-title .label:first-child {
+    -fx-font-size: 17px;
+    -fx-font-weight: 800;
+    -fx-text-fill: #f8fafc;
+}
+
+.editor-header-title .label:last-child {
+    -fx-text-fill: #9fb0c8;
+    -fx-font-size: 12px;
+}
+
+.button,
+.toggle-button {
+    -fx-background-color: linear-gradient(to bottom, rgba(30, 41, 59, 0.98), rgba(15, 23, 42, 0.98));
+    -fx-text-fill: #e8eef8;
+    -fx-background-radius: 12;
+    -fx-border-radius: 12;
+    -fx-border-color: rgba(148, 163, 184, 0.16);
+    -fx-border-width: 1;
+    -fx-padding: 0.55em 0.95em;
+}
+
+.button:hover,
+.toggle-button:hover {
+    -fx-background-color: linear-gradient(to bottom, rgba(41, 55, 81, 1), rgba(24, 33, 49, 1));
+    -fx-border-color: rgba(212, 175, 55, 0.55);
+}
+
+.button:pressed,
+.toggle-button:pressed {
+    -fx-background-color: linear-gradient(to bottom, rgba(12, 18, 29, 1), rgba(18, 24, 35, 1));
+}
+
+.toggle-button:selected {
+    -fx-background-color: linear-gradient(to bottom, rgba(212, 175, 55, 0.92), rgba(143, 114, 20, 0.96));
+    -fx-text-fill: #0b1020;
+    -fx-font-weight: 700;
+}
+
+.primary-action {
+    -fx-background-color: linear-gradient(to bottom, rgba(212, 175, 55, 0.98), rgba(160, 123, 18, 0.98));
+    -fx-text-fill: #0b1020;
+    -fx-font-weight: 700;
+}
+
+.text-field,
+.combo-box-base,
+.spinner,
+.list-view,
+.table-view {
+    -fx-background-color: rgba(15, 23, 42, 0.92);
+    -fx-control-inner-background: rgba(15, 23, 42, 0.92);
+    -fx-text-fill: #e5edf8;
+    -fx-border-color: rgba(148, 163, 184, 0.18);
+    -fx-border-radius: 10;
+    -fx-background-radius: 10;
+}
+
+.combo-box .list-cell,
+.combo-box .button-cell,
+.list-cell,
+.table-cell {
+    -fx-text-fill: #e5edf8;
+    -fx-background-color: transparent;
+}
+
+.scroll-pane {
+    -fx-background: transparent;
+    -fx-background-color: transparent;
+}
+
+.editor-side-scroll,
+.dm-sidebar-scroll,
+.dm-map-scroll {
+    -fx-background: transparent;
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+}
+
+.editor-vbox-wrapper,
+.editor-card,
+.dm-connect-card,
+.dm-sidebar,
+.dm-connect-shell {
+    -fx-background-color: rgba(10, 16, 28, 0.94);
+    -fx-border-color: rgba(148, 163, 184, 0.14);
+    -fx-border-radius: 18;
+    -fx-background-radius: 18;
+}
+
+.editor-status-bar,
+.dm-header {
+    -fx-background-color: rgba(8, 12, 20, 0.92);
+    -fx-border-color: rgba(148, 163, 184, 0.12);
+    -fx-border-width: 1 0 0 0;
+}
+
+.editor-status-bar {
+    -fx-spacing: 12;
+}
+
+.editor-status-bar .label,
+.dm-header .label,
+.dm-meta,
+.tool-chip,
+.status-chip {
+    -fx-text-fill: #c9d6ea;
+}
+
+.editor-workspace,
+.dm-workspace {
+    -fx-background-color: #0b1220;
+}
+
+.accordion .titled-pane > .title {
+    -fx-background-color: rgba(15, 23, 42, 0.96);
+    -fx-background-radius: 12 12 0 0;
+    -fx-text-fill: #edf2ff;
+    -fx-border-color: rgba(148, 163, 184, 0.12);
+}
+
+.accordion .titled-pane > .content {
+    -fx-background-color: rgba(8, 13, 25, 0.96);
+    -fx-border-color: rgba(148, 163, 184, 0.12);
+}
+
+.tab-pane .tab-header-area .tab-header-background {
+    -fx-background-color: rgba(7, 12, 20, 0.98);
+}
+
+.tab-pane .tab {
+    -fx-background-color: rgba(15, 23, 42, 0.90);
+    -fx-background-radius: 12 12 0 0;
+    -fx-border-color: rgba(148, 163, 184, 0.10);
+}
+
+.tab-pane .tab:selected {
+    -fx-background-color: rgba(28, 38, 55, 0.98);
+    -fx-border-color: rgba(212, 175, 55, 0.45);
+}
+
+.tab-pane .tab .tab-label {
+    -fx-text-fill: #dbe5f5;
+    -fx-font-weight: 700;
+}
+
+.separator *.line {
+    -fx-border-color: rgba(148, 163, 184, 0.18);
+}
+
+.dm-title {
+    -fx-font-size: 20px;
+    -fx-font-weight: 800;
+    -fx-text-fill: #f8fafc;
+}
+
+.dm-meta {
+    -fx-font-family: "Consolas", "SFMono-Regular", monospace;
+    -fx-font-size: 11px;
+}
+
+.dm-sidebar,
+.dm-connect-card {
+    -fx-padding: 0;
+}
+
+.dm-sidebar .tab-pane {
+    -fx-background-color: transparent;
+}
+
+.dm-sidebar .tab-pane .tab-header-area {
+    -fx-padding: 0.2em 0.4em 0.2em 0.2em;
+}
+
+.dm-sidebar .tab-pane .tab {
+    -fx-padding: 0.8em 1.0em;
+}
+
+.dm-connect-tabs .tab-header-area .headers-region {
+    -fx-padding: 0 0 6 0;
+}
+
+.split-pane-divider {
+    -fx-background-color: rgba(148, 163, 184, 0.16);
+    -fx-padding: 0 1 0 1;
+}
+
+
+.dm-summary-row {
+    -fx-background-color: rgba(8, 13, 25, 0.86);
+    -fx-border-color: rgba(148, 163, 184, 0.12);
+    -fx-border-width: 0 0 1 0;
+}
+
+.dm-summary-row .label,
+.dm-summary-shell .label,
+.dm-summary-actions .label {
+    -fx-text-fill: #c9d6ea;
+}
+
+.dm-summary-shell {
+    -fx-background-color: rgba(10, 16, 28, 0.96);
+    -fx-border-color: rgba(148, 163, 184, 0.12);
+    -fx-border-radius: 18;
+    -fx-background-radius: 18;
+}
+
+.dm-summary-actions {
+    -fx-padding: 2 0 0 0;
+}
+
+.dm-header-actions {
+    -fx-padding: 0 14 10 14;
+}
+
+.dm-header-actions .button {
+    -fx-min-height: 34px;
+}
+
+.dm-sidebar-shell {
+    -fx-spacing: 12;
+}
+
+.dm-nav-bar {
+    -fx-padding: 2 12 0 12;
+}
+
+.dm-nav-toggle {
+    -fx-min-height: 36px;
+    -fx-max-width: 1.7976931348623157E308;
+    -fx-background-radius: 12;
+    -fx-border-radius: 12;
+    -fx-padding: 0.55em 0.95em;
+}
+
+.dm-nav-toggle:selected {
+    -fx-background-color: linear-gradient(to bottom, rgba(212, 175, 55, 0.96), rgba(160, 123, 18, 0.98));
+    -fx-text-fill: #0b1020;
+    -fx-font-weight: 800;
+    -fx-border-color: rgba(212, 175, 55, 0.72);
+    -fx-effect: dropshadow(gaussian, rgba(212, 175, 55, 0.14), 18, 0.18, 0, 3);
+}
+
+.dm-section-stack {
+    -fx-padding: 0 12 12 12;
+}
+
+.dm-section-card {
+    -fx-background-color: rgba(8, 13, 25, 0.96);
+    -fx-border-color: rgba(148, 163, 184, 0.12);
+    -fx-border-radius: 16;
+    -fx-background-radius: 16;
+    -fx-padding: 10;
+}
+
+.dm-chip {
+    -fx-background-color: rgba(15, 23, 42, 0.96);
+    -fx-border-color: rgba(148, 163, 184, 0.18);
+    -fx-border-radius: 999;
+    -fx-background-radius: 999;
+    -fx-padding: 0.45em 0.9em;
+    -fx-text-fill: #dbe5f5;
+    -fx-font-size: 11px;
+}
+
+.dm-chip-accent {
+    -fx-background-color: linear-gradient(to bottom, rgba(212, 175, 55, 0.96), rgba(165, 125, 18, 0.98));
+    -fx-text-fill: #0b1020;
+    -fx-font-weight: 700;
+}
+
+.dm-sidebar {
+    -fx-spacing: 10;
+    -fx-padding: 10;
+}
+
+.dm-sidebar .tab-pane .tab-header-area {
+    -fx-padding: 0.3em 0.2em 0.3em 0.2em;
+}
+
+.dm-sidebar .tab-pane .tab {
+    -fx-padding: 0.8em 0.75em;
+}
+
+.dm-sidebar .tab-pane .tab .tab-label {
+    -fx-font-size: 11px;
+}
+
+
+.combo-box .list-cell:duplicate,
+.list-view .list-cell:duplicate {
+    -fx-background-color: rgba(180, 83, 9, 0.18);
+    -fx-border-color: rgba(245, 158, 11, 0.75);
+    -fx-border-width: 0 0 0 3;
+}
+
+.combo-box .list-cell:duplicate .label,
+.list-view .list-cell:duplicate .label {
+    -fx-text-fill: #fde68a;
+    -fx-font-weight: 700;
+}
+
+.dm-token-cell-root {
+    -fx-padding: 2 0 2 0;
+}
+
+.dm-token-cell-text .label {
+    -fx-text-fill: #e5edf8;
+}
+
+.dm-duplicate-token-badge {
+    -fx-background-color: rgba(245, 158, 11, 0.22);
+    -fx-border-color: rgba(245, 158, 11, 0.70);
+    -fx-border-width: 1;
+    -fx-border-radius: 999;
+    -fx-background-radius: 999;
+    -fx-padding: 0.12em 0.55em;
+    -fx-text-fill: #fde68a;
+    -fx-font-weight: 800;
+    -fx-font-size: 10px;
+}
