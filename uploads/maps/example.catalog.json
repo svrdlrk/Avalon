@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "root": "uploads/maps",
+  "finishedRoot": "uploads/maps/finished",
+  "backupsRoot": "uploads/maps/backups",
+  "referenceRoot": "uploads/maps/reference",
+  "referenceCatalog": "uploads/maps/reference/catalog.json",
+  "maps": [
+    {
+      "id": "orcs",
+      "name": "Orcs",
+      "category": "finished",
+      "folder": "finished/Orcs",
+      "background": "orcs.png",
+      "preview": "orcs_preview.png",
+      "description": "Test map based on the Orcs scene.",
+      "schemaVersion": 1
+    }
+  ]
+}

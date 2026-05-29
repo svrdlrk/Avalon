@@ -44,6 +44,7 @@ public class MapObjectService {
         obj.setMicroLocationId(request.getMicroLocationId());
 
         session.getObjects().put(id, obj);
+        session.markVisibilityDirty();
 
         return obj;
     }
@@ -65,6 +66,7 @@ public class MapObjectService {
             throw new RuntimeException("Object not found");
         }
 
+        session.markVisibilityDirty();
         return event.getObjectId();
     }
 

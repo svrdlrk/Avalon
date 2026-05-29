@@ -7,17 +7,17 @@ import com.avalon.dnd.dm.model.ClientState;
 import com.avalon.dnd.shared.*;
 import com.fasterxml.jackson.databind.JsonNode;
 import javafx.application.Platform;
-import javafx.css.PseudoClass;
 import javafx.beans.property.SimpleStringProperty;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.Scene;
-import javafx.scene.input.KeyCode;
 import javafx.scene.control.*;
 import javafx.scene.layout.*;
 import javafx.stage.Stage;
 import javafx.util.StringConverter;
+
+import java.util.function.Supplier;
 
 import java.util.*;
 import java.util.Objects;
@@ -46,6 +46,7 @@ public class MainStage {
     private Spinner<Integer>       objectRowSpinner;
 
     private String currentServerUrl = RuntimeConfig.defaultServerUrl();
+    private final DmCatalogFetcher catalogFetcher = new DmCatalogFetcher();
 
     private final List<JsonNode>  tokenCatalog  = new ArrayList<>();
     private final List<JsonNode>  objectCatalog = new ArrayList<>();
@@ -93,21 +94,17 @@ public class MainStage {
         scene.getStylesheets().add(Objects.requireNonNull(
                 MainStage.class.getResource("/com/avalon/dnd/dm/ui/dm-theme.css")
         ).toExternalForm());
-        scene.setOnKeyPressed(event -> {
-            if (mapScrollPane == null || mapCanvas == null) return;
-            switch (event.getCode()) {
-                case EQUALS, PLUS -> { zoomMap(1.08); event.consume(); }
-                case MINUS, SUBTRACT -> { zoomMap(0.92); event.consume(); }
-                case DIGIT0 -> { setMapZoom(1.0); centerMapView(); event.consume(); }
-                case F -> { fitMapView(); event.consume(); }
-                case C -> { centerMapView(); event.consume(); }
-                case LEFT -> { mapCanvas.panBy(64, 0); event.consume(); }
-                case RIGHT -> { mapCanvas.panBy(-64, 0); event.consume(); }
-                case UP -> { mapCanvas.panBy(0, 64); event.consume(); }
-                case DOWN -> { mapCanvas.panBy(0, -64); event.consume(); }
-                default -> { }
-            }
-        });
+        DmKeyboardShortcuts.install(scene,
+                () -> zoomMap(1.08),
+                () -> zoomMap(0.92),
+                () -> { setMapZoom(1.0); centerMapView(); },
+                this::fitMapView,
+                this::centerMapView,
+                () -> { if (mapScrollPane != null && mapCanvas != null) mapCanvas.panBy(64, 0); },
+                () -> { if (mapScrollPane != null && mapCanvas != null) mapCanvas.panBy(-64, 0); },
+                () -> { if (mapScrollPane != null && mapCanvas != null) mapCanvas.panBy(0, 64); },
+                () -> { if (mapScrollPane != null && mapCanvas != null) mapCanvas.panBy(0, -64); }
+        );
         stage.setScene(scene);
         stage.show();
     }
@@ -137,6 +134,8 @@ public class MainStage {
         newTab.setClosable(false);
         {
             TextField sessionField = new TextField(); sessionField.setPromptText("ID сессии");
+            TextField dmSecretField = new TextField();
+            dmSecretField.setPromptText("DM secret");
             TextField nameField = new TextField("DM");
             Button createBtn = new Button("Создать новую сессию");
             Button connectBtn = new Button("🔗 Подключиться");
@@ -145,9 +144,13 @@ public class MainStage {
             createBtn.setOnAction(e -> {
                 createBtn.setDisable(true); statusLbl.setText("Создание...");
                 String serverUrl = RuntimeConfig.normalize(serverField.getText().trim());
-                ServerConnection.getInstance().createSession(serverUrl, sid -> {
+                ServerConnection.getInstance().createSession(serverUrl, handle -> {
                     createBtn.setDisable(false);
-                    if (sid != null) { sessionField.setText(sid); statusLbl.setText("✅ " + sid); }
+                    if (handle != null) {
+                        sessionField.setText(handle.id());
+                        dmSecretField.setText(handle.dmSecret());
+                        statusLbl.setText("✅ " + handle.id());
+                    }
                     else statusLbl.setText("❌ Не удалось создать");
                 });
             });
@@ -159,12 +162,12 @@ public class MainStage {
                     statusLbl.setText("⚠ Заполните все поля"); return;
                 }
                 currentServerUrl = url; statusLbl.setText("Подключение...");
-                loadCatalog(url, () -> ServerConnection.getInstance().connect(url, sid, nm, true,
+                loadCatalog(url, () -> ServerConnection.getInstance().connect(url, sid, nm, true, dmSecretField.getText().trim(),
                         v -> Platform.runLater(() ->
                                 switchToBattleMap(playerClientField.getText().trim(), sid))));
             });
 
-            VBox c = new VBox(8, new Label("ID сессии:"), sessionField, new Label("Имя DM:"), nameField,
+            VBox c = new VBox(8, new Label("ID сессии:"), sessionField, new Label("DM secret:"), dmSecretField, new Label("Имя DM:"), nameField,
                     new HBox(8, createBtn, connectBtn), statusLbl);
             c.setPadding(new Insets(12));
             c.setStyle("-fx-background-color: rgba(15,23,42,0.58); -fx-border-color: rgba(148,163,184,0.12); -fx-border-radius: 18; -fx-background-radius: 18;");
@@ -195,12 +198,12 @@ public class MainStage {
                 String url  = RuntimeConfig.normalize(serverField.getText().trim());
                 String name = dmName.getText().trim().isEmpty() ? "DM" : dmName.getText().trim();
                 statusLbl.setText("Загрузка...");
-                ServerConnection.getInstance().loadSession(url, sid, id -> {
-                    if (id == null) { statusLbl.setText("❌ Ошибка"); return; }
+                ServerConnection.getInstance().loadSession(url, sid, handle -> {
+                    if (handle == null) { statusLbl.setText("❌ Ошибка"); return; }
                     currentServerUrl = url;
-                    loadCatalog(url, () -> ServerConnection.getInstance().connect(url, id, name, true,
+                    loadCatalog(url, () -> ServerConnection.getInstance().connect(url, handle.id(), name, true, handle.dmSecret(),
                             v -> Platform.runLater(() ->
-                                    switchToBattleMap(playerClientField.getText().trim(), id))));
+                                    switchToBattleMap(playerClientField.getText().trim(), handle.id()))));
                 });
             });
             deleteBtn.setOnAction(e -> {
@@ -216,7 +219,7 @@ public class MainStage {
                         }
                 );
             });
-            FlowPane row = flowRow(8, 8, refresh, loadBtn, deleteBtn, new Label("Имя DM:"), dmName);
+            FlowPane row = DmUiControls.flowRow(8, 8, refresh, loadBtn, deleteBtn, new Label("Имя DM:"), dmName);
             row.setAlignment(Pos.CENTER_LEFT);
             VBox c = new VBox(8, table, row, statusLbl); c.setPadding(new Insets(12));
             c.setStyle("-fx-background-color: rgba(15,23,42,0.58); -fx-border-color: rgba(148,163,184,0.12); -fx-border-radius: 18; -fx-background-radius: 18;");
@@ -251,18 +254,7 @@ public class MainStage {
 
     @SuppressWarnings("unchecked")
     private TableView<JsonNode> buildSavedSessionsTable() {
-        TableView<JsonNode> t = new TableView<>();
-        t.setPrefHeight(200);
-        t.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY);
-        TableColumn<JsonNode, String> cn = new TableColumn<>("Название");
-        cn.setCellValueFactory(c -> new SimpleStringProperty(c.getValue().path("displayName").asText()));
-        TableColumn<JsonNode, String> ci = new TableColumn<>("ID");
-        ci.setCellValueFactory(c -> new SimpleStringProperty(c.getValue().path("sessionId").asText()));
-        TableColumn<JsonNode, String> cd = new TableColumn<>("Дата");
-        cd.setCellValueFactory(c -> new SimpleStringProperty(
-                c.getValue().path("savedAt").asText().replace("T", " ")));
-        t.getColumns().addAll(cn, ci, cd);
-        return t;
+        return DmBattleHeaderFactory.buildSavedSessionsTable();
     }
 
 
@@ -313,73 +305,24 @@ public class MainStage {
     }
 
     private VBox buildBattleOverview(String playerClientBase, String sessionId) {
-        Label title = new Label("Battle Control");
-        title.getStyleClass().add("dm-title");
-
-        Label subtitle = new Label((playerClientBase == null || playerClientBase.isBlank()
-                ? RuntimeConfig.defaultPlayerClientUrl()
-                : playerClientBase) + "  →  " + sessionId);
-        subtitle.getStyleClass().add("dm-meta");
-        subtitle.setWrapText(true);
-
-        Button zoomOutBtn = new Button("Zoom -");
-        zoomOutBtn.setOnAction(e -> zoomMap(0.88));
-
-        Button zoomInBtn = new Button("Zoom +");
-        zoomInBtn.setOnAction(e -> zoomMap(1.12));
-
-        Button fitBtn = new Button("Fit");
-        fitBtn.setOnAction(e -> fitMapView());
-
-        Button centerBtn = new Button("Center map");
-        centerBtn.setOnAction(e -> centerMapView());
-
-        Button copySessionBtn = new Button("Copy session");
-        copySessionBtn.getStyleClass().add("primary-action");
-        copySessionBtn.setOnAction(e -> copyToClipboard(sessionId));
-
-        Button copyPlayerBtn = new Button("Copy player URL");
-        copyPlayerBtn.setOnAction(e -> copyToClipboard(playerClientBase == null || playerClientBase.isBlank()
-                ? RuntimeConfig.defaultPlayerClientUrl()
-                : playerClientBase));
-
-        Region spacer = new Region();
-        HBox.setHgrow(spacer, Priority.ALWAYS);
-        HBox titleRow = new HBox(10, title, spacer, subtitle);
-        titleRow.setAlignment(Pos.CENTER_LEFT);
-
-        FlowPane actions = new FlowPane(8, 8, zoomOutBtn, zoomInBtn, fitBtn, centerBtn, copyPlayerBtn, copySessionBtn);
-        actions.setPrefWrapLength(780);
-        actions.getStyleClass().add("dm-header-actions");
-
-        HBox chips = new HBox(8, sessionSummaryLabel, sessionCountsLabel);
-        chips.getStyleClass().add("dm-summary-row");
-        chips.setPadding(new Insets(0, 14, 12, 14));
-
-        VBox header = new VBox(8, titleRow, actions, chips);
-        header.setStyle("-fx-background-color: rgba(7, 12, 20, 0.92); -fx-border-color: rgba(148, 163, 184, 0.12); -fx-border-width: 0 0 1 0;");
-        return header;
+        return DmBattleHeaderFactory.buildBattleOverview(
+                playerClientBase,
+                sessionId,
+                sessionSummaryLabel,
+                sessionCountsLabel,
+                () -> zoomMap(0.88),
+                () -> zoomMap(1.12),
+                this::fitMapView,
+                this::centerMapView,
+                this::copyToClipboard,
+                () -> playerClientBase == null || playerClientBase.isBlank()
+                        ? RuntimeConfig.defaultPlayerClientUrl()
+                        : playerClientBase
+        );
     }
 
     private VBox buildSidebarIntro(String playerClientBase, String sessionId) {
-        Label title = new Label("Session orbit");
-        title.setStyle("-fx-font-size: 15px; -fx-font-weight: 800; -fx-text-fill: #f8fafc;");
-
-        Label hint = new Label("Use the rail below to manage tokens, objects, map layers, HP and initiative. Drag the map to pan, wheel to zoom.");
-        hint.setWrapText(true);
-        hint.setStyle("-fx-text-fill: #9fb0c8; -fx-font-size: 12px; -fx-line-spacing: 2px;");
-
-        Label meta = new Label("Session " + shortId(sessionId) + " · "
-                + (playerClientBase == null || playerClientBase.isBlank()
-                ? RuntimeConfig.defaultPlayerClientUrl()
-                : playerClientBase));
-        meta.setWrapText(true);
-        meta.setStyle("-fx-text-fill: #c9d6ea; -fx-font-size: 11px; -fx-font-family: Consolas, 'SFMono-Regular', monospace;");
-
-        VBox shell = new VBox(8, title, hint, meta);
-        shell.setPadding(new Insets(12));
-        shell.getStyleClass().add("dm-summary-shell");
-        return shell;
+        return DmBattleHeaderFactory.buildSidebarIntro(playerClientBase, sessionId);
     }
 
     private Node buildSidebarWorkspace(String sessionId) {
@@ -461,14 +404,11 @@ public class MainStage {
     private record SidebarSection(String id, String title, Node content) {}
 
     private void refreshBattleSummary() {
-        String sid = currentSessionId == null || currentSessionId.isBlank() ? "—" : shortId(currentSessionId);
-        sessionSummaryLabel.setText("Session " + sid);
-
+        sessionSummaryLabel.setText(DmUiFormatters.sessionSummary(currentSessionId));
         int players = ClientState.getInstance().getPlayers().size();
         int tokens = ClientState.getInstance().getTokens().size();
         int objects = ClientState.getInstance().getObjects().size();
-        sessionCountsLabel.setText(String.format(java.util.Locale.ROOT,
-                "%d players • %d tokens • %d objects", players, tokens, objects));
+        sessionCountsLabel.setText(DmUiFormatters.sessionCounts(players, tokens, objects));
     }
 
     // ================================================================ Catalog
@@ -476,27 +416,19 @@ public class MainStage {
     private void loadCatalog(String serverUrl, Runnable onDone) {
         String baseUrl = RuntimeConfig.normalize(serverUrl);
         Thread loader = new Thread(() -> {
-            List<JsonNode> loadedTokens = new ArrayList<>();
-            List<JsonNode> loadedObjects = new ArrayList<>();
             try {
-                var req = new okhttp3.Request.Builder()
-                        .url(baseUrl + "/api/assets/catalog").build();
-                try (var r = new okhttp3.OkHttpClient().newCall(req).execute()) {
-                    if (r.isSuccessful() && r.body() != null) {
-                        var m = new com.fasterxml.jackson.databind.ObjectMapper();
-                        JsonNode root = m.readTree(r.body().string());
-                        if (root.has("tokens"))  root.get("tokens").forEach(loadedTokens::add);
-                        if (root.has("objects")) root.get("objects").forEach(loadedObjects::add);
-                    }
-                }
-            } catch (Exception ex) { System.err.println("Catalog: " + ex.getMessage()); }
-            Platform.runLater(() -> {
-                tokenCatalog.clear();
-                tokenCatalog.addAll(loadedTokens);
-                objectCatalog.clear();
-                objectCatalog.addAll(loadedObjects);
-                onDone.run();
-            });
+                DmCatalogFetcher.CatalogData data = catalogFetcher.fetch(baseUrl);
+                Platform.runLater(() -> {
+                    tokenCatalog.clear();
+                    tokenCatalog.addAll(data.tokens());
+                    objectCatalog.clear();
+                    objectCatalog.addAll(data.objects());
+                    onDone.run();
+                });
+            } catch (Exception ex) {
+                System.err.println("Catalog: " + ex.getMessage());
+                Platform.runLater(onDone);
+            }
         }, "dm-load-catalog");
         loader.setDaemon(true);
         loader.start();
@@ -558,6 +490,7 @@ public class MainStage {
         mapScrollPane.setFitToWidth(false);
         mapScrollPane.setFitToHeight(false);
         mapScrollPane.setPannable(true);
+        mapScrollPane.setCache(false);
         mapScrollPane.setStyle("-fx-background: transparent; -fx-background-color: transparent;");
         mapScrollPane.getStyleClass().add("dm-map-scroll");
         setMapZoom(1.0);
@@ -580,17 +513,20 @@ public class MainStage {
         ScrollPane sidebarScroll = new ScrollPane(sidebar);
         sidebarScroll.setFitToWidth(true);
         sidebarScroll.setPrefWidth(380);
+        sidebarScroll.setCache(false);
         sidebarScroll.setStyle("-fx-background: transparent; -fx-background-color: transparent;");
         sidebarScroll.getStyleClass().add("dm-sidebar-scroll");
 
         SplitPane workspace = new SplitPane(mapScrollPane, sidebarScroll);
         workspace.setDividerPositions(0.80);
         workspace.getStyleClass().add("dm-workspace");
+        workspace.setCache(false);
 
         BorderPane root = new BorderPane();
         root.setTop(header);
         root.setCenter(workspace);
         root.getStyleClass().add("dm-root");
+        root.setCache(false);
         stage.getScene().setRoot(root);
         refreshBattleSummary();
         mapCanvas.render();
@@ -629,7 +565,7 @@ public class MainStage {
                 saveStatus.setText("Автосохранение включено");
             } else { if (tl[0] != null) tl[0].stop(); saveStatus.setText("Отключено"); }
         });
-        VBox c = new VBox(10, idLbl, hbox(8, new Label("Название:"), nameField, saveBtn), auto, saveStatus);
+        VBox c = new VBox(10, idLbl, DmUiControls.hbox(8, new Label("Название:"), nameField, saveBtn), auto, saveStatus);
         c.setPadding(new Insets(10)); tab.setContent(c); return tab;
     }
 
@@ -637,11 +573,11 @@ public class MainStage {
 
     private Tab buildTokenTab() {
         Tab tab = new Tab("🗡 Токены");
-        ComboBox<JsonNode> catCombo = makeJsonCombo(185, n ->
+        ComboBox<JsonNode> catCombo = DmUiControls.makeJsonCombo(185, n ->
                 n.path("name").asText() + " [" + n.path("size").asText() + "]");
         catCombo.getItems().addAll(tokenCatalog);
         TextField nameField = new TextField("Гоблин"); nameField.setPrefWidth(110);
-        Spinner<Integer> hpSpin = makeSpinner(1, 999, 20);
+        Spinner<Integer> hpSpin = DmUiControls.makeSpinner(1, 999, 20);
         Label sizeLbl = new Label("1×1");
 
         catCombo.setOnAction(e -> {
@@ -659,10 +595,13 @@ public class MainStage {
             playerAssignCombo.getSelectionModel().clearSelection();
         });
 
-        tokenActionsCombo = makeCombo(320, this::formatTokenLabel);
-        configureTokenCombo(tokenActionsCombo);
+        tokenActionsCombo = DmUiControls.makeCombo(320, t -> DmUiFormatters.formatTokenLabel(t, this::getPlayerName));
+        DmUiControls.configureDuplicateBadgeCombo(tokenActionsCombo,
+                item -> item.getName() == null || item.getName().isBlank() ? "—" : item.getName(),
+                item -> DmUiFormatters.buildTokenMetaLine(item, this::getPlayerName),
+                item -> DmUiFormatters.countDuplicateTokens(tokenActionsCombo.getItems(), item));
 
-        playerAssignCombo = makeCombo(180,
+        playerAssignCombo = DmUiControls.makeCombo(180,
                 p -> p == null ? "" : p.getName() + " · " + p.getRole());
 
         Button assignBtn   = new Button("Назначить игроку"); assignBtn.setOnAction(e -> assignToken());
@@ -676,30 +615,30 @@ public class MainStage {
             }
         }));
 
-        FlowPane r1 = flowRow(8, 8, new Label("Каталог:"), catCombo, browseBtn, new Label("Имя:"), nameField,
+        FlowPane r1 = DmUiControls.flowRow(8, 8, new Label("Каталог:"), catCombo, browseBtn, new Label("Имя:"), nameField,
                 new Label("HP:"), hpSpin, new Label("Размер:"), sizeLbl, addBtn);
-        FlowPane r2 = flowRow(8, 8, new Label("Токен:"), tokenActionsCombo,
+        FlowPane r2 = DmUiControls.flowRow(8, 8, new Label("Токен:"), tokenActionsCombo,
                 new Label("Игрок:"), playerAssignCombo, assignBtn, unassignBtn, removeBtn);
         tab.setContent(new VBox(r1, new Separator(), r2)); return tab;
     }
 
     private String getPlayerName(String ownerId) {
         PlayerDto p = ClientState.getInstance().getPlayers().get(ownerId);
-        return p != null ? p.getName() : shortId(ownerId);
+        return p != null ? p.getName() : DmUiFormatters.shortId(ownerId);
     }
 
     // ================================================================ Tab: 🧱 Объекты
 
     private Tab buildObjectTab() {
         Tab tab = new Tab("🧱 Объекты");
-        ComboBox<JsonNode> catCombo = makeJsonCombo(210, n ->
+        ComboBox<JsonNode> catCombo = DmUiControls.makeJsonCombo(210, n ->
                 n.path("name").asText() + " [" + n.path("category").asText() + "]");
         catCombo.getItems().addAll(objectCatalog);
         var g0 = ClientState.getInstance().getGrid();
-        objectColSpinner = makeSpinner(0, Math.max(0, g0.getCols() - 1), 0);
-        objectRowSpinner = makeSpinner(0, Math.max(0, g0.getRows() - 1), 0);
-        Spinner<Integer> wSpin = makeSpinner(1, 10, 1);
-        Spinner<Integer> hSpin = makeSpinner(1, 10, 1);
+        objectColSpinner = DmUiControls.makeSpinner(0, Math.max(0, g0.getCols() - 1), 0);
+        objectRowSpinner = DmUiControls.makeSpinner(0, Math.max(0, g0.getRows() - 1), 0);
+        Spinner<Integer> wSpin = DmUiControls.makeSpinner(1, 10, 1);
+        Spinner<Integer> hSpin = DmUiControls.makeSpinner(1, 10, 1);
         Label prevLbl = new Label("1×1");
         catCombo.setOnAction(e -> {
             JsonNode s = catCombo.getSelectionModel().getSelectedItem(); if (s == null) return;
@@ -711,7 +650,7 @@ public class MainStage {
         placeBtn.setOnAction(e -> placeObject(catCombo.getSelectionModel().getSelectedItem(),
                 objectColSpinner.getValue(), objectRowSpinner.getValue(),
                 wSpin.getValue(), hSpin.getValue()));
-        objectRemoveCombo = makeCombo(210, o -> o == null ? "" :
+        objectRemoveCombo = DmUiControls.makeCombo(210, o -> o == null ? "" :
                 o.getType() + " @(" + o.getCol() + "," + o.getRow() + ")");
         Button removeBtn = new Button("Удалить"); removeBtn.setOnAction(e -> removeObject());
         Button browseBtn = new Button("Каталог");
@@ -721,10 +660,10 @@ public class MainStage {
             }
         }));
 
-        FlowPane r1 = flowRow(8, 8, new Label("Тип:"), catCombo, browseBtn, new Label("col:"), objectColSpinner,
+        FlowPane r1 = DmUiControls.flowRow(8, 8, new Label("Тип:"), catCombo, browseBtn, new Label("col:"), objectColSpinner,
                 new Label("row:"), objectRowSpinner, new Label("W:"), wSpin,
                 new Label("H:"), hSpin, prevLbl, placeBtn);
-        FlowPane r2 = flowRow(8, 8, new Label("Удалить:"), objectRemoveCombo, removeBtn);
+        FlowPane r2 = DmUiControls.flowRow(8, 8, new Label("Удалить:"), objectRemoveCombo, removeBtn);
         tab.setContent(new VBox(r1, new Separator(), r2)); return tab;
     }
 
@@ -733,9 +672,9 @@ public class MainStage {
     private Tab buildGridTab(String sessionId) {
         Tab tab = new Tab("🗺 Карта");
         var g0 = ClientState.getInstance().getGrid();
-        Spinner<Integer> cols = makeSpinner(4, 60, g0.getCols());
-        Spinner<Integer> rows = makeSpinner(4, 60, g0.getRows());
-        Spinner<Integer> cell = makeSpinner(24, 128, g0.getCellSize());
+        Spinner<Integer> cols = DmUiControls.makeSpinner(4, 60, g0.getCols());
+        Spinner<Integer> rows = DmUiControls.makeSpinner(4, 60, g0.getRows());
+        Spinner<Integer> cell = DmUiControls.makeSpinner(24, 128, g0.getCellSize());
         Button applyBtn = new Button("Применить сетку");
         applyBtn.setOnAction(e -> applyGrid(cols.getValue(), rows.getValue(), cell.getValue()));
 
@@ -769,7 +708,7 @@ public class MainStage {
         importMapBtn.setOnAction(e -> {
             javafx.stage.DirectoryChooser chooser = new javafx.stage.DirectoryChooser();
             chooser.setTitle("Выберите папку сохранённой карты");
-            java.io.File defaultDir = resolveProjectUploadsDir("uploads/maps/finished");
+            java.io.File defaultDir = DmUiPaths.resolveProjectUploadsDir("uploads/maps/finished");
             if (defaultDir != null && defaultDir.isDirectory()) {
                 chooser.setInitialDirectory(defaultDir);
             }
@@ -784,10 +723,13 @@ public class MainStage {
                     ok -> {
                         importMapBtn.setDisable(false);
                         upSt.setText(ok ? "✅ Карта загружена" : "❌ Ошибка импорта");
+                        if (ok) {
+                            javafx.application.Platform.runLater(this::fitMapView);
+                        }
                     }
             );
         });
-        FlowPane row = flowRow(8, 8, new Label("cols:"), cols, new Label("rows:"), rows,
+        FlowPane row = DmUiControls.flowRow(8, 8, new Label("cols:"), cols, new Label("rows:"), rows,
                 new Label("cell px:"), cell, applyBtn, new Separator(), uploadBtn, importMapBtn, upSt);
         tab.setContent(row); return tab;
     }
@@ -796,45 +738,48 @@ public class MainStage {
 
     private Tab buildHpTab() {
         Tab tab = new Tab("❤ HP");
-        ComboBox<TokenDto> hpCombo = makeCombo(340,
-                this::formatTokenLabel);
-        configureTokenCombo(hpCombo);
-        Spinner<Integer> hpSpin  = makeSpinner(0, 9999, 20);
-        Spinner<Integer> maxSpin = makeSpinner(1, 9999, 20);
+        ComboBox<TokenDto> hpCombo = DmUiControls.makeCombo(340,
+                t -> DmUiFormatters.formatTokenLabel(t, this::getPlayerName));
+        DmUiControls.configureDuplicateBadgeCombo(hpCombo,
+                item -> item.getName() == null || item.getName().isBlank() ? "—" : item.getName(),
+                item -> DmUiFormatters.buildTokenMetaLine(item, this::getPlayerName),
+                item -> DmUiFormatters.countDuplicateTokens(hpCombo.getItems(), item));
+        Spinner<Integer> hpSpin  = DmUiControls.makeSpinner(0, 9999, 20);
+        Spinner<Integer> maxSpin = DmUiControls.makeSpinner(1, 9999, 20);
         Label curLbl = new Label("Выбран: —");
 
         hpCombo.setOnAction(e -> {
             TokenDto t = hpCombo.getSelectionModel().getSelectedItem(); if (t == null) return;
             hpSpin.getValueFactory().setValue(t.getHp()); maxSpin.getValueFactory().setValue(t.getMaxHp());
-            curLbl.setText("Выбран: " + formatTokenLabel(t));
+            curLbl.setText("Выбран: " + DmUiFormatters.formatTokenLabel(t, this::getPlayerName));
         });
 
         Button dmg  = new Button("Урон"); dmg.setStyle("-fx-base:#c0392b;");
-        Spinner<Integer> delta = makeSpinner(1, 999, 5);
+        Spinner<Integer> delta = DmUiControls.makeSpinner(1, 999, 5);
         Button heal = new Button("Лечение"); heal.setStyle("-fx-base:#27ae60;");
         Button set  = new Button("Применить HP");
         Button kill = new Button("Обнулить"); kill.setStyle("-fx-base:#7f8c8d;");
 
-        dmg.setOnAction(e -> { TokenDto t = sel(hpCombo); if (t == null) return;
+        dmg.setOnAction(e -> { TokenDto t = DmUiControls.selected(hpCombo); if (t == null) return;
             ServerConnection.getInstance().updateTokenHp(t.getId(), Math.max(0, t.getHp() - delta.getValue()), t.getMaxHp()); });
-        heal.setOnAction(e -> { TokenDto t = sel(hpCombo); if (t == null) return;
+        heal.setOnAction(e -> { TokenDto t = DmUiControls.selected(hpCombo); if (t == null) return;
             ServerConnection.getInstance().updateTokenHp(t.getId(), Math.min(t.getMaxHp(), t.getHp() + delta.getValue()), t.getMaxHp()); });
-        set.setOnAction(e -> { TokenDto t = sel(hpCombo); if (t == null) return;
+        set.setOnAction(e -> { TokenDto t = DmUiControls.selected(hpCombo); if (t == null) return;
             ServerConnection.getInstance().updateTokenHp(t.getId(), hpSpin.getValue(), maxSpin.getValue()); });
-        kill.setOnAction(e -> { TokenDto t = sel(hpCombo); if (t == null) return;
+        kill.setOnAction(e -> { TokenDto t = DmUiControls.selected(hpCombo); if (t == null) return;
             ServerConnection.getInstance().updateTokenHp(t.getId(), 0, t.getMaxHp()); });
 
         hpRefreshListener = () -> {
-            String keep = selId(hpCombo, TokenDto::getId);
+            String keep = DmUiControls.selectedId(hpCombo, TokenDto::getId);
             hpCombo.getItems().setAll(ClientState.getInstance().getTokens().values());
-            selById(hpCombo, keep, TokenDto::getId);
-            TokenDto s = sel(hpCombo);
-            if (s != null) curLbl.setText("Выбран: " + formatTokenLabel(s));
+            DmUiControls.selectById(hpCombo, keep, TokenDto::getId);
+            TokenDto s = DmUiControls.selected(hpCombo);
+            if (s != null) curLbl.setText("Выбран: " + DmUiFormatters.formatTokenLabel(s, this::getPlayerName));
         };
         ClientState.getInstance().addChangeListener(hpRefreshListener);
 
-        FlowPane r1 = flowRow(8, 8, new Label("Токен:"), hpCombo, curLbl);
-        FlowPane r2 = flowRow(8, 8, new Label("Урон/Лечение:"), dmg, delta, heal,
+        FlowPane r1 = DmUiControls.flowRow(8, 8, new Label("Токен:"), hpCombo, curLbl);
+        FlowPane r2 = DmUiControls.flowRow(8, 8, new Label("Урон/Лечение:"), dmg, delta, heal,
                 new Separator(), new Label("HP:"), hpSpin, new Label("/ max:"), maxSpin, set, kill);
         tab.setContent(new VBox(r1, new Separator(), r2)); return tab;
     }
@@ -845,10 +790,18 @@ public class MainStage {
         Tab tab = new Tab("🎲 Инициатива");
         ListView<InitEntry> listView = new ListView<>();
         listView.setPrefHeight(130);
-        listView.setCellFactory(lv -> createInitiativeCell(listView));
-        ComboBox<TokenDto> addCombo = makeCombo(340, this::formatTokenLabel);
-        configureTokenCombo(addCombo);
-        Spinner<Integer> iniSpin = makeSpinner(1, 30, 10);
+        listView.setCellFactory(lv -> DmDuplicateBadgeCellFactory.create(
+                listView.getItems(),
+                item -> item.name() == null || item.name().isBlank() ? "—" : item.name(),
+                item -> DmUiFormatters.formatInitiativeEntry(item, this::getPlayerName, id -> ClientState.getInstance().getTokens().get(id)),
+                item -> DmUiFormatters.countDuplicateInitEntries(listView.getItems(), item)
+        ));
+        ComboBox<TokenDto> addCombo = DmUiControls.makeCombo(340, t -> DmUiFormatters.formatTokenLabel(t, this::getPlayerName));
+        DmUiControls.configureDuplicateBadgeCombo(addCombo,
+                item -> item.getName() == null || item.getName().isBlank() ? "—" : item.getName(),
+                item -> DmUiFormatters.buildTokenMetaLine(item, this::getPlayerName),
+                item -> DmUiFormatters.countDuplicateTokens(addCombo.getItems(), item));
+        Spinner<Integer> iniSpin = DmUiControls.makeSpinner(1, 30, 10);
         Button addBtn     = new Button("Добавить в инициативу");
         Button removeBtn  = new Button("Удалить");
         Button clearBtn   = new Button("Сбросить");
@@ -858,15 +811,15 @@ public class MainStage {
         Label curTurnLbl = new Label("Ход: —"); curTurnLbl.setStyle("-fx-font-weight: bold; -fx-font-size: 13px;");
 
         initiativeRefreshListener = () -> {
-            String keep = selId(addCombo, TokenDto::getId);
+            String keep = DmUiControls.selectedId(addCombo, TokenDto::getId);
             addCombo.getItems().setAll(ClientState.getInstance().getTokens().values());
-            selById(addCombo, keep, TokenDto::getId);
+            DmUiControls.selectById(addCombo, keep, TokenDto::getId);
             listView.refresh();
         };
         ClientState.getInstance().addChangeListener(initiativeRefreshListener);
 
         addBtn.setOnAction(e -> {
-            TokenDto t = sel(addCombo); if (t == null) return;
+            TokenDto t = DmUiControls.selected(addCombo); if (t == null) return;
             iniQueue.add(new InitEntry(t.getId(), t.getName(), iniSpin.getValue()));
             iniQueue.sort(Comparator.comparingInt(InitEntry::initiative).reversed());
             iniIndex = 0; refreshIniList(listView);
@@ -887,13 +840,13 @@ public class MainStage {
             if (iniQueue.isEmpty()) return;
             iniIndex = (iniIndex + 1) % iniQueue.size();
             refreshIniList(listView);
-            curTurnLbl.setText("Ход: " + formatInitiativeEntry(iniQueue.get(iniIndex)));
+            curTurnLbl.setText("Ход: " + DmUiFormatters.formatInitiativeEntry(iniQueue.get(iniIndex), this::getPlayerName, id -> ClientState.getInstance().getTokens().get(id)));
             publishInitiative();
         });
         publishBtn.setOnAction(e -> publishInitiative());
 
-        FlowPane r1 = flowRow(8, 8, new Label("Токен:"), addCombo, new Label("Иниц:"), iniSpin, addBtn, removeBtn);
-        FlowPane r2 = flowRow(8, 8, nextBtn, clearBtn, publishBtn, curTurnLbl);
+        FlowPane r1 = DmUiControls.flowRow(8, 8, new Label("Токен:"), addCombo, new Label("Иниц:"), iniSpin, addBtn, removeBtn);
+        FlowPane r2 = DmUiControls.flowRow(8, 8, nextBtn, clearBtn, publishBtn, curTurnLbl);
         VBox c = new VBox(8, r1, r2, listView); c.setPadding(new Insets(6));
         tab.setContent(c); return tab;
     }
@@ -911,27 +864,30 @@ public class MainStage {
         if (!iniQueue.isEmpty()) list.getSelectionModel().select(iniIndex);
     }
 
-    private record InitEntry(String id, String name, int initiative) {}
 
     // ================================================================ Refresh
 
     private void refreshSelectors() {
-        String keepToken  = selId(tokenActionsCombo, TokenDto::getId);
-        String keepPlayer = selId(playerAssignCombo, PlayerDto::getId);
-        String keepObj    = selId(objectRemoveCombo, MapObjectDto::getId);
+        String keepToken  = DmUiControls.selectedId(tokenActionsCombo, TokenDto::getId);
+        String keepPlayer = DmUiControls.selectedId(playerAssignCombo, PlayerDto::getId);
+        String keepObj    = DmUiControls.selectedId(objectRemoveCombo, MapObjectDto::getId);
 
-        tokenActionsCombo.getItems().setAll(ClientState.getInstance().getTokens().values());
+        DmUiControls.refreshItemsPreservingSelection(tokenActionsCombo,
+                ClientState.getInstance().getTokens().values(),
+                keepToken,
+                TokenDto::getId);
 
-        playerAssignCombo.getItems().setAll(
+        DmUiControls.refreshItemsPreservingSelection(playerAssignCombo,
                 ClientState.getInstance().getPlayers().values().stream()
                         .filter(p -> "PLAYER".equalsIgnoreCase(p.getRole()))
-                        .toList());
+                        .toList(),
+                keepPlayer,
+                PlayerDto::getId);
 
-        objectRemoveCombo.getItems().setAll(ClientState.getInstance().getObjects().values());
-
-        selById(tokenActionsCombo, keepToken,  TokenDto::getId);
-        selById(playerAssignCombo, keepPlayer, PlayerDto::getId);
-        selById(objectRemoveCombo, keepObj,    MapObjectDto::getId);
+        DmUiControls.refreshItemsPreservingSelection(objectRemoveCombo,
+                ClientState.getInstance().getObjects().values(),
+                keepObj,
+                MapObjectDto::getId);
 
         refreshBattleSummary();
 
@@ -953,8 +909,8 @@ public class MainStage {
             gs = ce.path("gridSize").asInt(1);
             dayVision = ce.path("dayVision").asInt(0);
             nightVision = ce.path("nightVision").asInt(0);
-            String ip = firstCatalogImageUrl(ce);
-            if (ip != null && !ip.isBlank()) img = normalizeCatalogImageUrl(ip);
+            String ip = DmUiFormatters.firstCatalogImageUrl(ce);
+            if (ip != null && !ip.isBlank()) img = DmUiFormatters.normalizeCatalogImageUrl(ip);
         }
         PlayerDto p = playerAssignCombo.getSelectionModel().getSelectedItem();
         String ownerId = (p != null) ? p.getId() : null;
@@ -965,15 +921,15 @@ public class MainStage {
         String type = "wall"; String img = null;
         if (ce != null) {
             type = ce.path("id").asText("wall");
-            String ip = firstCatalogImageUrl(ce);
-            if (ip != null && !ip.isBlank()) img = normalizeCatalogImageUrl(ip);
+            String ip = DmUiFormatters.firstCatalogImageUrl(ce);
+            if (ip != null && !ip.isBlank()) img = DmUiFormatters.normalizeCatalogImageUrl(ip);
         }
         ServerConnection.getInstance().send("/map.object.create",
                 new MapObjectCreateRequest(type, col, row, w, h, 1, img));
     }
 
     private void assignToken() {
-        TokenDto t = sel(tokenActionsCombo); PlayerDto p = sel(playerAssignCombo);
+        TokenDto t = DmUiControls.selected(tokenActionsCombo); PlayerDto p = DmUiControls.selected(playerAssignCombo);
         if (t == null || p == null) return;
         TokenAssignRequest req = new TokenAssignRequest();
         req.setTokenId(t.getId()); req.setOwnerId(p.getId());
@@ -981,57 +937,20 @@ public class MainStage {
     }
 
     private void unassignToken() {
-        TokenDto t = sel(tokenActionsCombo); if (t == null) return;
+        TokenDto t = DmUiControls.selected(tokenActionsCombo); if (t == null) return;
         TokenAssignRequest req = new TokenAssignRequest();
         req.setTokenId(t.getId()); req.setOwnerId(null);
         ServerConnection.getInstance().send("/token.assign", req);
     }
 
-    private static String firstCatalogImageUrl(JsonNode node) {
-        if (node == null || node.isNull()) return null;
-        for (String key : List.of("imageUrl", "imagePath", "image", "path", "file", "src", "url", "assetPath", "sprite", "thumbnail")) {
-            JsonNode field = node.get(key);
-            if (field == null || field.isNull()) continue;
-            String value = field.asText(null);
-            if (value != null && !value.isBlank() && looksLikeImagePath(value)) return value;
-        }
-        return null;
-    }
-
-    private static boolean looksLikeImagePath(String value) {
-        if (value == null) return false;
-        String lower = value.trim().replace('\\', '/').toLowerCase(java.util.Locale.ROOT);
-        if (lower.isBlank() || lower.endsWith("/")) return false;
-        return lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg")
-                || lower.endsWith(".gif") || lower.endsWith(".webp") || lower.endsWith(".bmp") || lower.endsWith(".svg")
-                || lower.contains("/uploads/") || lower.contains("/assets/") || lower.contains(".png?") || lower.contains(".jpg?");
-    }
-
-    private static String normalizeCatalogImageUrl(String raw) {
-        if (raw == null) return null;
-        String value = raw.trim().replace('\\', '/');
-        if (value.isBlank()) return null;
-        if (value.startsWith("http://") || value.startsWith("https://") || value.startsWith("file:") || value.startsWith("data:") || value.startsWith("jar:")) {
-            return value;
-        }
-        if (value.startsWith("/uploads/") || value.startsWith("uploads/")) {
-            return value.startsWith("/") ? value : "/" + value;
-        }
-        if (value.startsWith("/assets/") || value.startsWith("assets/")) {
-            return value.startsWith("/") ? value : "/" + value;
-        }
-        value = value.startsWith("/") ? value.substring(1) : value;
-        return "/uploads/assets/" + value;
-    }
-
     private void removeToken() {
-        TokenDto t = sel(tokenActionsCombo); if (t == null) return;
+        TokenDto t = DmUiControls.selected(tokenActionsCombo); if (t == null) return;
         TokenRemoveEvent ev = new TokenRemoveEvent(); ev.setTokenId(t.getId());
         ServerConnection.getInstance().send("/token.remove", ev);
     }
 
     private void removeObject() {
-        MapObjectDto o = sel(objectRemoveCombo); if (o == null) return;
+        MapObjectDto o = DmUiControls.selected(objectRemoveCombo); if (o == null) return;
         MapObjectRemoveEvent ev = new MapObjectRemoveEvent(); ev.setObjectId(o.getId());
         ServerConnection.getInstance().send("/map.object.remove", ev);
     }
@@ -1048,243 +967,5 @@ public class MainStage {
     }
 
     // ================================================================ Utils
-
-    private String formatTokenLabel(TokenDto t) {
-        if (t == null) return "";
-        StringBuilder sb = new StringBuilder();
-        sb.append(t.getName() == null || t.getName().isBlank() ? "—" : t.getName());
-        if (t.getId() != null && !t.getId().isBlank()) {
-            sb.append(" · #").append(shortId(t.getId()));
-        }
-        sb.append(" · HP ").append(t.getHp()).append('/').append(t.getMaxHp());
-        if (t.getGridSize() > 1) {
-            sb.append(" · ").append(t.getGridSize()).append('×').append(t.getGridSize());
-        }
-        String owner = t.getOwnerId() == null ? "NPC" : getPlayerName(t.getOwnerId());
-        if (owner != null && !owner.isBlank()) {
-            sb.append(" · ").append(owner);
-        }
-        sb.append(" · @ ").append(t.getCol()).append(',').append(t.getRow());
-        return sb.toString();
-    }
-
-    private String formatInitiativeEntry(InitEntry e) {
-        if (e == null) return "";
-        TokenDto live = e.id() == null ? null : ClientState.getInstance().getTokens().get(e.id());
-        StringBuilder sb = new StringBuilder();
-        if (live != null) {
-            sb.append(formatTokenLabel(live));
-        } else {
-            sb.append(e.name() == null || e.name().isBlank() ? "—" : e.name());
-            if (e.id() != null && !e.id().isBlank()) {
-                sb.append(" · #").append(shortId(e.id()));
-            }
-            sb.append(" · HP —/— · @ —");
-        }
-        sb.append(" · Init ").append(e.initiative());
-        return sb.toString();
-    }
-
-    private static String shortId(String id) {
-        return id == null ? "" : id.length() <= 8 ? id : id.substring(0, 8) + "…";
-    }
-
-    private void configureTokenCombo(ComboBox<TokenDto> combo) {
-        if (combo == null) return;
-        combo.setButtonCell(createTokenCell(combo));
-        combo.setCellFactory(lv -> createTokenCell(combo));
-    }
-
-    private ListCell<TokenDto> createTokenCell(ComboBox<TokenDto> combo) {
-        return new ListCell<>() {
-            private final Label title = new Label();
-            private final Label meta = new Label();
-            private final Label badge = new Label();
-            private final VBox text = new VBox(1, title, meta);
-            private final HBox root = new HBox(8, text, badge);
-
-            {
-                text.getStyleClass().add("dm-token-cell-text");
-                badge.getStyleClass().add("dm-duplicate-token-badge");
-                root.getStyleClass().add("dm-token-cell-root");
-                root.setAlignment(Pos.CENTER_LEFT);
-                badge.setManaged(false);
-                badge.setVisible(false);
-            }
-
-            @Override
-            protected void updateItem(TokenDto item, boolean empty) {
-                super.updateItem(item, empty);
-                if (empty || item == null) {
-                    setText(null);
-                    setGraphic(null);
-                    pseudoClassStateChanged(DUPLICATE_PSEUDO_CLASS, false);
-                    return;
-                }
-                title.setText(item.getName() == null || item.getName().isBlank() ? "—" : item.getName());
-                meta.setText(buildTokenMetaLine(item));
-                int duplicateCount = countDuplicateTokens(combo.getItems(), item);
-                boolean duplicate = duplicateCount > 1;
-                badge.setText(duplicate ? "×" + duplicateCount : "");
-                badge.setVisible(duplicate);
-                badge.setManaged(duplicate);
-                pseudoClassStateChanged(DUPLICATE_PSEUDO_CLASS, duplicate);
-                setText(null);
-                setGraphic(root);
-            }
-        };
-    }
-
-    private ListCell<InitEntry> createInitiativeCell(ListView<InitEntry> list) {
-        return new ListCell<>() {
-            private final Label title = new Label();
-            private final Label meta = new Label();
-            private final Label badge = new Label();
-            private final VBox text = new VBox(1, title, meta);
-            private final HBox root = new HBox(8, text, badge);
-
-            {
-                text.getStyleClass().add("dm-token-cell-text");
-                badge.getStyleClass().add("dm-duplicate-token-badge");
-                root.getStyleClass().add("dm-token-cell-root");
-                root.setAlignment(Pos.CENTER_LEFT);
-                badge.setManaged(false);
-                badge.setVisible(false);
-            }
-
-            @Override
-            protected void updateItem(InitEntry item, boolean empty) {
-                super.updateItem(item, empty);
-                if (empty || item == null) {
-                    setText(null);
-                    setGraphic(null);
-                    pseudoClassStateChanged(DUPLICATE_PSEUDO_CLASS, false);
-                    return;
-                }
-                title.setText(item.name() == null || item.name().isBlank() ? "—" : item.name());
-                meta.setText(formatInitiativeEntry(item));
-                int duplicateCount = countDuplicateInitEntries(list.getItems(), item);
-                boolean duplicate = duplicateCount > 1;
-                badge.setText(duplicate ? "×" + duplicateCount : "");
-                badge.setVisible(duplicate);
-                badge.setManaged(duplicate);
-                pseudoClassStateChanged(DUPLICATE_PSEUDO_CLASS, duplicate);
-                setText(null);
-                setGraphic(root);
-            }
-        };
-    }
-
-    private static final PseudoClass DUPLICATE_PSEUDO_CLASS = PseudoClass.getPseudoClass("duplicate");
-
-    private static int countDuplicateTokens(Collection<TokenDto> tokens, TokenDto token) {
-        if (token == null) return 0;
-        String key = normalizeName(token.getName());
-        if (key.isEmpty()) return 1;
-        int count = 0;
-        for (TokenDto t : tokens) {
-            if (t != null && key.equals(normalizeName(t.getName()))) count++;
-        }
-        return count;
-    }
-
-    private static int countDuplicateInitEntries(Collection<InitEntry> entries, InitEntry entry) {
-        if (entry == null) return 0;
-        String key = normalizeName(entry.name());
-        if (key.isEmpty()) return 1;
-        int count = 0;
-        for (InitEntry e : entries) {
-            if (e != null && key.equals(normalizeName(e.name()))) count++;
-        }
-        return count;
-    }
-
-    private static String normalizeName(String value) {
-        return value == null ? "" : value.trim().toLowerCase(java.util.Locale.ROOT);
-    }
-
-    private String buildTokenMetaLine(TokenDto t) {
-        StringBuilder sb = new StringBuilder();
-        if (t.getId() != null && !t.getId().isBlank()) {
-            sb.append("#").append(shortId(t.getId()));
-        }
-        sb.append(" · HP ").append(t.getHp()).append('/').append(t.getMaxHp());
-        if (t.getGridSize() > 1) {
-            sb.append(" · ").append(t.getGridSize()).append('×').append(t.getGridSize());
-        }
-        String owner = t.getOwnerId() == null ? "NPC" : getPlayerName(t.getOwnerId());
-        if (owner != null && !owner.isBlank()) {
-            sb.append(" · ").append(owner);
-        }
-        sb.append(" · @ ").append(t.getCol()).append(',').append(t.getRow());
-        return sb.toString();
-    }
-
-    private static <T> T sel(ComboBox<T> b) {
-        return b.getSelectionModel().getSelectedItem();
-    }
-
-    private static <T> String selId(ComboBox<T> b, java.util.function.Function<T, String> f) {
-        T v = b.getSelectionModel().getSelectedItem(); return v == null ? null : f.apply(v);
-    }
-
-    private static <T> void selById(ComboBox<T> b, String id,
-                                    java.util.function.Function<T, String> f) {
-        if (id == null) return;
-        b.getItems().stream().filter(t -> id.equals(f.apply(t))).findFirst()
-                .ifPresent(t -> b.getSelectionModel().select(t));
-    }
-
-    private static <T> ComboBox<T> makeCombo(int w, java.util.function.Function<T, String> ts) {
-        ComboBox<T> c = new ComboBox<>(); c.setPrefWidth(w);
-        c.setConverter(new StringConverter<>() {
-            @Override public String toString(T o) { return ts.apply(o); }
-            @Override public T fromString(String s) { return null; }
-        });
-        return c;
-    }
-
-    private static ComboBox<JsonNode> makeJsonCombo(int w,
-                                                    java.util.function.Function<JsonNode, String> ts) {
-        return makeCombo(w, n -> n == null ? "" : ts.apply(n));
-    }
-
-    private static Spinner<Integer> makeSpinner(int min, int max, int init) {
-        Spinner<Integer> s = new Spinner<>(min, max, init);
-        s.setEditable(true); s.setPrefWidth(72); return s;
-    }
-
-    private static HBox hbox(int gap, javafx.scene.Node... nodes) {
-        HBox h = new HBox(gap, nodes);
-        h.setAlignment(Pos.CENTER_LEFT);
-        h.setPadding(new Insets(6));
-        h.setFillHeight(false);
-        return h;
-    }
-
-    private static FlowPane flowRow(int hgap, int vgap, javafx.scene.Node... nodes) {
-        FlowPane p = new FlowPane(hgap, vgap, nodes);
-        p.setAlignment(Pos.CENTER_LEFT);
-        p.setPadding(new Insets(6));
-        p.setPrefWrapLength(430);
-        return p;
-    }
-    private java.io.File resolveProjectUploadsDir(String relative) {
-        try {
-            java.nio.file.Path current = java.nio.file.Paths.get("").toAbsolutePath().normalize();
-            while (current != null) {
-                if (java.nio.file.Files.exists(current.resolve("settings.gradle")) || java.nio.file.Files.exists(current.resolve("settings.gradle.kts"))) {
-                    java.io.File candidate = current.resolve(relative).toFile();
-                    if (candidate.exists()) {
-                        return candidate;
-                    }
-                    return candidate;
-                }
-                current = current.getParent();
-            }
-        } catch (Exception ignored) {
-        }
-        return new java.io.File(relative);
-    }
 
 }

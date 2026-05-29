@@ -7,7 +7,9 @@ import com.avalon.dnd.shared.VisibilityStateDto;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.JsonNode;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * POJO для сериализации/десериализации GameSession в JSON.
@@ -17,6 +19,7 @@ import java.util.List;
 public class SessionSnapshot {
 
     public String             id;
+    public String             dmSecret;
     public GridConfig         grid;
     public String             backgroundUrl;
     public JsonNode           referenceOverlayLayer;
@@ -31,6 +34,7 @@ public class SessionSnapshot {
     public InitiativeStateDto initiative;   // nullable — may be null if not active
     public VisibilityStateDto visibility;
     public VisibilityStateDto sharedVisibility;
+    public Map<String, VisibilityStateDto> visibilityStatesByPlayer;
     public List<com.avalon.dnd.shared.VisibilityShareSuggestionDto> visibilityShareSuggestions;
 
     public SessionSnapshot() {}
@@ -152,6 +156,7 @@ public class SessionSnapshot {
     public static SessionSnapshot from(com.avalon.dnd.server.model.GameSession session) {
         SessionSnapshot snap = new SessionSnapshot();
         snap.id            = session.getId();
+        snap.dmSecret      = session.getDmSecret();
         snap.grid          = session.getGrid();
         snap.backgroundUrl = session.getBackgroundUrl();
         snap.referenceOverlayLayer = session.getReferenceOverlayLayer();
@@ -163,6 +168,7 @@ public class SessionSnapshot {
         snap.initiative    = session.getInitiativeState();
         snap.visibility    = session.getVisibilityState();
         snap.sharedVisibility = session.getSharedVisibilityState();
+        snap.visibilityStatesByPlayer = new LinkedHashMap<>(session.getVisibilityStatesByPlayer());
         snap.visibilityShareSuggestions = session.getVisibilityShareSuggestions();
         snap.players = session.getPlayers().values().stream()
                 .map(PlayerSnapshot::from).toList();

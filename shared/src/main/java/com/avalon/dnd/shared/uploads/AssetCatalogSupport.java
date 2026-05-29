@@ -16,8 +16,7 @@ public final class AssetCatalogSupport {
     public static boolean isExcludedAssetPath(Path path) {
         if (path == null) return false;
         String normalized = path.toAbsolutePath().normalize().toString().replace('\\', '/').toLowerCase(Locale.ROOT);
-        return normalized.contains("/uploads/maps/finished/")
-                || normalized.contains("/uploads/maps/backups/");
+        return normalized.contains("/uploads/maps/backups/");
     }
 
     public static boolean isImageFile(Path path) {
@@ -122,12 +121,17 @@ public final class AssetCatalogSupport {
         if (imageUrl == null || imageUrl.isBlank()) {
             return null;
         }
-        String normalized = imageUrl.replace('\\', '/');
-        if (normalized.matches("^[a-zA-Z][a-zA-Z0-9+.-]*:.*")) {
+        String normalized = imageUrl.trim().replace('\\', '/');
+        if (normalized.startsWith("http://") || normalized.startsWith("https://") || normalized.startsWith("data:") || normalized.startsWith("jar:")) {
             return normalized;
         }
-        if (normalized.startsWith("/uploads/")) {
-            return normalized;
+        if (normalized.startsWith("file:")) {
+            String extracted = extractKnownWebPath(normalized);
+            return extracted != null ? extracted : normalized;
+        }
+        if (normalized.startsWith("/uploads/") || normalized.startsWith("uploads/")
+                || normalized.startsWith("/assets/") || normalized.startsWith("assets/")) {
+            return normalized.startsWith("/") ? normalized : "/" + normalized;
         }
         if (baseDir != null) {
             try {
@@ -138,11 +142,27 @@ public final class AssetCatalogSupport {
                 if (uploadsIdx >= 0) {
                     return candidateText.substring(uploadsIdx);
                 }
+                int assetsIdx = candidateText.toLowerCase(Locale.ROOT).indexOf("/assets/");
+                if (assetsIdx >= 0) {
+                    return candidateText.substring(assetsIdx);
+                }
                 return candidateText;
             } catch (Exception ignored) {
             }
         }
         return normalized;
+    }
+
+    private static String extractKnownWebPath(String value) {
+        String lower = value.toLowerCase(Locale.ROOT);
+        for (String marker : new String[]{"/uploads/", "uploads/", "/assets/", "assets/"}) {
+            int idx = lower.indexOf(marker);
+            if (idx >= 0) {
+                String slice = value.substring(idx).replaceFirst("^/+", "");
+                return "/" + slice;
+            }
+        }
+        return null;
     }
 
     public static String stripExtension(String fileName) {

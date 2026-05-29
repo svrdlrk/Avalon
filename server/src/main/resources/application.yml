@@ -17,7 +17,7 @@ spring:
     database-platform: org.hibernate.dialect.H2Dialect
   h2:
     console:
-      enabled: true   # http://localhost:8080/h2-console для отладки
+      enabled: ${AVALON_H2_CONSOLE_ENABLED:false}
 
   servlet:
     multipart:

@@ -11,7 +11,6 @@ const JoinSessionScreen: React.FC = () => {
         serverUrl,
         sessionId,
         playerName,
-        isDm,
         autoConnect,
         status,
         isConnected,
@@ -20,7 +19,6 @@ const JoinSessionScreen: React.FC = () => {
         setServerUrl,
         setSessionId,
         setPlayerName,
-        setIsDm,
         setAutoConnect,
         connect,
         copySessionId,
@@ -101,7 +99,6 @@ const JoinSessionScreen: React.FC = () => {
                                 serverUrl={serverUrl}
                                 sessionId={sessionId}
                                 playerName={playerName}
-                                isDm={isDm}
                                 autoConnect={autoConnect}
                                 canConnect={canConnect}
                                 status={status ?? (isConnected ? 'Connected' : 'Not connected')}
@@ -110,7 +107,6 @@ const JoinSessionScreen: React.FC = () => {
                                 onServerUrlChange={setServerUrl}
                                 onSessionIdChange={setSessionId}
                                 onPlayerNameChange={setPlayerName}
-                                onIsDmChange={setIsDm}
                                 onAutoConnectChange={setAutoConnect}
                                 onConnect={() => void connect()}
                                 onSessionAction={() => copySessionId()}
@@ -215,13 +211,6 @@ const JoinSessionScreen: React.FC = () => {
                         <section className="player-card player-form-card">
                             <div className="player-card__eyebrow">Session settings</div>
                             <div className="player-settings-grid">
-                                <label className="player-toggle-row">
-                                    <span>
-                                        <span className="player-input__label">Join as DM</span>
-                                        <span className="player-toggle-row__meta">Unlock visibility tools and GM controls.</span>
-                                    </span>
-                                    <input type="checkbox" checked={isDm} onChange={(e) => setIsDm(e.target.checked)} />
-                                </label>
                                 <label className="player-toggle-row">
                                     <span>
                                         <span className="player-input__label">Auto connect</span>

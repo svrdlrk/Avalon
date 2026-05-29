@@ -95,36 +95,35 @@ public final class AssetBrowserWindow {
         Label countLabel = new Label();
         Label hintLabel = new Label("Double-click an asset to select it");
 
-        List<JsonNode> allAssets = catalog == null ? List.of() : catalog.stream()
+        List<JsonNode> rawAssets = catalog == null ? List.of() : catalog.stream()
                 .filter(Objects::nonNull)
-                .filter(filter)
-                .filter(AssetBrowserWindow::isRenderableAsset)
                 .sorted(Comparator
                         .comparing((JsonNode a) -> safeCategory(assetCategory(a)), String.CASE_INSENSITIVE_ORDER)
                         .thenComparing(a -> safeText(assetName(a)), String.CASE_INSENSITIVE_ORDER))
                 .toList();
+        List<JsonNode> renderableAssets = rawAssets.stream()
+                .filter(AssetBrowserWindow::isRenderableAsset)
+                .toList();
+        List<JsonNode> allAssets = !renderableAssets.isEmpty() ? renderableAssets : rawAssets;
 
-        TreeItem<String> rootItem = buildCategoryTree(allAssets);
+        List<JsonNode> filteredByType = allAssets.stream().filter(filter).toList();
+        if (!allAssets.isEmpty() && filteredByType.isEmpty()) {
+            filteredByType = allAssets;
+        }
+        List<JsonNode> browserAssets = filteredByType;
+
+        TreeItem<String> rootItem = buildCategoryTree(browserAssets);
         categoryTree.setRoot(rootItem);
-        if (rootItem != null && !rootItem.getChildren().isEmpty()) {
-            categoryTree.getSelectionModel().select(rootItem.getChildren().get(0));
+        if (rootItem != null) {
+            categoryTree.getSelectionModel().select(rootItem);
         }
 
         Runnable refreshList = () -> {
             String search = safeText(searchField.getText()).toLowerCase(Locale.ROOT);
             TreeItem<String> selectedItem = categoryTree.getSelectionModel().getSelectedItem();
-            String selectedCategory = "";
-            if (selectedItem != null && selectedItem.getParent() != null) {
-                List<String> parts = new ArrayList<>();
-                TreeItem<String> current = selectedItem;
-                while (current != null && current.getParent() != null) {
-                    parts.add(0, current.getValue());
-                    current = current.getParent();
-                }
-                selectedCategory = String.join("/", parts).toLowerCase(Locale.ROOT);
-            }
+            String selectedCategory = selectedItem == null ? "" : selectedCategoryPath(selectedItem);
             List<JsonNode> filtered = new ArrayList<>();
-            for (JsonNode asset : allAssets) {
+            for (JsonNode asset : browserAssets) {
                 if (!selectedCategory.isBlank() && !categoryMatches(asset, selectedCategory)) {
                     continue;
                 }
@@ -231,6 +230,22 @@ public final class AssetBrowserWindow {
         }
     }
 
+    private static String selectedCategoryPath(TreeItem<String> selected) {
+        if (selected == null) {
+            return "";
+        }
+        if (selected.getParent() == null) {
+            return "";
+        }
+        List<String> parts = new ArrayList<>();
+        TreeItem<String> current = selected;
+        while (current != null && current.getParent() != null) {
+            parts.add(0, current.getValue());
+            current = current.getParent();
+        }
+        return String.join("/", parts).toLowerCase(Locale.ROOT);
+    }
+
     private static String[] splitCategoryPath(String category) {
         if (category == null || category.isBlank()) {
             return new String[] { "Uncategorized" };
@@ -307,12 +322,7 @@ public final class AssetBrowserWindow {
             return false;
         }
         String cleaned = image.trim().replace('\\', '/').toLowerCase(Locale.ROOT);
-        if (cleaned.endsWith("/")) {
-            return false;
-        }
-        return cleaned.endsWith(".png") || cleaned.endsWith(".jpg") || cleaned.endsWith(".jpeg")
-                || cleaned.endsWith(".gif") || cleaned.endsWith(".webp") || cleaned.endsWith(".bmp") || cleaned.endsWith(".svg")
-                || cleaned.contains(".");
+        return !cleaned.endsWith("/");
     }
 
     private static String firstText(JsonNode node, String... keys) {
@@ -396,48 +406,38 @@ public final class AssetBrowserWindow {
         }
 
         String cleaned = trimmed.replace('\\', '/');
-        String cleanedNoSlash = cleaned.startsWith("/") ? cleaned.substring(1) : cleaned;
+        String noSlash = cleaned.startsWith("/") ? cleaned.substring(1) : cleaned;
+        if (!isCatalogAssetCandidate(noSlash)) {
+            return null;
+        }
 
-        if (cleaned.startsWith("/uploads/") || cleaned.startsWith("uploads/")) {
-            Path local = resolveProjectPath(cleanedNoSlash);
+        for (String candidate : candidateAssetPaths(noSlash)) {
+            Path local = resolveProjectPath(candidate);
             if (local != null) {
                 return local.toUri().toString();
             }
-            return cleaned.startsWith("/") ? cleaned : "/" + cleaned;
         }
 
-        if (cleaned.startsWith("/assets/") || cleaned.startsWith("assets/")) {
-            Path local = resolveProjectPath(cleanedNoSlash);
-            if (local != null) {
-                return local.toUri().toString();
-            }
-            return cleaned.startsWith("/") ? cleaned : "/" + cleaned;
-        }
+        return null;
+    }
 
-        if (cleaned.startsWith("/maps/") || cleaned.startsWith("maps/")) {
-            Path local = resolveProjectPath("uploads/" + cleanedNoSlash);
-            if (local != null) {
-                return local.toUri().toString();
-            }
-            return "/uploads/" + cleanedNoSlash;
+    private static java.util.List<String> candidateAssetPaths(String noSlash) {
+        java.util.ArrayList<String> candidates = new java.util.ArrayList<>();
+        if (noSlash.startsWith("uploads/assets/tokens/") || noSlash.startsWith("uploads/assets/objects/")) {
+            candidates.add(noSlash);
+        } else {
+            candidates.add("uploads/assets/tokens/" + noSlash);
+            candidates.add("uploads/assets/objects/" + noSlash);
         }
+        return candidates;
+    }
 
-        Path local = resolveProjectPath(cleanedNoSlash);
-        if (local != null) {
-            return local.toUri().toString();
+    private static boolean isCatalogAssetCandidate(String noSlash) {
+        if (noSlash == null || noSlash.isBlank()) {
+            return false;
         }
-
-        Path assetLocal = resolveProjectPath("uploads/assets/" + cleanedNoSlash);
-        if (assetLocal != null) {
-            return assetLocal.toUri().toString();
-        }
-
-        Path mapLocal = resolveProjectPath("uploads/maps/finished/" + cleanedNoSlash);
-        if (mapLocal != null) {
-            return mapLocal.toUri().toString();
-        }
-
-        return encodeUrl("/uploads/assets/" + cleanedNoSlash);
+        String lower = noSlash.toLowerCase(java.util.Locale.ROOT);
+        return lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".gif") || lower.endsWith(".webp") || lower.endsWith(".bmp") || lower.endsWith(".tif") || lower.endsWith(".tiff");
     }
 
     private static Path resolveProjectPath(String relative) {
@@ -446,10 +446,9 @@ public final class AssetBrowserWindow {
         }
 
         String cleaned = relative.startsWith("/") ? relative.substring(1) : relative;
-        Path cwd = Path.of("").toAbsolutePath().normalize();
-        Path current = cwd;
-        for (int i = 0; i < 6 && current != null; i++, current = current.getParent()) {
-            Path candidate = current.resolve(cleaned).normalize();
+        Path projectRoot = findProjectRoot();
+        if (projectRoot != null) {
+            Path candidate = projectRoot.resolve(cleaned).normalize();
             if (Files.exists(candidate)) {
                 return candidate.toAbsolutePath().normalize();
             }
@@ -458,6 +457,21 @@ public final class AssetBrowserWindow {
         Path direct = Path.of(cleaned);
         if (Files.exists(direct)) {
             return direct.toAbsolutePath().normalize();
+        }
+        return null;
+    }
+
+
+    private static Path findProjectRoot() {
+        Path cwd = Path.of("").toAbsolutePath().normalize();
+        for (Path current = cwd; current != null; current = current.getParent()) {
+            if ((Files.exists(current.resolve("settings.gradle"))
+                    || Files.exists(current.resolve("settings.gradle.kts"))
+                    || Files.exists(current.resolve("gradlew"))
+                    || Files.exists(current.resolve("gradlew.bat")))
+                    && Files.isDirectory(current.resolve("uploads/assets"))) {
+                return current;
+            }
         }
         return null;
     }

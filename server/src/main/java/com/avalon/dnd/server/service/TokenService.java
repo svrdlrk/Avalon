@@ -3,13 +3,22 @@ package com.avalon.dnd.server.service;
 import com.avalon.dnd.server.model.Player;
 import com.avalon.dnd.server.model.Role;
 import com.avalon.dnd.server.model.Token;
-import com.avalon.dnd.shared.*;
+import com.avalon.dnd.shared.PlacementSizingRules;
+import com.avalon.dnd.shared.TokenAssignRequest;
+import com.avalon.dnd.shared.TokenCreateRequest;
+import com.avalon.dnd.shared.TokenDto;
+import com.avalon.dnd.shared.TokenHpUpdateEvent;
+import com.avalon.dnd.shared.TokenMoveEvent;
+import com.avalon.dnd.shared.TokenRemoveEvent;
 import org.springframework.stereotype.Service;
 
 import java.util.UUID;
 
 @Service
 public class TokenService {
+
+    private static final int MAX_TOKEN_NAME_LENGTH = 80;
+    private static final int MAX_VISION_RADIUS = 120;
 
     private final SessionService sessionService;
     private final MapBattleRulesService battleRulesService;
@@ -26,23 +35,40 @@ public class TokenService {
         var session = sessionService.getSession(player.getSessionId());
         if (session == null) throw new RuntimeException("Session not found");
 
-        String tokenId = UUID.randomUUID().toString();
-        Token token = new Token(
-                tokenId, request.getName(), request.getCol(),
-                request.getRow(), request.getOwnerId(), player.getSessionId(),
-                request.getDayVision(), request.getNightVision()
-        );
-        token.setHp(Math.max(1, request.getHp()));
-        token.setMaxHp(Math.max(1, request.getMaxHp()));
-        token.setGridSize(request.getGridSize());
-        token.setImageUrl(request.getImageUrl());
+        synchronized (session) {
+            String ownerId = blankToNull(request.getOwnerId());
+            if (ownerId != null && !session.getPlayers().containsKey(ownerId)) {
+                throw new RuntimeException("Owner not found in session");
+            }
 
-        if (!battleRulesService.isTokenPlacementAllowed(session, token.getCol(), token.getRow(), token.getGridSize())) {
-            throw new RuntimeException("Placement blocked by terrain or wall geometry");
+            int maxHp = Math.max(1, request.getMaxHp());
+            int hp = Math.min(maxHp, Math.max(0, request.getHp()));
+            int gridSize = PlacementSizingRules.clampTokenGridSize(request.getGridSize());
+            String tokenId = UUID.randomUUID().toString();
+
+            Token token = new Token(
+                    tokenId,
+                    normalizeTokenName(request.getName(), tokenId),
+                    request.getCol(),
+                    request.getRow(),
+                    ownerId,
+                    player.getSessionId(),
+                    clampVision(request.getDayVision()),
+                    clampVision(request.getNightVision())
+            );
+            token.setHp(hp);
+            token.setMaxHp(maxHp);
+            token.setGridSize(gridSize);
+            token.setImageUrl(AssetUrlNormalizer.normalize(blankToNull(request.getImageUrl())));
+
+            if (!battleRulesService.isTokenPlacementAllowed(session, token.getCol(), token.getRow(), token.getGridSize())) {
+                throw new RuntimeException("Placement blocked by terrain or wall geometry");
+            }
+
+            session.getTokens().put(tokenId, token);
+            session.markVisibilityDirty();
+            return token;
         }
-
-        session.getTokens().put(tokenId, token);
-        return token;
     }
 
     public Token moveToken(TokenMoveEvent event, Player player) {
@@ -53,37 +79,38 @@ public class TokenService {
         var session = sessionService.getSession(player.getSessionId());
         if (session == null) throw new RuntimeException("Session not found");
 
-        Token token = session.getTokens().get(event.getTokenId());
-        if (token == null) throw new RuntimeException("Token not found: " + event.getTokenId());
+        synchronized (session) {
+            Token token = session.getTokens().get(event.getTokenId());
+            if (token == null) throw new RuntimeException("Token not found: " + event.getTokenId());
 
-        if (!canMove(token, player)) {
-            throw new RuntimeException("Forbidden: player " + player.getId()
-                    + " cannot move token " + token.getId());
-        }
+            if (!canMove(token, player)) {
+                throw new RuntimeException("Forbidden: player " + player.getId()
+                        + " cannot move token " + token.getId());
+            }
 
-        var grid = session.getGrid();
-        // Учитываем gridSize при проверке границ
-        int maxCol = grid.getCols() - token.getGridSize();
-        int maxRow = grid.getRows() - token.getGridSize();
-        if (event.getToCol() < 0 || event.getToCol() > maxCol
-                || event.getToRow() < 0 || event.getToRow() > maxRow) {
-            throw new RuntimeException("Out of bounds: ("
-                    + event.getToCol() + "," + event.getToRow() + ")");
-        }
+            var grid = session.getGrid();
+            int size = PlacementSizingRules.clampTokenGridSize(token.getGridSize());
+            token.setGridSize(size);
+            int maxCol = grid.getCols() - size;
+            int maxRow = grid.getRows() - size;
+            if (event.getToCol() < 0 || event.getToCol() > maxCol
+                    || event.getToRow() < 0 || event.getToRow() > maxRow) {
+                throw new RuntimeException("Out of bounds: ("
+                        + event.getToCol() + "," + event.getToRow() + ")");
+            }
 
-        int newCol = event.getToCol();
-        int newRow = event.getToRow();
+            int newCol = event.getToCol();
+            int newRow = event.getToRow();
 
-        if (!battleRulesService.isTokenMoveAllowed(session, token, newCol, newRow)) {
-            throw new RuntimeException("Move blocked by wall, terrain, object or token geometry");
-        }
+            if (!battleRulesService.isTokenMoveAllowed(session, token, newCol, newRow)) {
+                throw new RuntimeException("Move blocked by wall, terrain, object or token geometry");
+            }
 
-        synchronized (token) {
             token.setCol(newCol);
             token.setRow(newRow);
+            session.markVisibilityDirty();
+            return token;
         }
-
-        return token;
     }
 
     public String removeToken(TokenRemoveEvent event, Player player) {
@@ -93,8 +120,11 @@ public class TokenService {
         var session = sessionService.getSession(player.getSessionId());
         if (session == null) throw new RuntimeException("Session not found");
 
-        Token token = session.getTokens().remove(event.getTokenId());
-        if (token == null) throw new RuntimeException("Token not found");
+        synchronized (session) {
+            Token token = session.getTokens().remove(event.getTokenId());
+            if (token == null) throw new RuntimeException("Token not found");
+            session.markVisibilityDirty();
+        }
 
         return event.getTokenId();
     }
@@ -106,16 +136,19 @@ public class TokenService {
         var session = sessionService.getSession(player.getSessionId());
         if (session == null) throw new RuntimeException("Session not found");
 
-        Token token = session.getTokens().get(request.getTokenId());
-        if (token == null) throw new RuntimeException("Token not found");
+        synchronized (session) {
+            Token token = session.getTokens().get(request.getTokenId());
+            if (token == null) throw new RuntimeException("Token not found");
 
-        if (request.getOwnerId() != null
-                && !session.getPlayers().containsKey(request.getOwnerId())) {
-            throw new RuntimeException("Owner not found in session");
+            String ownerId = blankToNull(request.getOwnerId());
+            if (ownerId != null && !session.getPlayers().containsKey(ownerId)) {
+                throw new RuntimeException("Owner not found in session");
+            }
+
+            token.setOwnerId(ownerId);
+            session.markVisibilityDirty();
+            return token;
         }
-
-        token.setOwnerId(request.getOwnerId());
-        return token;
     }
 
     public Token updateHp(TokenHpUpdateEvent event, Player player) {
@@ -125,17 +158,18 @@ public class TokenService {
         var session = sessionService.getSession(player.getSessionId());
         if (session == null) throw new RuntimeException("Session not found");
 
-        Token token = session.getTokens().get(event.getTokenId());
-        if (token == null) throw new RuntimeException("Token not found");
+        synchronized (session) {
+            Token token = session.getTokens().get(event.getTokenId());
+            if (token == null) throw new RuntimeException("Token not found");
 
-        int maxHp = Math.max(1, event.getMaxHp());
-        int hp = Math.min(maxHp, Math.max(0, event.getHp()));
-        token.setMaxHp(maxHp);
-        token.setHp(hp);
-        return token;
+            int maxHp = Math.max(1, event.getMaxHp());
+            int hp = Math.min(maxHp, Math.max(0, event.getHp()));
+            token.setMaxHp(maxHp);
+            token.setHp(hp);
+            return token;
+        }
     }
 
-    // Конвертация модели → DTO
     public static TokenDto toDto(Token t) {
         TokenDto dto = new TokenDto(
                 t.getId(), t.getName(),
@@ -153,5 +187,25 @@ public class TokenService {
         if (player.getRole() == Role.DM) return true;
         return token.getOwnerId() != null
                 && token.getOwnerId().equals(player.getId());
+    }
+
+    private static String normalizeTokenName(String name, String fallbackId) {
+        String normalized = name == null ? "" : name.trim();
+        if (normalized.isBlank()) {
+            return "Token " + fallbackId.substring(0, 8);
+        }
+        return normalized.length() <= MAX_TOKEN_NAME_LENGTH
+                ? normalized
+                : normalized.substring(0, MAX_TOKEN_NAME_LENGTH);
+    }
+
+    private static String blankToNull(String value) {
+        if (value == null) return null;
+        String trimmed = value.trim();
+        return trimmed.isBlank() ? null : trimmed;
+    }
+
+    private static int clampVision(int value) {
+        return Math.max(0, Math.min(MAX_VISION_RADIUS, value));
     }
 }

@@ -9,7 +9,6 @@ import com.avalon.dnd.shared.JsonPayloads;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.avalon.dnd.shared.MapLayoutUpdateDto;
 import com.avalon.dnd.shared.MapObjectDto;
-import com.avalon.dnd.shared.TokenDto;
 import com.avalon.dnd.shared.TokenVisibilitySnapshotDto;
 import com.avalon.dnd.shared.VisibilityShareSuggestionDto;
 import com.avalon.dnd.shared.VisibilityStateDto;
@@ -24,7 +23,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.stream.Collectors;
+
+import static com.avalon.dnd.server.service.MapBattleRulesFogSupport.isNightMode;
+import static com.avalon.dnd.server.service.MapBattleRulesFogSupport.resolveVisionRadius;
 
 /**
  * Server-side gameplay rules derived from map-editor metadata.
@@ -36,6 +37,12 @@ public class MapBattleRulesService {
 
     private static final int DEFAULT_SHARED_VISION_DISTANCE = 8;
     private static final int SHARED_SUGGESTION_MAX_GROUP_SIZE = 8;
+
+    private final MapLayoutAssembler mapLayoutAssembler;
+
+    public MapBattleRulesService(MapLayoutAssembler mapLayoutAssembler) {
+        this.mapLayoutAssembler = mapLayoutAssembler;
+    }
 
     public boolean isTokenPlacementAllowed(GameSession session, int col, int row, int size) {
         if (session == null || session.getGrid() == null) {
@@ -51,7 +58,7 @@ public class MapBattleRulesService {
         if (!isAreaClear(session, col, row, tokenSize, tokenSize)) {
             return false;
         }
-        return !intersectsAnyToken(session, null, col, row, tokenSize, tokenSize);
+        return !MapBattleRulesGeometrySupport.intersectsAnyToken(session, null, col, row, tokenSize, tokenSize);
     }
 
     public boolean isTokenMoveAllowed(GameSession session, Token token, int toCol, int toRow) {
@@ -68,11 +75,11 @@ public class MapBattleRulesService {
         }
 
         boolean[][] blocked = buildBlockedCells(session, false);
-        if (intersectsBlocked(blocked, toCol, toRow, size, size)) {
+        if (MapBattleRulesGeometrySupport.intersectsBlocked(blocked, toCol, toRow, size, size)) {
             return false;
         }
 
-        if (intersectsAnyToken(session, token.getId(), toCol, toRow, size, size)) {
+        if (MapBattleRulesGeometrySupport.intersectsAnyToken(session, token.getId(), toCol, toRow, size, size)) {
             return false;
         }
 
@@ -92,7 +99,7 @@ public class MapBattleRulesService {
             return false;
         }
         boolean[][] blocked = buildBlockedCells(session, false);
-        return !intersectsBlocked(blocked, col, row, width, height);
+        return !MapBattleRulesGeometrySupport.intersectsBlocked(blocked, col, row, width, height);
     }
 
     public VisibilityStateDto computeVisibility(GameSession session) {
@@ -102,7 +109,12 @@ public class MapBattleRulesService {
             session.setSharedVisibilityState(result.sharedState());
             session.setVisibilityShareSuggestions(result.suggestions());
             session.setVisibilityState(result.mergedState());
-            updateNpcFacing(session);
+            session.clearVisibilityDirty();
+            if (isInitiativePublished(session)) {
+                MapBattleRulesFacingSupport.updateNpcFacing(session);
+            } else {
+                MapBattleRulesFacingSupport.resetNpcFacing(session);
+            }
         }
         return result.mergedState();
     }
@@ -125,7 +137,7 @@ public class MapBattleRulesService {
             privateState = states.get(playerId);
         }
 
-        VisibilityStateDto effective = mergeVisibilityStates(shared, privateState);
+        VisibilityStateDto effective = MapBattleRulesVisibilitySupport.mergeVisibilityStates(shared, privateState);
         if (effective != null) {
             return effective;
         }
@@ -135,20 +147,12 @@ public class MapBattleRulesService {
     }
 
     public MapLayoutUpdateDto buildMapLayout(GameSession session, String forPlayerId) {
-        VisibilityStateDto visibility = getVisibilityForPlayer(session, forPlayerId);
-        return new MapLayoutUpdateDto(
-                session.getGrid(),
-                session.getTokens().values().stream().map(this::toTokenDto).toList(),
-                session.getObjects().values().stream().map(this::toObjectDto).toList(),
-                AssetUrlNormalizer.normalize(session.getBackgroundUrl()),
-                visibility,
-                session.getReferenceOverlayLayer(),
-                session.getTerrainLayer(),
-                session.getWallLayer(),
-                session.getFogSettings(),
-                session.getMicroLocations(),
-                session.getAssetPackIds()
-        );
+        if (forPlayerId == null || forPlayerId.isBlank()) {
+            return mapLayoutAssembler.build(session, null);
+        }
+        Player player = session == null ? null : session.getPlayers().get(forPlayerId);
+        boolean isDm = player != null && player.getRole() == com.avalon.dnd.server.model.Role.DM;
+        return mapLayoutAssembler.build(session, isDm ? null : getVisibilityForPlayer(session, forPlayerId), forPlayerId, isDm);
     }
 
     public boolean[][] computeVisibility(GameSession session, String viewerPlayerId, int revealRadius) {
@@ -165,10 +169,11 @@ public class MapBattleRulesService {
         int rows = Math.max(0, grid.getRows());
         int cols = Math.max(0, grid.getCols());
         JsonNode fogSettings = session == null ? null : session.getFogSettings();
-        boolean enabled = isFogEnabled(fogSettings);
-        boolean revealFromTokens = isRevealFromTokensEnabled(fogSettings);
-        boolean retainExploredCells = isRetainExploredCellsEnabled(fogSettings);
-        int sharedVisionDistance = Math.max(0, resolveSharedVisionDistance(fogSettings, DEFAULT_SHARED_VISION_DISTANCE));
+        MapBattleRulesFogSupport.FogSnapshot fog = MapBattleRulesFogSupport.snapshot(fogSettings, DEFAULT_SHARED_VISION_DISTANCE);
+        boolean enabled = fog.enabled();
+        boolean revealFromTokens = fog.revealFromTokens();
+        boolean retainExploredCells = fog.retainExploredCells();
+        int sharedVisionDistance = fog.sharedVisionDistance();
         int sharedVisionDistanceSq = sharedVisionDistance * sharedVisionDistance;
 
         Map<String, List<VisibilitySource>> sourcesByPlayer = buildSourcesByPlayer(session, fogSettings, revealFromTokens);
@@ -186,10 +191,10 @@ public class MapBattleRulesService {
             VisibilityStateDto full = buildFullVisibilityState(session, rows, cols, previousStates, retainExploredCells);
             for (Player player : sortedPlayers(session)) {
                 perPlayerStates.put(player.getId(), full);
-                VisibilityStateDto effective = mergeVisibilityStates(sharedState, full);
+                VisibilityStateDto effective = MapBattleRulesVisibilitySupport.mergeVisibilityStates(sharedState, full);
                 effectiveStates.put(player.getId(), effective == null ? full : effective);
             }
-            merged = mergeVisibilityStates(sharedState, full);
+            merged = MapBattleRulesVisibilitySupport.mergeVisibilityStates(sharedState, full);
         } else {
             for (PlayerVisibilityGroup group : groups) {
                 VisibilityStateDto previous = mergePreviousStates(session, previousStates, group.playerIds());
@@ -204,12 +209,12 @@ public class MapBattleRulesService {
                 );
                 for (String playerId : group.playerIds()) {
                     perPlayerStates.put(playerId, privateState);
-                    VisibilityStateDto effective = mergeVisibilityStates(sharedState, privateState);
+                    VisibilityStateDto effective = MapBattleRulesVisibilitySupport.mergeVisibilityStates(sharedState, privateState);
                     effectiveStates.put(playerId, effective == null ? privateState : effective);
                 }
-                merged = mergeVisibilityStates(merged, privateState);
+                merged = MapBattleRulesVisibilitySupport.mergeVisibilityStates(merged, privateState);
                 String shareReason = shareReasonFor(session, group);
-                if (shouldSuggestShare(session, sharedState, privateState, group.playerIds())) {
+                if (MapBattleRulesShareSupport.shouldSuggestShare(sharedState, privateState, group.playerIds(), SHARED_SUGGESTION_MAX_GROUP_SIZE)) {
                     suggestions.add(new VisibilityShareSuggestionDto(
                             suggestionIdFor(group.playerIds()),
                             group.playerIds(),
@@ -218,7 +223,7 @@ public class MapBattleRulesService {
                             shareTriggerFor(group)));
                 }
             }
-            merged = mergeVisibilityStates(sharedState, merged);
+            merged = MapBattleRulesVisibilitySupport.mergeVisibilityStates(sharedState, merged);
         }
 
         if (merged == null) {
@@ -383,6 +388,13 @@ public class MapBattleRulesService {
         return false;
     }
 
+    private boolean isInitiativePublished(GameSession session) {
+        if (session == null || session.getInitiativeState() == null || session.getInitiativeState().getEntries() == null) {
+            return false;
+        }
+        return !session.getInitiativeState().getEntries().isEmpty();
+    }
+
     private Map<String, List<VisibilitySource>> buildSourcesByPlayer(GameSession session,
                                                                       JsonNode fogSettings,
                                                                       boolean revealFromTokens) {
@@ -391,7 +403,7 @@ public class MapBattleRulesService {
             return sourcesByPlayer;
         }
 
-        boolean nightMode = isNightMode(fogSettings);
+        boolean nightMode = MapBattleRulesFogSupport.snapshot(fogSettings, 6).nightMode();
         session.getTokens().values().forEach(token -> {
             if (token == null || token.getOwnerId() == null) return;
             int gs = Math.max(1, token.getGridSize());
@@ -434,7 +446,7 @@ public class MapBattleRulesService {
                     int dx = col - source.xFloor();
                     int dy = row - source.yFloor();
                     if (dx * dx + dy * dy > radiusSq) continue;
-                    if (hasLineOfSight(source.xFloor(), source.yFloor(), col, row, blockers)) {
+                    if (MapBattleRulesGeometrySupport.hasLineOfSight(source.xFloor(), source.yFloor(), col, row, blockers)) {
                         visible[row][col] = true;
                     }
                 }
@@ -450,8 +462,8 @@ public class MapBattleRulesService {
                                                         Map<String, VisibilityStateDto> previousStates,
                                                         boolean retainExploredCells) {
         boolean[][] visible = new boolean[rows][cols];
-        fillAllVisible(visible);
-        VisibilityStateDto previous = mergeVisibilityStates(previousStates == null ? null : new ArrayList<>(previousStates.values()));
+        MapBattleRulesGeometrySupport.fillAllVisible(visible);
+        VisibilityStateDto previous = MapBattleRulesVisibilitySupport.mergeVisibilityStates(previousStates == null ? null : new ArrayList<>(previousStates.values()));
         if (previous == null && session != null) {
             previous = session.getVisibilityState();
         }
@@ -488,16 +500,16 @@ public class MapBattleRulesService {
             session.getTokens().values().forEach(token -> {
                 if (token == null) return;
                 int gs = Math.max(1, token.getGridSize());
-                if (isAnyCellVisible(visible, token.getCol(), token.getRow(), gs, gs)) {
-                    tokenSnapshots.put(token.getId(), toTokenSnapshotDto(token));
+                if (MapBattleRulesGeometrySupport.isAnyCellVisible(visible, token.getCol(), token.getRow(), gs, gs)) {
+                    tokenSnapshots.put(token.getId(), MapBattleRulesMappers.toTokenSnapshotDto(token));
                 }
             });
             session.getObjects().values().forEach(obj -> {
                 if (obj == null) return;
                 int w = Math.max(1, obj.getWidth());
                 int h = Math.max(1, obj.getHeight());
-                if (isAnyCellVisible(visible, obj.getCol(), obj.getRow(), w, h)) {
-                    objectSnapshots.put(obj.getId(), toObjectDto(obj));
+                if (MapBattleRulesGeometrySupport.isAnyCellVisible(visible, obj.getCol(), obj.getRow(), w, h)) {
+                    objectSnapshots.put(obj.getId(), MapBattleRulesMappers.toObjectDto(obj));
                 }
             });
         }
@@ -510,44 +522,43 @@ public class MapBattleRulesService {
         return state;
     }
 
-    private boolean shouldSuggestShare(GameSession session,
-                                      VisibilityStateDto sharedState,
-                                      VisibilityStateDto privateState,
-                                      List<String> playerIds) {
-        if (playerIds == null || playerIds.size() < 2) {
-            return false;
-        }
-        if (playerIds.size() > SHARED_SUGGESTION_MAX_GROUP_SIZE) {
-            return false;
-        }
-        if (privateState == null) {
-            return false;
-        }
-        if (sharedState == null) {
-            return true;
-        }
-        return !isStateCoveredBy(sharedState, privateState);
+    private VisibilityStateDto emptyVisibilityState() {
+        return emptyVisibilityState(0, 0);
     }
 
-    private boolean isStateCoveredBy(VisibilityStateDto base, VisibilityStateDto candidate) {
-        if (candidate == null) return true;
-        if (base == null) return false;
-        if (!containsAllCells(base.getExploredCells(), candidate.getExploredCells())) return false;
-        if (!baseContainsSnapshots(base.getTokenSnapshots(), candidate.getTokenSnapshots())) return false;
-        if (!baseContainsSnapshots(base.getObjectSnapshots(), candidate.getObjectSnapshots())) return false;
-        return true;
+    private VisibilityStateDto emptyVisibilityState(int rows, int cols) {
+        VisibilityStateDto state = new VisibilityStateDto();
+        state.setVisibleCells(new boolean[Math.max(0, rows)][Math.max(0, cols)]);
+        state.setExploredCells(List.of());
+        state.setTokenSnapshots(Map.of());
+        state.setObjectSnapshots(Map.of());
+        return state;
     }
 
-    private boolean containsAllCells(List<String> base, List<String> candidate) {
-        if (candidate == null || candidate.isEmpty()) return true;
-        if (base == null || base.isEmpty()) return false;
-        return base.containsAll(candidate);
+    private List<Player> sortedPlayers(GameSession session) {
+        if (session == null || session.getPlayers() == null || session.getPlayers().isEmpty()) {
+            return List.of();
+        }
+        List<Player> players = new ArrayList<>(session.getPlayers().values());
+        players.removeIf(Objects::isNull);
+        players.sort(Comparator.comparing(player -> player.getId() == null ? "" : player.getId()));
+        return players;
     }
 
-    private <T> boolean baseContainsSnapshots(Map<String, T> base, Map<String, T> candidate) {
-        if (candidate == null || candidate.isEmpty()) return true;
-        if (base == null || base.isEmpty()) return false;
-        return base.keySet().containsAll(candidate.keySet());
+    private VisibilityStateDto mergePreviousStates(GameSession session,
+                                                   Map<String, VisibilityStateDto> previousStates,
+                                                   List<String> playerIds) {
+        VisibilityStateDto merged = null;
+        if (previousStates != null && playerIds != null) {
+            for (String playerId : playerIds) {
+                if (playerId == null) continue;
+                merged = MapBattleRulesVisibilitySupport.mergeVisibilityStates(merged, previousStates.get(playerId));
+            }
+        }
+        if (merged == null && session != null) {
+            merged = session.getVisibilityState();
+        }
+        return merged;
     }
 
     public boolean approveVisibilityShare(GameSession session, String suggestionId) {
@@ -569,7 +580,7 @@ public class MapBattleRulesService {
         VisibilityStateDto merged = session.getSharedVisibilityState();
         for (String playerId : suggestion.getPlayerIds()) {
             VisibilityStateDto playerState = session.getVisibilityStatesByPlayer().get(playerId);
-            merged = mergeVisibilityStates(merged, playerState);
+            merged = MapBattleRulesVisibilitySupport.mergeVisibilityStates(merged, playerState);
         }
         if (merged == null) {
             merged = emptyVisibilityState();
@@ -629,291 +640,6 @@ public class MapBattleRulesService {
         return String.join(", ", names);
     }
 
-    private VisibilityStateDto mergeVisibilityStates(Collection<VisibilityStateDto> states) {
-        if (states == null || states.isEmpty()) {
-            return null;
-        }
-        VisibilityStateDto merged = null;
-        for (VisibilityStateDto state : states) {
-            merged = mergeVisibilityStates(merged, state);
-        }
-        return merged;
-    }
-
-    private VisibilityStateDto mergeVisibilityStates(VisibilityStateDto left, VisibilityStateDto right) {
-        if (left == null) return right == null ? null : copyVisibilityState(right);
-        if (right == null) return copyVisibilityState(left);
-
-        boolean[][] visible = mergeVisibleCells(left.getVisibleCells(), right.getVisibleCells());
-        LinkedHashSet<String> explored = new LinkedHashSet<>();
-        if (left.getExploredCells() != null) explored.addAll(left.getExploredCells());
-        if (right.getExploredCells() != null) explored.addAll(right.getExploredCells());
-        LinkedHashMap<String, TokenVisibilitySnapshotDto> tokenSnapshots = new LinkedHashMap<>();
-        if (left.getTokenSnapshots() != null) tokenSnapshots.putAll(left.getTokenSnapshots());
-        if (right.getTokenSnapshots() != null) tokenSnapshots.putAll(right.getTokenSnapshots());
-        LinkedHashMap<String, MapObjectDto> objectSnapshots = new LinkedHashMap<>();
-        if (left.getObjectSnapshots() != null) objectSnapshots.putAll(left.getObjectSnapshots());
-        if (right.getObjectSnapshots() != null) objectSnapshots.putAll(right.getObjectSnapshots());
-
-        VisibilityStateDto merged = new VisibilityStateDto();
-        merged.setVisibleCells(visible);
-        merged.setExploredCells(new ArrayList<>(explored));
-        merged.setTokenSnapshots(tokenSnapshots);
-        merged.setObjectSnapshots(objectSnapshots);
-        return merged;
-    }
-
-    private VisibilityStateDto copyVisibilityState(VisibilityStateDto source) {
-        if (source == null) return null;
-        VisibilityStateDto copy = new VisibilityStateDto();
-        copy.setVisibleCells(copyVisibleCells(source.getVisibleCells()));
-        copy.setExploredCells(source.getExploredCells() == null ? null : new ArrayList<>(source.getExploredCells()));
-        copy.setTokenSnapshots(source.getTokenSnapshots() == null ? null : new LinkedHashMap<>(source.getTokenSnapshots()));
-        copy.setObjectSnapshots(source.getObjectSnapshots() == null ? null : new LinkedHashMap<>(source.getObjectSnapshots()));
-        return copy;
-    }
-
-    private boolean[][] mergeVisibleCells(boolean[][] left, boolean[][] right) {
-        if (left == null) return copyVisibleCells(right);
-        if (right == null) return copyVisibleCells(left);
-        int rows = Math.max(left.length, right.length);
-        int cols = 0;
-        for (boolean[] row : left) {
-            cols = Math.max(cols, row == null ? 0 : row.length);
-        }
-        for (boolean[] row : right) {
-            cols = Math.max(cols, row == null ? 0 : row.length);
-        }
-        boolean[][] merged = new boolean[rows][cols];
-        for (int row = 0; row < rows; row++) {
-            for (int col = 0; col < cols; col++) {
-                boolean lv = row < left.length && left[row] != null && col < left[row].length && left[row][col];
-                boolean rv = row < right.length && right[row] != null && col < right[row].length && right[row][col];
-                merged[row][col] = lv || rv;
-            }
-        }
-        return merged;
-    }
-
-    private boolean[][] copyVisibleCells(boolean[][] source) {
-        if (source == null) return null;
-        boolean[][] copy = new boolean[source.length][];
-        for (int i = 0; i < source.length; i++) {
-            copy[i] = source[i] == null ? new boolean[0] : java.util.Arrays.copyOf(source[i], source[i].length);
-        }
-        return copy;
-    }
-
-    private VisibilityStateDto emptyVisibilityState() {
-        return emptyVisibilityState(0, 0);
-    }
-
-    private VisibilityStateDto emptyVisibilityState(int rows, int cols) {
-        VisibilityStateDto empty = new VisibilityStateDto();
-        empty.setVisibleCells(new boolean[Math.max(0, rows)][Math.max(0, cols)]);
-        return empty;
-    }
-
-    private VisibilityStateDto mergePreviousStates(GameSession session,
-                                                   Map<String, VisibilityStateDto> previousStates,
-                                                   Collection<String> playerIds) {
-        VisibilityStateDto merged = null;
-        if (previousStates != null && playerIds != null) {
-            for (String playerId : playerIds) {
-                merged = mergeVisibilityStates(merged, previousStates.get(playerId));
-            }
-        }
-        if (merged == null && session != null) {
-            merged = session.getVisibilityState();
-        }
-        return merged;
-    }
-
-    private List<Player> sortedPlayers(GameSession session) {
-        if (session == null || session.getPlayers() == null) {
-            return List.of();
-        }
-        return session.getPlayers().values().stream()
-                .filter(Objects::nonNull)
-                .sorted(Comparator.comparing(Player::getId, Comparator.nullsLast(Comparator.naturalOrder())))
-                .toList();
-    }
-
-    private boolean isNightMode(JsonNode fogSettings) {
-        Map<String, Object> fogMap = JsonPayloads.toMap(fogSettings);
-        if (!fogMap.isEmpty()) {
-            Object value = fogMap.get("timeOfDay");
-            if (value instanceof String text) {
-                String normalized = text.trim().toLowerCase();
-                if (normalized.equals("night") || normalized.equals("dark")) return true;
-                if (normalized.equals("day") || normalized.equals("light")) return false;
-            }
-            value = fogMap.get("dayNight");
-            if (value instanceof String text) {
-                String normalized = text.trim().toLowerCase();
-                if (normalized.equals("night") || normalized.equals("dark")) return true;
-                if (normalized.equals("day") || normalized.equals("light")) return false;
-            }
-            value = fogMap.get("mode");
-            if (value instanceof String text) {
-                String normalized = text.trim().toLowerCase();
-                if (normalized.equals("night") || normalized.equals("dark")) return true;
-                if (normalized.equals("day") || normalized.equals("light")) return false;
-            }
-            Object boolValue = fogMap.get("nightMode");
-            if (boolValue == null) boolValue = fogMap.get("isNightMode");
-            if (boolValue == null) boolValue = fogMap.get("night");
-            if (boolValue == null) boolValue = fogMap.get("isNight");
-            if (boolValue == null) boolValue = fogMap.get("darkness");
-            return readBoolean(boolValue, false);
-        }
-        return false;
-    }
-
-    private int resolveVisionRadius(Token token, boolean isNightMode, int fallback) {
-        int preferred = isNightMode ? token.getNightVision() : token.getDayVision();
-        int alternate = isNightMode ? token.getDayVision() : token.getNightVision();
-        int radius = preferred > 0 ? preferred : (alternate > 0 ? alternate : fallback);
-        return Math.max(0, radius);
-    }
-
-    private int resolveSharedVisionDistance(JsonNode fogSettings, int fallback) {
-        Map<String, Object> fogMap = JsonPayloads.toMap(fogSettings);
-        if (!fogMap.isEmpty()) {
-            int distance = readInt(firstNonNull(
-                    fogMap.get("sharedVisionDistance"),
-                    fogMap.get("visibilityGroupDistance"),
-                    fogMap.get("partyVisionDistance"),
-                    fogMap.get("groupDistance"),
-                    fogMap.get("sharedDistance")
-            ), fallback);
-            return Math.max(0, distance);
-        }
-        return Math.max(0, fallback);
-    }
-
-    private Object firstNonNull(Object... values) {
-        for (Object value : values) {
-            if (value != null) return value;
-        }
-        return null;
-    }
-
-    private boolean isFogEnabled(JsonNode fogSettings) {
-        Map<String, Object> fogMap = JsonPayloads.toMap(fogSettings);
-        if (!fogMap.isEmpty()) {
-            return readBoolean(fogMap.get("enabled"), true);
-        }
-        return true;
-    }
-
-    private boolean isRevealFromTokensEnabled(JsonNode fogSettings) {
-        Map<String, Object> fogMap = JsonPayloads.toMap(fogSettings);
-        if (!fogMap.isEmpty()) {
-            return readBoolean(fogMap.get("revealFromTokens"), true);
-        }
-        return true;
-    }
-
-    private boolean isRetainExploredCellsEnabled(JsonNode fogSettings) {
-        Map<String, Object> fogMap = JsonPayloads.toMap(fogSettings);
-        if (!fogMap.isEmpty()) {
-            return readBoolean(fogMap.get("retainExploredCells"), true);
-        }
-        return true;
-    }
-
-    private TokenDto toTokenDto(Token t) {
-        TokenDto dto = new TokenDto(
-                t.getId(), t.getName(), t.getCol(), t.getRow(), t.getOwnerId(),
-                t.getHp(), t.getMaxHp(),
-                t.getGridSize(), t.getImageUrl(),
-                t.getDayVision(), t.getNightVision()
-        );
-        dto.setFacingAngleDeg(t.getFacingAngleDeg());
-        return dto;
-    }
-
-    private TokenVisibilitySnapshotDto toTokenSnapshotDto(Token t) {
-        TokenVisibilitySnapshotDto dto = new TokenVisibilitySnapshotDto(
-                t.getId(), t.getName(), t.getCol(), t.getRow(), t.getOwnerId(),
-                t.getHp(), t.getMaxHp(),
-                t.getGridSize(), t.getImageUrl(),
-                t.getDayVision(), t.getNightVision(),
-                t.getFacingAngleDeg()
-        );
-        return dto;
-    }
-
-    private void updateNpcFacing(GameSession session) {
-        if (session == null || session.getTokens() == null || session.getTokens().isEmpty()) {
-            return;
-        }
-        GridConfig grid = session.getGrid();
-        if (grid == null) {
-            return;
-        }
-        boolean nightMode = isNightMode(session.getFogSettings());
-        boolean[][] blockers = buildBlockedCells(session, true);
-        for (Token npc : session.getTokens().values()) {
-            if (npc == null || npc.getOwnerId() != null) continue;
-            int angle = computeNpcFacingAngle(session, npc, blockers, nightMode);
-            if (angle != Integer.MIN_VALUE) {
-                npc.setFacingAngleDeg(angle);
-            }
-        }
-    }
-
-    private int computeNpcFacingAngle(GameSession session, Token npc, boolean[][] blockers, boolean nightMode) {
-        if (session == null || npc == null) {
-            return Integer.MIN_VALUE;
-        }
-        double originX = npc.getCol() + Math.max(1, npc.getGridSize()) / 2.0;
-        double originY = npc.getRow() + Math.max(1, npc.getGridSize()) / 2.0;
-        int radius = resolveVisionRadius(npc, nightMode, 6);
-        double bestDistSq = Double.POSITIVE_INFINITY;
-        Integer bestAngle = null;
-        for (Token playerToken : session.getTokens().values()) {
-            if (playerToken == null || playerToken.getOwnerId() == null) continue;
-            double targetX = playerToken.getCol() + Math.max(1, playerToken.getGridSize()) / 2.0;
-            double targetY = playerToken.getRow() + Math.max(1, playerToken.getGridSize()) / 2.0;
-            double dx = targetX - originX;
-            double dy = targetY - originY;
-            double distSq = dx * dx + dy * dy;
-            if (radius > 0 && distSq > (double) radius * radius) continue;
-            int targetCol = (int) Math.round(targetX);
-            int targetRow = (int) Math.round(targetY);
-            if (blockers != null && !hasLineOfSight((int) Math.round(originX), (int) Math.round(originY), targetCol, targetRow, blockers)) {
-                continue;
-            }
-            if (distSq < bestDistSq) {
-                bestDistSq = distSq;
-                // Image faces down by default, so rotate relative to that orientation.
-                bestAngle = normalizeFacingAngleDeg(Math.toDegrees(Math.atan2(dy, dx)) - 90.0);
-            }
-        }
-        return bestAngle == null ? Integer.MIN_VALUE : bestAngle;
-    }
-
-    private int normalizeFacingAngleDeg(double angle) {
-        int normalized = (int) Math.round(angle) % 360;
-        if (normalized <= -180) normalized += 360;
-        if (normalized > 180) normalized -= 360;
-        return normalized;
-    }
-
-    private MapObjectDto toObjectDto(MapObject o) {
-        MapObjectDto dto = new MapObjectDto(
-                o.getId(), o.getType(),
-                o.getCol(), o.getRow(),
-                o.getWidth(), o.getHeight(),
-                o.getGridSize(), o.getImageUrl(),
-                o.isBlocksMovement(), o.isBlocksSight()
-        );
-        dto.setMicroLocationId(o.getMicroLocationId());
-        return dto;
-    }
-
     private boolean[][] buildBlockedCells(GameSession session, boolean forSight) {
         if (session == null || session.getGrid() == null) {
             return new boolean[0][0];
@@ -927,7 +653,7 @@ public class MapBattleRulesService {
             if (obj == null) continue;
             boolean blocks = forSight ? obj.isBlocksSight() : obj.isBlocksMovement();
             if (!blocks) continue;
-            markRect(blocked, obj.getCol(), obj.getRow(), Math.max(1, obj.getWidth()), Math.max(1, obj.getHeight()));
+            MapBattleRulesGeometrySupport.markRect(blocked, obj.getCol(), obj.getRow(), Math.max(1, obj.getWidth()), Math.max(1, obj.getHeight()));
         }
 
         Map<String, Object> terrainMap = JsonPayloads.toMap(session.getTerrainLayer());
@@ -937,14 +663,14 @@ public class MapBattleRulesService {
                 for (Object cellObj : list) {
                     if (!(cellObj instanceof Map<?, ?> cell)) continue;
                     boolean blocks = forSight
-                            ? readBoolean(cell.get("blocksSight"), readBoolean(cell.get("blocksMovement"), false))
-                            : readBoolean(cell.get("blocksMovement"), false);
+                            ? MapBattleRulesGeometrySupport.readBoolean(cell.get("blocksSight"), MapBattleRulesGeometrySupport.readBoolean(cell.get("blocksMovement"), false))
+                            : MapBattleRulesGeometrySupport.readBoolean(cell.get("blocksMovement"), false);
                     if (!blocks) continue;
-                    int col = readInt(cell.get("col"), 0);
-                    int row = readInt(cell.get("row"), 0);
-                    int width = Math.max(1, readInt(cell.get("width"), 1));
-                    int height = Math.max(1, readInt(cell.get("height"), 1));
-                    markRect(blocked, col, row, width, height);
+                    int col = MapBattleRulesGeometrySupport.readInt(cell.get("col"), 0);
+                    int row = MapBattleRulesGeometrySupport.readInt(cell.get("row"), 0);
+                    int width = Math.max(1, MapBattleRulesGeometrySupport.readInt(cell.get("width"), 1));
+                    int height = Math.max(1, MapBattleRulesGeometrySupport.readInt(cell.get("height"), 1));
+                    MapBattleRulesGeometrySupport.markRect(blocked, col, row, width, height);
                 }
             }
         }
@@ -959,21 +685,29 @@ public class MapBattleRulesService {
                 for (Object pathObj : list) {
                     if (!(pathObj instanceof Map<?, ?> path)) continue;
                     boolean blocks = forSight
-                            ? readBoolean(path.get("blocksSight"), readBoolean(path.get("blocksMovement"), true))
-                            : readBoolean(path.get("blocksMovement"), true);
+                            ? MapBattleRulesGeometrySupport.readBoolean(path.get("blocksSight"), MapBattleRulesGeometrySupport.readBoolean(path.get("blocksMovement"), true))
+                            : MapBattleRulesGeometrySupport.readBoolean(path.get("blocksMovement"), true);
                     if (!blocks) continue;
-                    double thickness = Math.max(0.5, readDouble(path.get("thickness"), 2.5));
+                    double thickness = Math.max(0.5, MapBattleRulesGeometrySupport.readDouble(path.get("thickness"), 2.5));
                     int expand = Math.max(0, (int) Math.ceil(thickness / cellSize));
                     Object points = path.get("points");
                     if (!(points instanceof List<?> pts) || pts.size() < 2) continue;
-                    Point prev = null;
+                    Map<?, ?> prev = null;
                     for (Object p : pts) {
                         if (!(p instanceof Map<?, ?> pm)) continue;
-                        Point curr = new Point(readDouble(pm.get("x"), 0.0), readDouble(pm.get("y"), 0.0));
                         if (prev != null) {
-                            markSegment(blocked, prev, curr, ox, oy, cellSize, expand);
+                            MapBattleRulesGeometrySupport.markSegment(
+                                    blocked,
+                                    MapBattleRulesGeometrySupport.readDouble(prev.get("x"), 0.0),
+                                    MapBattleRulesGeometrySupport.readDouble(prev.get("y"), 0.0),
+                                    MapBattleRulesGeometrySupport.readDouble(pm.get("x"), 0.0),
+                                    MapBattleRulesGeometrySupport.readDouble(pm.get("y"), 0.0),
+                                    ox,
+                                    oy,
+                                    cellSize,
+                                    expand);
                         }
-                        prev = curr;
+                        prev = pm;
                     }
                 }
             }
@@ -981,128 +715,6 @@ public class MapBattleRulesService {
 
         return blocked;
     }
-
-    private void markRect(boolean[][] blocked, int col, int row, int width, int height) {
-        for (int r = Math.max(0, row); r < Math.min(blocked.length, row + height); r++) {
-            for (int c = Math.max(0, col); blocked.length > 0 && c < Math.min(blocked[r].length, col + width); c++) {
-                blocked[r][c] = true;
-            }
-        }
-    }
-
-    private void markSegment(boolean[][] blocked, Point a, Point b, double ox, double oy, double cellSize, int expand) {
-        int startCol = (int) Math.floor((a.x - ox) / cellSize);
-        int startRow = (int) Math.floor((a.y - oy) / cellSize);
-        int endCol = (int) Math.floor((b.x - ox) / cellSize);
-        int endRow = (int) Math.floor((b.y - oy) / cellSize);
-        for (Cell cell : lineCells(startCol, startRow, endCol, endRow)) {
-            for (int r = cell.row - expand; r <= cell.row + expand; r++) {
-                if (r < 0 || r >= blocked.length) continue;
-                for (int c = cell.col - expand; c <= cell.col + expand; c++) {
-                    if (c < 0 || c >= blocked[r].length) continue;
-                    blocked[r][c] = true;
-                }
-            }
-        }
-    }
-
-    private boolean intersectsBlocked(boolean[][] blocked, int col, int row, int width, int height) {
-        for (int r = row; r < row + height; r++) {
-            if (r < 0 || r >= blocked.length) return true;
-            for (int c = col; c < col + width; c++) {
-                if (c < 0 || c >= blocked[r].length) return true;
-                if (blocked[r][c]) return true;
-            }
-        }
-        return false;
-    }
-
-    private boolean isAnyCellVisible(boolean[][] visible, int col, int row, int width, int height) {
-        for (int r = row; r < row + height; r++) {
-            if (r < 0 || r >= visible.length) continue;
-            for (int c = col; c < col + width; c++) {
-                if (c < 0 || c >= visible[r].length) continue;
-                if (visible[r][c]) return true;
-            }
-        }
-        return false;
-    }
-
-    private boolean intersectsAnyToken(GameSession session, String ignoreTokenId, int col, int row, int width, int height) {
-        if (session == null) return false;
-        for (Token other : session.getTokens().values()) {
-            if (other == null) continue;
-            if (ignoreTokenId != null && ignoreTokenId.equals(other.getId())) continue;
-            int otherSize = Math.max(1, other.getGridSize());
-            if (intersects(col, row, width, height, other.getCol(), other.getRow(), otherSize, otherSize)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private boolean intersects(int x1, int y1, int w1, int h1,
-                               int x2, int y2, int w2, int h2) {
-        return x1 < x2 + w2
-                && x1 + w1 > x2
-                && y1 < y2 + h2
-                && y1 + h1 > y2;
-    }
-
-    private boolean hasLineOfSight(int startCol, int startRow, int endCol, int endRow, boolean[][] blocked) {
-        for (Cell cell : lineCells(startCol, startRow, endCol, endRow)) {
-            if (cell.col == startCol && cell.row == startRow) continue;
-            if (cell.col == endCol && cell.row == endRow) continue;
-            if (cell.row >= 0 && cell.row < blocked.length && cell.col >= 0 && cell.col < blocked[cell.row].length && blocked[cell.row][cell.col]) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private List<Cell> lineCells(int startCol, int startRow, int endCol, int endRow) {
-        List<Cell> cells = new ArrayList<>();
-        int x = startCol;
-        int y = startRow;
-        int dx = Math.abs(endCol - startCol);
-        int dy = Math.abs(endRow - startRow);
-        int sx = startCol < endCol ? 1 : -1;
-        int sy = startRow < endRow ? 1 : -1;
-        int err = dx - dy;
-        while (true) {
-            cells.add(new Cell(x, y));
-            if (x == endCol && y == endRow) break;
-            int e2 = 2 * err;
-            if (e2 > -dy) { err -= dy; x += sx; }
-            if (e2 < dx) { err += dx; y += sy; }
-        }
-        return cells;
-    }
-
-    private void fillAllVisible(boolean[][] visible) {
-        for (boolean[] row : visible) {
-            java.util.Arrays.fill(row, true);
-        }
-    }
-
-    private static boolean readBoolean(Object value, boolean defaultValue) {
-        if (value instanceof Boolean b) return b;
-        if (value == null) return defaultValue;
-        return Boolean.parseBoolean(String.valueOf(value));
-    }
-
-    private static int readInt(Object value, int defaultValue) {
-        if (value instanceof Number n) return n.intValue();
-        if (value == null) return defaultValue;
-        try { return Integer.parseInt(String.valueOf(value)); } catch (Exception e) { return defaultValue; }
-    }
-
-    private static double readDouble(Object value, double defaultValue) {
-        if (value instanceof Number n) return n.doubleValue();
-        if (value == null) return defaultValue;
-        try { return Double.parseDouble(String.valueOf(value)); } catch (Exception e) { return defaultValue; }
-    }
-
     private record VisibilitySource(double x, double y, int radius) {
         int xFloor() { return (int) Math.floor(x); }
         int yFloor() { return (int) Math.floor(y); }
@@ -1116,8 +728,6 @@ public class MapBattleRulesService {
                                               Map<String, VisibilityStateDto> effectiveStates,
                                               VisibilityStateDto sharedState,
                                               List<VisibilityShareSuggestionDto> suggestions) {}
-    private record Point(double x, double y) {}
-    private record Cell(int col, int row) {}
 
     private static final class UnionFind {
         private final int[] parent;

@@ -2,6 +2,8 @@ package com.avalon.dnd.shared;
 
 import com.avalon.dnd.shared.PlacementSizingRules;
 
+import java.util.Objects;
+
 /**
  * Fog-memory snapshot for a token.
  * Separate from TokenDto so authoritative state and render-only memory do not share the same type.
@@ -65,4 +67,27 @@ public class TokenVisibilitySnapshotDto {
     public void setDayVision(int dayVision) { this.dayVision = Math.max(0, dayVision); }
     public void setNightVision(int nightVision) { this.nightVision = Math.max(0, nightVision); }
     public void setFacingAngleDeg(int facingAngleDeg) { this.facingAngleDeg = facingAngleDeg; }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof TokenVisibilitySnapshotDto that)) return false;
+        return col == that.col
+                && row == that.row
+                && hp == that.hp
+                && maxHp == that.maxHp
+                && gridSize == that.gridSize
+                && dayVision == that.dayVision
+                && nightVision == that.nightVision
+                && facingAngleDeg == that.facingAngleDeg
+                && Objects.equals(id, that.id)
+                && Objects.equals(name, that.name)
+                && Objects.equals(ownerId, that.ownerId)
+                && Objects.equals(imageUrl, that.imageUrl);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(id, name, col, row, ownerId, hp, maxHp, gridSize, imageUrl, dayVision, nightVision, facingAngleDeg);
+    }
 }

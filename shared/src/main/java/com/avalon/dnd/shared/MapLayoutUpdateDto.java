@@ -1,5 +1,6 @@
 package com.avalon.dnd.shared;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.databind.JsonNode;
 
 import java.util.ArrayList;
@@ -91,18 +92,22 @@ public class MapLayoutUpdateDto {
     public void setVisibility(VisibilityStateDto visibility) { this.visibility = visibility; }
 
     public JsonNode getReferenceOverlayLayer() { return referenceOverlayLayer; }
+    @JsonIgnore
     public void setReferenceOverlayLayer(Object referenceOverlayLayer) { this.referenceOverlayLayer = JsonPayloads.toNode(referenceOverlayLayer); }
     public void setReferenceOverlayLayer(JsonNode referenceOverlayLayer) { this.referenceOverlayLayer = referenceOverlayLayer; }
 
     public JsonNode getTerrainLayer() { return terrainLayer; }
+    @JsonIgnore
     public void setTerrainLayer(Object terrainLayer) { this.terrainLayer = JsonPayloads.toNode(terrainLayer); }
     public void setTerrainLayer(JsonNode terrainLayer) { this.terrainLayer = terrainLayer; }
 
     public JsonNode getWallLayer() { return wallLayer; }
+    @JsonIgnore
     public void setWallLayer(Object wallLayer) { this.wallLayer = JsonPayloads.toNode(wallLayer); }
     public void setWallLayer(JsonNode wallLayer) { this.wallLayer = wallLayer; }
 
     public JsonNode getFogSettings() { return fogSettings; }
+    @JsonIgnore
     public void setFogSettings(Object fogSettings) { this.fogSettings = JsonPayloads.toNode(fogSettings); }
     public void setFogSettings(JsonNode fogSettings) { this.fogSettings = fogSettings; }
 

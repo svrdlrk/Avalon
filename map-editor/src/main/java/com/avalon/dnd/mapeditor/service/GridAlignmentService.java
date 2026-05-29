@@ -121,10 +121,9 @@ public final class GridAlignmentService {
             return null;
         }
         String cleaned = relative.startsWith("/") ? relative.substring(1) : relative;
-        Path cwd = Path.of("").toAbsolutePath().normalize();
-        Path current = cwd;
-        for (int i = 0; i < 6 && current != null; i++, current = current.getParent()) {
-            Path candidate = current.resolve(cleaned).normalize();
+        Path projectRoot = findProjectRoot();
+        if (projectRoot != null) {
+            Path candidate = projectRoot.resolve(cleaned).normalize();
             if (Files.exists(candidate)) {
                 return candidate.toAbsolutePath().normalize();
             }
@@ -132,6 +131,20 @@ public final class GridAlignmentService {
         Path direct = Path.of(cleaned);
         if (Files.exists(direct)) {
             return direct.toAbsolutePath().normalize();
+        }
+        return null;
+    }
+
+    private static Path findProjectRoot() {
+        Path cwd = Path.of("").toAbsolutePath().normalize();
+        for (Path current = cwd; current != null; current = current.getParent()) {
+            if ((Files.exists(current.resolve("settings.gradle"))
+                    || Files.exists(current.resolve("settings.gradle.kts"))
+                    || Files.exists(current.resolve("gradlew"))
+                    || Files.exists(current.resolve("gradlew.bat")))
+                    && Files.isDirectory(current.resolve("uploads/assets"))) {
+                return current;
+            }
         }
         return null;
     }

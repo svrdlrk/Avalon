@@ -2,6 +2,8 @@ package com.avalon.dnd.shared;
 
 import com.avalon.dnd.shared.PlacementSizingRules;
 
+import java.util.Objects;
+
 public class MapObjectDto {
 
     private String id;
@@ -61,4 +63,26 @@ public class MapObjectDto {
     public void setMicroLocationId(String microLocationId) { this.microLocationId = microLocationId; }
     public void setBlocksMovement(boolean blocksMovement) { this.blocksMovement = blocksMovement; }
     public void setBlocksSight(boolean blocksSight) { this.blocksSight = blocksSight; }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof MapObjectDto that)) return false;
+        return col == that.col
+                && row == that.row
+                && width == that.width
+                && height == that.height
+                && gridSize == that.gridSize
+                && blocksMovement == that.blocksMovement
+                && blocksSight == that.blocksSight
+                && Objects.equals(id, that.id)
+                && Objects.equals(type, that.type)
+                && Objects.equals(imageUrl, that.imageUrl)
+                && Objects.equals(microLocationId, that.microLocationId);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(id, type, col, row, width, height, gridSize, imageUrl, microLocationId, blocksMovement, blocksSight);
+    }
 }

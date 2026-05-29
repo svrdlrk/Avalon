@@ -52,7 +52,7 @@ public class SessionPersistenceController {
             @PathVariable String sessionId) {
         try {
             GameSession session = persistenceService.loadSession(sessionId);
-            return ResponseEntity.ok(new SessionController.SessionCreatedResponse(session.getId()));
+            return ResponseEntity.ok(new SessionController.SessionCreatedResponse(session.getId(), session.getDmSecret()));
         } catch (Exception e) {
             return ResponseEntity.badRequest().build();
         }

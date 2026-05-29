@@ -1,0 +1,32 @@
+{
+  "root": "uploads/assets/objects",
+  "defaults": {
+    "kind": "object",
+    "category": "objects",
+    "defaultWidth": 1,
+    "defaultHeight": 1,
+    "blocksMovement": true,
+    "blocksSight": true,
+    "isDecoration": true,
+    "displayNameFrom": "filename",
+    "nameTransform": "title_case"
+  },
+  "folders": [
+    {
+      "path": "Shelters/Tents",
+      "category": "Shelters/Tents",
+      "defaultWidth": 6,
+      "defaultHeight": 5,
+      "blocksMovement": true,
+      "blocksSight": true
+    },
+    {
+      "path": "furniture",
+      "category": "furniture",
+      "defaultWidth": 1,
+      "defaultHeight": 1,
+      "blocksMovement": true,
+      "blocksSight": true
+    }
+  ]
+}

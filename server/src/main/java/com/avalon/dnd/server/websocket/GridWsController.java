@@ -3,16 +3,13 @@ package com.avalon.dnd.server.websocket;
 import com.avalon.dnd.server.model.GameSession;
 import com.avalon.dnd.server.model.Player;
 import com.avalon.dnd.server.service.GridService;
-import com.avalon.dnd.server.service.MapBattleRulesService;
 import com.avalon.dnd.server.service.SessionService;
 import com.avalon.dnd.server.service.SessionValidationService;
 import com.avalon.dnd.shared.GridConfig;
 import com.avalon.dnd.shared.MapLayoutUpdateDto;
 import com.avalon.dnd.shared.WsEventType;
-import com.avalon.dnd.shared.WsMessage;
 import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.messaging.handler.annotation.MessageMapping;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Controller;
 
 @Controller
@@ -21,51 +18,29 @@ public class GridWsController {
     private final GridService gridService;
     private final SessionService sessionService;
     private final SessionValidationService validationService;
-    private final MapBattleRulesService battleRulesService;
-    private final SimpMessagingTemplate messagingTemplate;
+    private final SessionWsController sessionWsController;
 
     public GridWsController(GridService gridService,
                             SessionService sessionService,
                             SessionValidationService validationService,
-                            MapBattleRulesService battleRulesService,
-                            SimpMessagingTemplate messagingTemplate) {
+                            SessionWsController sessionWsController) {
         this.gridService = gridService;
         this.sessionService = sessionService;
         this.validationService = validationService;
-        this.battleRulesService = battleRulesService;
-        this.messagingTemplate = messagingTemplate;
+        this.sessionWsController = sessionWsController;
     }
 
     @MessageMapping("/map.grid.update")
     public void updateGrid(GridConfig newGrid,
-                           @Header("playerId") String playerId,
+                           @Header(value = "simpSessionId", required = false) String wsSessionId,
                            @Header("sessionId") String sessionId) {
 
-        Player player = validationService.validate(sessionId, playerId);
+        Player player = validationService.validateBound(sessionId, wsSessionId);
         GameSession session = sessionService.getSession(sessionId);
 
         MapLayoutUpdateDto layout = gridService.updateGrid(player, newGrid);
-        long version = session.incrementVersion();
-
-        battleRulesService.computeVisibility(session);
-        for (Player recipient : session.getPlayers().values()) {
-            MapLayoutUpdateDto recipientLayout = new MapLayoutUpdateDto(
-                    layout.getGrid(),
-                    layout.getTokens(),
-                    layout.getObjects(),
-                    layout.getBackgroundUrl(),
-                    battleRulesService.getVisibilityForPlayer(session, recipient.getId()),
-                    layout.getReferenceOverlayLayer(),
-                    layout.getTerrainLayer(),
-                    layout.getWallLayer(),
-                    layout.getFogSettings(),
-                    layout.getMicroLocations(),
-                    layout.getAssetPackIds()
-            );
-            messagingTemplate.convertAndSend(
-                    "/topic/session/" + sessionId + "/private/" + recipient.getId(),
-                    new WsMessage<>(WsEventType.MAP_UPDATED, sessionId, version, recipientLayout)
-            );
-        }
+        session.markVisibilityDirty();
+        session.incrementVersion();
+        sessionWsController.broadcastMapLayout(session, WsEventType.MAP_UPDATED, layout, false);
     }
 }

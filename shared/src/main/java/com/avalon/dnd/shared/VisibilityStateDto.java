@@ -1,9 +1,11 @@
 package com.avalon.dnd.shared;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * Server-computed fog/visibility snapshot for the current session.
@@ -46,5 +48,24 @@ public class VisibilityStateDto {
     public void setObjectSnapshots(Map<String, MapObjectDto> objectSnapshots) {
         this.objectSnapshots.clear();
         if (objectSnapshots != null) this.objectSnapshots.putAll(objectSnapshots);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof VisibilityStateDto that)) return false;
+        return Arrays.deepEquals(visibleCells, that.visibleCells)
+                && Objects.equals(exploredCells, that.exploredCells)
+                && Objects.equals(tokenSnapshots, that.tokenSnapshots)
+                && Objects.equals(objectSnapshots, that.objectSnapshots);
+    }
+
+    @Override
+    public int hashCode() {
+        int result = Arrays.deepHashCode(visibleCells);
+        result = 31 * result + Objects.hashCode(exploredCells);
+        result = 31 * result + Objects.hashCode(tokenSnapshots);
+        result = 31 * result + Objects.hashCode(objectSnapshots);
+        return result;
     }
 }

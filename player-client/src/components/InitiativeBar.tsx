@@ -100,7 +100,7 @@ const InitiativeBar: React.FC = () => {
 
                         return (
                             <button
-                                key={`${entry.tokenId}-${index}`}
+                                key={entry.tokenId}
                                 ref={isActive ? activeRef : null}
                                 className={[
                                     'initiative-card',

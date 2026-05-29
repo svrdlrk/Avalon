@@ -129,6 +129,7 @@ public class MoveTool implements Tool {
             int newRow = clamp(cell[1] - grabOffsetRow, 0, Math.max(0, grid.getRows() - selected.effectiveHeight()));
             selected.setCol(newCol);
             selected.setRow(newRow);
+            state.getProject().touch();
             canvas.requestRender();
             return;
         }
@@ -177,6 +178,7 @@ public class MoveTool implements Tool {
         }
 
         selectedWall.translate(dx, dy);
+        state.getProject().touch();
         lastWorldX = worldX;
         lastWorldY = worldY;
         canvas.requestRender();

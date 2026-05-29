@@ -33,9 +33,9 @@ public class MapObjectWsController {
 
     @MessageMapping("/map.object.create")
     public void create(MapObjectCreateRequest request,
-                       @Header("playerId") String playerId,
+                        @Header(value = "simpSessionId", required = false) String wsSessionId,
                        @Header("sessionId") String sessionId) {
-        Player player = validationService.validate(sessionId, playerId);
+        Player player = validationService.validateBound(sessionId, wsSessionId);
         var session = sessionService.getSession(sessionId);
         if (session == null) throw new RuntimeException("Session not found");
 
@@ -51,9 +51,9 @@ public class MapObjectWsController {
 
     @MessageMapping("/map.object.remove")
     public void remove(MapObjectRemoveEvent request,
-                       @Header("playerId") String playerId,
+                        @Header(value = "simpSessionId", required = false) String wsSessionId,
                        @Header("sessionId") String sessionId) {
-        Player player = validationService.validate(sessionId, playerId);
+        Player player = validationService.validateBound(sessionId, wsSessionId);
         var session = sessionService.getSession(sessionId);
         if (session == null) throw new RuntimeException("Session not found");
 

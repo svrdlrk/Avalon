@@ -18,8 +18,9 @@ public class SessionController {
      */
     @PostMapping("/create")
     public SessionCreatedResponse createSession() {
-        return new SessionCreatedResponse(sessionService.createSession().getId());
+        var session = sessionService.createSession();
+        return new SessionCreatedResponse(session.getId(), session.getDmSecret());
     }
 
-    public record SessionCreatedResponse(String id) {}
+    public record SessionCreatedResponse(String id, String dmSecret) {}
 }

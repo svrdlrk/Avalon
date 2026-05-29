@@ -30,6 +30,8 @@ public class ServerConnection {
     private static final ServerConnection INSTANCE = new ServerConnection();
     public static ServerConnection getInstance() { return INSTANCE; }
 
+    public record SessionHandle(String id, String dmSecret) {}
+
     private StompSession stompSession;
     private final ObjectMapper mapper = new ObjectMapper();
     private Consumer<Void> onConnected;
@@ -46,6 +48,13 @@ public class ServerConnection {
 
     public void connect(String serverUrl, String sessionId,
                         String playerName, boolean isDm,
+                        Consumer<Void> onConnected) {
+        connect(serverUrl, sessionId, playerName, isDm, null, onConnected);
+    }
+
+    public void connect(String serverUrl, String sessionId,
+                        String playerName, boolean isDm,
+                        String dmSecret,
                         Consumer<Void> onConnected) {
         disconnect();
         ClientState.getInstance().resetVersion();
@@ -71,6 +80,7 @@ public class ServerConnection {
                 req.setSessionId(normalizedSessionId);
                 req.setPlayerName(playerName);
                 req.setDm(isDm);
+                req.setDmSecret(isDm ? dmSecret : null);
                 req.setJoinNonce(joinNonce);
                 stompSession.send("/app/session.join", req);
             }
@@ -96,7 +106,6 @@ public class ServerConnection {
         StompHeaders headers = new StompHeaders();
         headers.setDestination("/app" + destination);
         headers.set("sessionId", normalizeSessionId(ClientState.getInstance().getSessionId()));
-        headers.set("playerId",  ClientState.getInstance().getPlayerId());
         stompSession.send(headers, payload);
     }
 
@@ -212,15 +221,16 @@ public class ServerConnection {
 
     // ================================================================ HTTP helpers
 
-    public void createSession(String serverUrl, Consumer<String> onDone) {
+    public void createSession(String serverUrl, Consumer<SessionHandle> onDone) {
         String baseUrl = normalizeServerUrl(serverUrl);
         httpAsync(() -> {
             Request req = new Request.Builder()
                     .url(baseUrl + "/api/session/create")
                     .post(RequestBody.create(new byte[0])).build();
             try (Response resp = httpClient.newCall(req).execute()) {
-                if (resp.isSuccessful() && resp.body() != null)
-                    return mapper.readTree(resp.body().string()).get("id").asText();
+                if (resp.isSuccessful() && resp.body() != null) {
+                    return toSessionHandle(mapper.readTree(resp.body().string()));
+                }
             }
             return null;
         }, onDone);
@@ -263,15 +273,16 @@ public class ServerConnection {
         });
     }
 
-    public void loadSession(String serverUrl, String sessionId, Consumer<String> onDone) {
+    public void loadSession(String serverUrl, String sessionId, Consumer<SessionHandle> onDone) {
         String baseUrl = normalizeServerUrl(serverUrl);
         httpAsync(() -> {
             Request req = new Request.Builder()
                     .url(baseUrl + "/api/session/" + sessionId + "/load")
                     .post(RequestBody.create(new byte[0])).build();
             try (Response r = httpClient.newCall(req).execute()) {
-                if (r.isSuccessful() && r.body() != null)
-                    return mapper.readTree(r.body().string()).get("id").asText();
+                if (r.isSuccessful() && r.body() != null) {
+                    return toSessionHandle(mapper.readTree(r.body().string()));
+                }
             }
             return null;
         }, onDone);
@@ -360,7 +371,7 @@ public class ServerConnection {
             return false;
         }
         return switch (key) {
-            case "imageUrl", "imagePath", "image", "path", "file", "src", "url", "assetPath", "sprite", "thumbnail" -> true;
+            case "imageUrl", "imagePath", "image", "path", "file", "src", "url", "assetPath", "sprite", "thumbnail", "backgroundUrl" -> true;
             default -> false;
         };
     }
@@ -374,8 +385,15 @@ public class ServerConnection {
             return cleaned;
         }
 
-        if (cleaned.startsWith("http://") || cleaned.startsWith("https://")
-                || cleaned.startsWith("file:") || cleaned.startsWith("data:") || cleaned.startsWith("jar:")) {
+        if (cleaned.startsWith("http://") || cleaned.startsWith("https://") || cleaned.startsWith("data:") || cleaned.startsWith("jar:")) {
+            return cleaned;
+        }
+
+        if (cleaned.startsWith("file:")) {
+            String extracted = extractKnownWebPath(cleaned);
+            if (extracted != null) {
+                return extracted;
+            }
             return cleaned;
         }
 
@@ -389,6 +407,8 @@ public class ServerConnection {
                     root.resolve(cleaned),
                     root.resolve("uploads").resolve(cleaned),
                     root.resolve("uploads/assets").resolve(cleaned),
+                    root.resolve("uploads/assets/tokens").resolve(cleaned),
+                    root.resolve("uploads/assets/objects").resolve(cleaned),
                     root.resolve("uploads/maps/finished").resolve(cleaned),
                     root.resolve("uploads/maps/backups").resolve(cleaned),
                     root.resolve("uploads/maps/reference").resolve(cleaned)
@@ -400,6 +420,10 @@ public class ServerConnection {
                         int uploadsIdx = candidateText.toLowerCase(java.util.Locale.ROOT).indexOf("/uploads/");
                         if (uploadsIdx >= 0) {
                             return candidateText.substring(uploadsIdx);
+                        }
+                        int assetsIdx = candidateText.toLowerCase(java.util.Locale.ROOT).indexOf("/assets/");
+                        if (assetsIdx >= 0) {
+                            return candidateText.substring(assetsIdx);
                         }
                         return candidate.toUri().toString();
                     }
@@ -426,19 +450,38 @@ public class ServerConnection {
         return new java.util.ArrayList<>(roots);
     }
 
+    private String extractKnownWebPath(String value) {
+        String lower = value.toLowerCase(java.util.Locale.ROOT);
+        for (String marker : new String[]{"/uploads/", "uploads/", "/assets/", "assets/"}) {
+            int idx = lower.indexOf(marker);
+            if (idx >= 0) {
+                String slice = value.substring(idx).replaceFirst("^/+", "");
+                return "/" + slice;
+            }
+        }
+        return null;
+    }
+
     private void addProjectRoot(java.util.Set<Path> roots, Path candidate) {
         if (candidate == null) return;
         try {
             Path normalized = candidate.toAbsolutePath().normalize();
-            if (Files.exists(normalized.resolve("gradlew.bat"))
-                    || Files.exists(normalized.resolve("settings.gradle"))
-                    || Files.exists(normalized.resolve("settings.gradle.kts"))
-                    || Files.exists(normalized.resolve("build.gradle"))
-                    || Files.exists(normalized.resolve("uploads"))) {
+            if (isProjectRoot(normalized) && Files.isDirectory(normalized.resolve("uploads/assets"))) {
                 roots.add(normalized);
             }
         } catch (Exception ignored) {
         }
+    }
+
+    private boolean isProjectRoot(Path dir) {
+        if (dir == null) {
+            return false;
+        }
+        Path normalized = dir.toAbsolutePath().normalize();
+        return Files.exists(normalized.resolve("settings.gradle"))
+                || Files.exists(normalized.resolve("settings.gradle.kts"))
+                || Files.exists(normalized.resolve("gradlew"))
+                || Files.exists(normalized.resolve("gradlew.bat"));
     }
 
     public void listSavedSessions(String serverUrl, Consumer<List<JsonNode>> onDone) {
@@ -541,6 +584,18 @@ public class ServerConnection {
             final T r = result;
             Platform.runLater(() -> onResult.accept(r));
         });
+    }
+
+    private SessionHandle toSessionHandle(JsonNode node) {
+        if (node == null || node.isNull()) {
+            return null;
+        }
+        String id = node.path("id").asText(null);
+        if (id == null || id.isBlank()) {
+            return null;
+        }
+        String dmSecret = node.path("dmSecret").asText("");
+        return new SessionHandle(id, dmSecret);
     }
 
     private String normalizeSessionId(String sessionId) {

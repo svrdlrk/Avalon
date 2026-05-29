@@ -3,12 +3,8 @@ import SockJS from 'sockjs-client';
 import { useGameStore } from '../store/gameStore';
 import { DEFAULT_SERVER_BASE_URL, normalizeServerBaseUrl } from '../config/runtime';
 import type {
-    InitiativeStateDto,
     MapLayoutUpdateDto,
-    MapObjectDto,
-    PlayerDto,
     SessionStateDto,
-    TokenDto,
     WsMessage,
 } from '../types/types';
 
@@ -81,14 +77,6 @@ class WsClient {
 
             onConnect: () => {
                 console.log("CONNECTED");
-                // Broadcast channel — all session events
-                this.client!.subscribe(
-                    `/topic/session/${cleanSessionId}`,
-                    (frame) => {
-                        const msg: WsMessage<unknown> = JSON.parse(frame.body);
-                        this.handleEvent(msg);
-                    },
-                );
                 // One-time join channel
                 this.client!.subscribe(
                     `/topic/session/${cleanSessionId}/join/${joinNonce}`,
@@ -124,67 +112,6 @@ class WsClient {
         this.client.activate();
     }
 
-    // ---------------------------------------------------------------- events
-
-    private handleEvent(msg: WsMessage<unknown>) {
-        const store = useGameStore.getState();
-
-        switch (msg.type) {
-            case 'TOKEN_MOVED':
-            case 'TOKEN_ADDED':
-            case 'TOKEN_ASSIGNED':
-            case 'TOKEN_HP':
-                store.moveToken(msg.payload as TokenDto);
-                break;
-
-            case 'TOKEN_REMOVED':
-                store.removeToken(msg.payload as string);
-                break;
-
-            case 'MAP_OBJECT_ADDED':
-                store.addObject(msg.payload as MapObjectDto);
-                break;
-
-            case 'MAP_OBJECT_REMOVED':
-                store.removeObject(msg.payload as string);
-                break;
-
-            case 'MAP_UPDATED':
-                store.applyMapLayoutUpdate(msg.payload as MapLayoutUpdateDto);
-                break;
-
-            case 'MAP_BACKGROUND_UPDATED':
-                store.setBackground(msg.payload as string);
-                break;
-
-            case 'PLAYER_JOINED':
-                store.addPlayer(msg.payload as PlayerDto);
-                break;
-
-            case 'PLAYER_LEFT':
-                store.removePlayer(msg.payload as string);
-                break;
-
-            case 'INITIATIVE_UPDATED':
-                store.setInitiative(msg.payload as InitiativeStateDto);
-                break;
-
-            case 'SESSION_STATE':
-                if (this.sessionId) {
-                    this.applySessionState(msg as WsMessage<SessionStateDto>, this.sessionId);
-
-                    if (!this.connectedOnce) {
-                        this.connectedOnce = true;
-                        this.onConnectedCallback?.();
-                    }
-                }
-                break;
-
-            default:
-                console.warn('[ws] unknown event:', msg.type);
-        }
-    }
-
     // ---------------------------------------------------------------- send
 
     approveVisibilityShare(suggestionId: string) {
@@ -197,21 +124,17 @@ class WsClient {
             return;
         }
 
-        // FIX: guard against missing IDs — if either is absent the server will
-        // reject the message with "Player not found"; log clearly instead of
-        // silently succeeding and leaving the player unable to move tokens.
-        if (!this.sessionId || !this.playerId) {
+        if (!this.sessionId) {
             console.warn(
-                '[ws] send() called before session/player IDs are set — dropping:',
+                '[ws] send() called before session ID is set — dropping:',
                 destination,
-                { sessionId: this.sessionId, playerId: this.playerId },
+                { sessionId: this.sessionId },
             );
             return;
         }
 
         const headers: StompHeaders = {
             sessionId: this.sessionId,
-            playerId:  this.playerId,
         };
         this.client.publish({
             destination: `/app${destination}`,

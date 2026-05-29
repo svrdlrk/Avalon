@@ -71,6 +71,7 @@ public class WallEditTool implements Tool {
                 snappedInsertY = insertSnap.y();
             }
             selected.insertPoint(insertIndex, snappedInsertX, snappedInsertY);
+            state.getProject().touch();
             beginDrag(state, selected.getId(), insertIndex);
             state.selectWallVertex(selected.getId(), insertIndex);
             canvas.requestRender();
@@ -108,6 +109,7 @@ public class WallEditTool implements Tool {
             }
         }
         selected.movePoint(activeVertexIndex, snappedX, snappedY);
+        state.getProject().touch();
         canvas.requestRender();
     }
 

@@ -19,6 +19,7 @@ public class BattleProjectDto {
     private String id;
     private String name;
     private String description;
+    private String backgroundUrl;
     private GridConfig grid;
     private BackgroundLayer backgroundLayer;
     private ReferenceOverlayLayer referenceOverlayLayer;
@@ -36,6 +37,7 @@ public class BattleProjectDto {
     public String getId() { return id; }
     public String getName() { return name; }
     public String getDescription() { return description; }
+    public String getBackgroundUrl() { return backgroundUrl; }
     public GridConfig getGrid() { return grid; }
     public BackgroundLayer getBackgroundLayer() { return backgroundLayer; }
     public ReferenceOverlayLayer getReferenceOverlayLayer() { return referenceOverlayLayer; }
@@ -51,6 +53,7 @@ public class BattleProjectDto {
     public void setId(String id) { this.id = id; }
     public void setName(String name) { this.name = name; }
     public void setDescription(String description) { this.description = description; }
+    public void setBackgroundUrl(String backgroundUrl) { this.backgroundUrl = backgroundUrl; }
     public void setGrid(GridConfig grid) { this.grid = grid; }
     public void setBackgroundLayer(BackgroundLayer backgroundLayer) { this.backgroundLayer = backgroundLayer; }
     public void setReferenceOverlayLayer(ReferenceOverlayLayer referenceOverlayLayer) { this.referenceOverlayLayer = referenceOverlayLayer; }

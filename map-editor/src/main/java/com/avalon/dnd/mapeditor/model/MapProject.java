@@ -6,6 +6,7 @@ import com.avalon.dnd.shared.MicroLocationDto;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -27,7 +28,13 @@ public class MapProject {
     private final List<MapLayer> layers = new ArrayList<>();
     private final List<MapPlacement> placements = new ArrayList<>();
 
+    private long revision = 0;
+
     public MapProject() {}
+
+    public long getRevision() { return revision; }
+
+    public void touch() { revision++; }
 
     public static MapProject createBlank(String id, String name) {
         MapProject project = new MapProject();
@@ -88,6 +95,7 @@ public class MapProject {
         if (copy.layers.isEmpty()) {
             copy.ensureDefaultLayers();
         }
+        copy.revision = this.revision;
         return copy;
     }
 
@@ -105,6 +113,7 @@ public class MapProject {
     public void addLayer(MapLayer layer) {
         if (layer != null) {
             layers.add(layer);
+            touch();
         }
     }
 
@@ -136,11 +145,14 @@ public class MapProject {
                 }
             }
             placements.add(placement);
+            touch();
         }
     }
 
     public boolean removePlacementById(String placementId) {
-        return placements.removeIf(p -> placementId != null && placementId.equals(p.getId()));
+        boolean removed = placements.removeIf(p -> placementId != null && placementId.equals(p.getId()));
+        if (removed) touch();
+        return removed;
     }
 
     public Optional<MapPlacement> findPlacement(String placementId) {
@@ -208,11 +220,34 @@ public class MapProject {
             copy.setId(UUID.randomUUID().toString());
         }
         microLocations.add(copy);
+        touch();
     }
 
     public boolean removeMicroLocationById(String id) {
         if (id == null || id.isBlank()) return false;
-        return microLocations.removeIf(zone -> id.equals(zone.getId()));
+        boolean removed = microLocations.removeIf(zone -> id.equals(zone.getId()));
+        boolean detachedPlacements = false;
+        for (MapPlacement placement : placements) {
+            if (placement != null && id.equals(placement.getMicroLocationId())) {
+                placement.setMicroLocationId(null);
+                detachedPlacements = true;
+            }
+        }
+        if (removed || detachedPlacements) {
+            touch();
+        }
+        return removed || detachedPlacements;
+    }
+
+    public boolean removeWallPathById(String wallPathId) {
+        if (wallPathId == null || wallPathId.isBlank() || wallLayer == null) {
+            return false;
+        }
+        boolean removed = wallLayer.removePathById(wallPathId);
+        if (removed) {
+            touch();
+        }
+        return removed;
     }
 
     public boolean updateMicroLocation(String id, MicroLocationDto updated) {
@@ -225,54 +260,296 @@ public class MapProject {
                     copy.setId(id);
                 }
                 microLocations.set(i, copy);
+                touch();
                 return true;
             }
         }
         return false;
     }
 
-    public void setId(String id) { this.id = id; }
-    public void setName(String name) { this.name = name; }
-    public void setDescription(String description) { this.description = description; }
+    public void setId(String id) {
+        if (Objects.equals(this.id, id)) {
+            return;
+        }
+        this.id = id;
+        touch();
+    }
+
+    public void setName(String name) {
+        if (Objects.equals(this.name, name)) {
+            return;
+        }
+        this.name = name;
+        touch();
+    }
+
+    public void setDescription(String description) {
+        if (Objects.equals(this.description, description)) {
+            return;
+        }
+        this.description = description;
+        touch();
+    }
     public void setBackgroundUrl(String backgroundUrl) {
-        this.backgroundUrl = backgroundUrl;
+        String normalized = backgroundUrl;
+        if (Objects.equals(this.backgroundUrl, normalized)
+                && this.backgroundLayer != null
+                && Objects.equals(this.backgroundLayer.getImageUrl(), normalized)) {
+            return;
+        }
+        this.backgroundUrl = normalized;
         if (this.backgroundLayer == null) {
             this.backgroundLayer = new BackgroundLayer();
         }
-        this.backgroundLayer.setImageUrl(backgroundUrl);
+        this.backgroundLayer.setImageUrl(normalized);
+        touch();
     }
     public void setBackgroundLayer(BackgroundLayer backgroundLayer) {
-        this.backgroundLayer = backgroundLayer == null ? new BackgroundLayer() : backgroundLayer;
+        BackgroundLayer normalized = backgroundLayer == null ? new BackgroundLayer() : backgroundLayer;
+        if (sameBackgroundLayer(this.backgroundLayer, normalized)) {
+            return;
+        }
+        this.backgroundLayer = normalized;
         this.backgroundUrl = this.backgroundLayer.getImageUrl();
+        touch();
     }
     public void setReferenceOverlay(ReferenceOverlay referenceOverlay) {
-        this.referenceOverlay = referenceOverlay == null ? new ReferenceOverlay() : referenceOverlay;
+        ReferenceOverlay normalized = referenceOverlay == null ? new ReferenceOverlay() : referenceOverlay;
+        if (sameReferenceOverlay(this.referenceOverlay, normalized)) {
+            return;
+        }
+        this.referenceOverlay = normalized;
+        touch();
     }
     public void setReferenceOverlayLayer(ReferenceOverlayLayer referenceOverlayLayer) {
-        this.referenceOverlay = referenceOverlayLayer == null ? new ReferenceOverlayLayer() : referenceOverlayLayer;
+        ReferenceOverlay normalized = referenceOverlayLayer == null ? new ReferenceOverlayLayer() : referenceOverlayLayer;
+        if (sameReferenceOverlay(this.referenceOverlay, normalized)) {
+            return;
+        }
+        this.referenceOverlay = normalized;
+        touch();
     }
     public void setTerrainLayer(TerrainLayer terrainLayer) {
-        this.terrainLayer = terrainLayer == null ? new TerrainLayer() : terrainLayer;
+        TerrainLayer normalized = terrainLayer == null ? new TerrainLayer() : terrainLayer;
+        if (sameTerrainLayer(this.terrainLayer, normalized)) {
+            return;
+        }
+        this.terrainLayer = normalized;
+        touch();
     }
     public void setWallLayer(WallLayer wallLayer) {
-        this.wallLayer = wallLayer == null ? new WallLayer() : wallLayer;
+        WallLayer normalized = wallLayer == null ? new WallLayer() : wallLayer;
+        if (sameWallLayer(this.wallLayer, normalized)) {
+            return;
+        }
+        this.wallLayer = normalized;
+        touch();
     }
     public void setFogSettings(FogSettings fogSettings) {
-        this.fogSettings = fogSettings == null ? new FogSettings() : fogSettings;
+        FogSettings normalized = fogSettings == null ? new FogSettings() : fogSettings;
+        if (sameFogSettings(this.fogSettings, normalized)) {
+            return;
+        }
+        this.fogSettings = normalized;
+        touch();
     }
     public void setAssetPackIds(List<String> assetPackIds) {
+        List<String> normalized = assetPackIds == null ? List.of() : List.copyOf(assetPackIds);
+        if (Objects.equals(this.assetPackIds, normalized)) {
+            return;
+        }
         this.assetPackIds.clear();
-        if (assetPackIds != null) this.assetPackIds.addAll(assetPackIds);
+        this.assetPackIds.addAll(normalized);
+        touch();
     }
+
     public void setMicroLocations(List<MicroLocationDto> microLocations) {
-        this.microLocations.clear();
+        List<MicroLocationDto> normalized = new ArrayList<>();
         if (microLocations != null) {
             for (MicroLocationDto zone : microLocations) {
-                if (zone != null) this.microLocations.add(copyMicroLocation(zone));
+                if (zone != null) {
+                    normalized.add(copyMicroLocation(zone));
+                }
             }
         }
+        if (sameMicroLocations(this.microLocations, normalized)) {
+            return;
+        }
+        this.microLocations.clear();
+        this.microLocations.addAll(normalized);
+        touch();
     }
-    public void setGrid(GridConfig grid) { this.grid = grid == null ? new GridConfig(64, 40, 30) : grid; }
+    public void setGrid(GridConfig grid) {
+        GridConfig normalized = grid == null ? new GridConfig(64, 40, 30) : grid;
+        if (sameGrid(this.grid, normalized)) {
+            return;
+        }
+        this.grid = normalized;
+        touch();
+    }
+
+    private static boolean sameBackgroundLayer(BackgroundLayer a, BackgroundLayer b) {
+        if (a == b) return true;
+        if (a == null || b == null) return false;
+        return Objects.equals(a.getImageUrl(), b.getImageUrl())
+                && a.getMode() == b.getMode()
+                && a.isVisible() == b.isVisible()
+                && Double.compare(a.getOpacity(), b.getOpacity()) == 0
+                && Double.compare(a.getScale(), b.getScale()) == 0
+                && Double.compare(a.getOffsetX(), b.getOffsetX()) == 0
+                && Double.compare(a.getOffsetY(), b.getOffsetY()) == 0;
+    }
+
+    private static boolean sameReferenceOverlay(ReferenceOverlay a, ReferenceOverlay b) {
+        if (a == b) return true;
+        if (a == null || b == null) return false;
+        return Objects.equals(a.getImageUrl(), b.getImageUrl())
+                && a.isVisible() == b.isVisible()
+                && a.isLocked() == b.isLocked()
+                && Double.compare(a.getOpacity(), b.getOpacity()) == 0
+                && Double.compare(a.getScale(), b.getScale()) == 0
+                && Double.compare(a.getRotation(), b.getRotation()) == 0
+                && Double.compare(a.getOffsetX(), b.getOffsetX()) == 0
+                && Double.compare(a.getOffsetY(), b.getOffsetY()) == 0;
+    }
+
+    private static boolean sameTerrainLayer(TerrainLayer a, TerrainLayer b) {
+        if (a == b) return true;
+        if (a == null || b == null) return false;
+        if (a.isVisible() != b.isVisible()
+                || a.isLocked() != b.isLocked()
+                || Double.compare(a.getOpacity(), b.getOpacity()) != 0
+                || !Objects.equals(a.getPaintType(), b.getPaintType())) {
+            return false;
+        }
+        List<TerrainCell> left = a.getCells();
+        List<TerrainCell> right = b.getCells();
+        if (left.size() != right.size()) return false;
+        for (int i = 0; i < left.size(); i++) {
+            if (!sameTerrainCell(left.get(i), right.get(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean sameTerrainCell(TerrainCell a, TerrainCell b) {
+        if (a == b) return true;
+        if (a == null || b == null) return false;
+        return Objects.equals(a.getId(), b.getId())
+                && a.getCol() == b.getCol()
+                && a.getRow() == b.getRow()
+                && a.getWidth() == b.getWidth()
+                && a.getHeight() == b.getHeight()
+                && Objects.equals(a.getTerrainType(), b.getTerrainType())
+                && a.isBlocksMovement() == b.isBlocksMovement()
+                && a.isBlocksSight() == b.isBlocksSight();
+    }
+
+    private static boolean sameWallLayer(WallLayer a, WallLayer b) {
+        if (a == b) return true;
+        if (a == null || b == null) return false;
+        if (a.isVisible() != b.isVisible()
+                || a.isLocked() != b.isLocked()
+                || Double.compare(a.getOpacity(), b.getOpacity()) != 0
+                || Double.compare(a.getDefaultThickness(), b.getDefaultThickness()) != 0
+                || a.isDefaultBlocksMovement() != b.isDefaultBlocksMovement()
+                || a.isDefaultBlocksSight() != b.isDefaultBlocksSight()) {
+            return false;
+        }
+        List<WallPath> left = a.getPaths();
+        List<WallPath> right = b.getPaths();
+        if (left.size() != right.size()) return false;
+        for (int i = 0; i < left.size(); i++) {
+            if (!sameWallPath(left.get(i), right.get(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean sameWallPath(WallPath a, WallPath b) {
+        if (a == b) return true;
+        if (a == null || b == null) return false;
+        if (!Objects.equals(a.getId(), b.getId())
+                || !Objects.equals(a.getName(), b.getName())
+                || a.isVisible() != b.isVisible()
+                || a.isLocked() != b.isLocked()
+                || Double.compare(a.getOpacity(), b.getOpacity()) != 0
+                || Double.compare(a.getThickness(), b.getThickness()) != 0
+                || a.isBlocksMovement() != b.isBlocksMovement()
+                || a.isBlocksSight() != b.isBlocksSight()) {
+            return false;
+        }
+        List<WallPoint> left = a.getPoints();
+        List<WallPoint> right = b.getPoints();
+        if (left.size() != right.size()) return false;
+        for (int i = 0; i < left.size(); i++) {
+            if (!sameWallPoint(left.get(i), right.get(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean sameWallPoint(WallPoint a, WallPoint b) {
+        if (a == b) return true;
+        if (a == null || b == null) return false;
+        return Double.compare(a.getX(), b.getX()) == 0
+                && Double.compare(a.getY(), b.getY()) == 0;
+    }
+
+    private static boolean sameFogSettings(FogSettings a, FogSettings b) {
+        if (a == b) return true;
+        if (a == null || b == null) return false;
+        return a.isEnabled() == b.isEnabled()
+                && a.isRevealFromTokens() == b.isRevealFromTokens()
+                && a.isRevealFromSelectedPlacement() == b.isRevealFromSelectedPlacement()
+                && a.getRevealRadius() == b.getRevealRadius()
+                && Double.compare(a.getOpacity(), b.getOpacity()) == 0
+                && a.isRetainExploredCells() == b.isRetainExploredCells()
+                && a.getSharedVisionDistance() == b.getSharedVisionDistance()
+                && a.isNightMode() == b.isNightMode()
+                && Objects.equals(a.getTimeOfDay(), b.getTimeOfDay());
+    }
+
+    private static boolean sameGrid(GridConfig a, GridConfig b) {
+        if (a == b) return true;
+        if (a == null || b == null) return false;
+        return a.getCellSize() == b.getCellSize()
+                && a.getCols() == b.getCols()
+                && a.getRows() == b.getRows()
+                && a.getOffsetX() == b.getOffsetX()
+                && a.getOffsetY() == b.getOffsetY();
+    }
+
+    private static boolean sameMicroLocations(List<MicroLocationDto> a, List<MicroLocationDto> b) {
+        if (a == b) return true;
+        if (a == null || b == null) return false;
+        if (a.size() != b.size()) return false;
+        for (int i = 0; i < a.size(); i++) {
+            MicroLocationDto left = a.get(i);
+            MicroLocationDto right = b.get(i);
+            if (!sameMicroLocation(left, right)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean sameMicroLocation(MicroLocationDto a, MicroLocationDto b) {
+        if (a == b) return true;
+        if (a == null || b == null) return false;
+        return Objects.equals(a.getId(), b.getId())
+                && Objects.equals(a.getName(), b.getName())
+                && a.getCol() == b.getCol()
+                && a.getRow() == b.getRow()
+                && a.getWidth() == b.getWidth()
+                && a.getHeight() == b.getHeight()
+                && a.isLocked() == b.isLocked()
+                && Objects.equals(a.getHint(), b.getHint())
+                && Objects.equals(a.getInteriorMapPath(), b.getInteriorMapPath());
+    }
 
     private static MicroLocationDto copyMicroLocation(MicroLocationDto source) {
         if (source == null) return null;

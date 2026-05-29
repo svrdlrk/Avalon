@@ -46,7 +46,6 @@ function useImage(url: string | null): [HTMLImageElement | undefined, 'loading' 
         }
 
         const img = new window.Image();
-        img.crossOrigin = 'anonymous';
         img.decoding = 'async';
 
         const onLoad = () => {

@@ -188,11 +188,31 @@ public class ProjectRepository {
     }
 
     public Path finishedDir() {
-        return projectRoot().resolve("uploads/maps/finished").toAbsolutePath().normalize();
+        return resolveUploadsPath("uploads/maps/finished");
     }
 
     private Path backupsDir() {
-        return projectRoot().resolve("uploads/maps/backups").toAbsolutePath().normalize();
+        return resolveUploadsPath("uploads/maps/backups");
+    }
+
+    private Path resolveUploadsPath(String relative) {
+        Path root = projectRoot().toAbsolutePath().normalize();
+        Path cleaned = Path.of(relative == null ? "" : relative);
+        Path[] bases = new Path[] {
+                root,
+                root.resolve("server"),
+                root.resolve("server/src/main/resources")
+        };
+        for (Path base : bases) {
+            try {
+                Path candidate = base.resolve(cleaned).toAbsolutePath().normalize();
+                if (Files.exists(candidate)) {
+                    return candidate;
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        return root.resolve(cleaned).toAbsolutePath().normalize();
     }
 
     private Path projectRoot() {

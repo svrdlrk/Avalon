@@ -8,9 +8,11 @@ import org.springframework.stereotype.Service;
 public class SessionValidationService {
 
     private final SessionService sessionService;
+    private final SessionConnectionRegistry connectionRegistry;
 
-    public SessionValidationService(SessionService sessionService) {
+    public SessionValidationService(SessionService sessionService, SessionConnectionRegistry connectionRegistry) {
         this.sessionService = sessionService;
+        this.connectionRegistry = connectionRegistry;
     }
 
     public GameSession getSessionOrThrow(String sessionId) {
@@ -33,8 +35,11 @@ public class SessionValidationService {
         return player;
     }
 
-    public Player validate(String sessionId, String playerId) {
+    public Player validateBound(String sessionId, String wsSessionId) {
+        if (wsSessionId == null || wsSessionId.isBlank()) {
+            throw new RuntimeException("WebSocket session is not joined to a player");
+        }
         GameSession session = getSessionOrThrow(sessionId);
-        return getPlayerOrThrow(session, playerId);
+        return connectionRegistry.resolvePlayer(session, wsSessionId);
     }
 }

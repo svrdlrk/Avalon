@@ -261,7 +261,7 @@
 
 .dm-nav-toggle {
     -fx-min-height: 36px;
-    -fx-max-width: 1.7976931348623157E308;
+    -fx-max-width: 999999;
     -fx-background-radius: 12;
     -fx-border-radius: 12;
     -fx-padding: 0.55em 0.95em;

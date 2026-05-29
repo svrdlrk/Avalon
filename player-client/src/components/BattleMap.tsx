@@ -59,9 +59,40 @@ function cloneObject(obj: MapObjectDto): MapObjectDto {
     return { ...obj };
 }
 
-// ================================================================ TokenShape
+type StageTransform = {
+    x: number;
+    y: number;
+    scale: number;
+};
 
-const TokenShape: React.FC<{
+type ViewBounds = {
+    left: number;
+    top: number;
+    right: number;
+    bottom: number;
+};
+
+function rectIntersects(a: ViewBounds, b: ViewBounds): boolean {
+    return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+}
+
+function computeVisibleBounds(transform: StageTransform, viewport: { width: number; height: number }): ViewBounds {
+    const scale = Math.max(0.01, transform.scale || 1);
+    const left = -transform.x / scale;
+    const top = -transform.y / scale;
+    return {
+        left,
+        top,
+        right: left + viewport.width / scale,
+        bottom: top + viewport.height / scale,
+    };
+}
+
+function itemBounds(x: number, y: number, width: number, height: number): ViewBounds {
+    return { left: x, top: y, right: x + width, bottom: y + height };
+}
+
+type TokenShapeProps = {
     token: TokenDto;
     isMyToken: boolean;
     isDm: boolean;
@@ -69,10 +100,71 @@ const TokenShape: React.FC<{
     cellSize: number;
     offsetX: number;
     offsetY: number;
-    onSelect: () => void;
+    onSelect: (tokenId: string) => void;
     onDragStart: () => void;
     onDragEnd: (e: any, token: TokenDto) => void;
-}> = React.memo(({ token, isMyToken, isDm, isSelected, cellSize, offsetX, offsetY, onSelect, onDragStart, onDragEnd }) => {
+};
+
+type ObjectShapeProps = {
+    obj: MapObjectDto;
+    cellSize: number;
+    offsetX: number;
+    offsetY: number;
+};
+
+function tokenShapePropsEqual(prev: TokenShapeProps, next: TokenShapeProps): boolean {
+    const a = prev.token;
+    const b = next.token;
+    return prev.isMyToken === next.isMyToken
+        && prev.isDm === next.isDm
+        && prev.isSelected === next.isSelected
+        && prev.cellSize === next.cellSize
+        && prev.offsetX === next.offsetX
+        && prev.offsetY === next.offsetY
+        && prev.onSelect === next.onSelect
+        && prev.onDragStart === next.onDragStart
+        && prev.onDragEnd === next.onDragEnd
+        && a.id === b.id
+        && a.name === b.name
+        && a.col === b.col
+        && a.row === b.row
+        && a.ownerId === b.ownerId
+        && a.hp === b.hp
+        && a.maxHp === b.maxHp
+        && a.gridSize === b.gridSize
+        && a.imageUrl === b.imageUrl
+        && a.dayVision === b.dayVision
+        && a.nightVision === b.nightVision
+        && a.facingAngleDeg === b.facingAngleDeg
+        && a.microLocationId === b.microLocationId
+        && a.blocksMovement === b.blocksMovement
+        && a.blocksSight === b.blocksSight;
+}
+
+function objectShapePropsEqual(prev: ObjectShapeProps, next: ObjectShapeProps): boolean {
+    const a = prev.obj;
+    const b = next.obj;
+    return prev.cellSize === next.cellSize
+        && prev.offsetX === next.offsetX
+        && prev.offsetY === next.offsetY
+        && a.id === b.id
+        && a.type === b.type
+        && a.col === b.col
+        && a.row === b.row
+        && a.width === b.width
+        && a.height === b.height
+        && a.gridSize === b.gridSize
+        && a.imageUrl === b.imageUrl
+        && a.dayVision === b.dayVision
+        && a.nightVision === b.nightVision
+        && a.microLocationId === b.microLocationId
+        && a.blocksMovement === b.blocksMovement
+        && a.blocksSight === b.blocksSight;
+}
+
+// ================================================================ TokenShape
+
+const TokenShape: React.FC<TokenShapeProps> = React.memo(({ token, isMyToken, isDm, isSelected, cellSize, offsetX, offsetY, onSelect, onDragStart, onDragEnd }) => {
     const gs = Math.max(1, token.gridSize ?? 1);
 
     // Group positioned at top-left of the token cell(s)
@@ -113,23 +205,23 @@ const TokenShape: React.FC<{
             onMouseLeave={() => setHovered(false)}
             onMouseDown={(e) => {
                 e.cancelBubble = true;
-                onSelect();
+                onSelect(token.id);
             }}
             onTouchStart={(e) => {
                 e.cancelBubble = true;
-                onSelect();
+                onSelect(token.id);
             }}
             onClick={(e) => {
                 e.cancelBubble = true;
-                onSelect();
+                onSelect(token.id);
             }}
             onTap={(e) => {
                 e.cancelBubble = true;
-                onSelect();
+                onSelect(token.id);
             }}
             onDblClick={(e) => {
                 e.cancelBubble = true;
-                onSelect();
+                onSelect(token.id);
             }}
         >
             {/* Invisible interactive hit area (critical for image-based tokens) */}
@@ -237,17 +329,12 @@ const TokenShape: React.FC<{
             )}
         </Group>
     );
-});
+}, tokenShapePropsEqual);
 TokenShape.displayName = 'TokenShape';
 
 // ================================================================ ObjectShape
 
-const ObjectShape: React.FC<{
-    obj: MapObjectDto;
-    cellSize: number;
-    offsetX: number;
-    offsetY: number;
-}> = React.memo(({ obj, cellSize, offsetX, offsetY }) => {
+const ObjectShape: React.FC<ObjectShapeProps> = React.memo(({ obj, cellSize, offsetX, offsetY }) => {
     const w = Math.max(1, obj.width ?? 1);
     const h = Math.max(1, obj.height ?? 1);
 
@@ -288,7 +375,7 @@ const ObjectShape: React.FC<{
             )}
         </Group>
     );
-});
+}, objectShapePropsEqual);
 ObjectShape.displayName = 'ObjectShape';
 
 // ================================================================ BattleMap
@@ -300,6 +387,24 @@ const BattleMap: React.FC = () => {
     const myPlayerId = useGameStore((s) => s.myPlayerId);
     const selectedTokenId = useGameStore((s) => s.selectedTokenId);
     const setSelectedTokenId = useGameStore((s) => s.setSelectedTokenId);
+    const handleSelectToken = useCallback((tokenId: string) => {
+        setSelectedTokenId(tokenId);
+    }, [setSelectedTokenId]);
+    const gridRef = useRef(grid);
+    const tokensRef = useRef(tokens);
+    const objectsRef = useRef(objects);
+
+    useEffect(() => {
+        gridRef.current = grid;
+    }, [grid]);
+
+    useEffect(() => {
+        tokensRef.current = tokens;
+    }, [tokens]);
+
+    useEffect(() => {
+        objectsRef.current = objects;
+    }, [objects]);
     const clearSelection = useGameStore((s) => s.clearSelection);
     const backgroundUrl = useGameStore((s) => s.backgroundUrl);
     const players = useGameStore((s) => s.players);
@@ -308,6 +413,10 @@ const BattleMap: React.FC = () => {
     const fogSettings = useGameStore((s) => s.fogSettings);
     const visibility = useGameStore((s) => s.visibility);
     const stageRef = useRef<Konva.Stage>(null);
+    const [stageTransform, setStageTransform] = useState<StageTransform>({ x: 0, y: 0, scale: 1 });
+    const stageTransformFrameRef = useRef<number | null>(null);
+    const stageTransformPendingRef = useRef<StageTransform | null>(null);
+    const lastAutoFitSceneRef = useRef<string | null>(null);
 
     const [viewport, setViewport] = useState(() => ({
         width: typeof window !== 'undefined' ? window.innerWidth : 1280,
@@ -330,8 +439,41 @@ const BattleMap: React.FC = () => {
         };
     }, []);
 
+    useEffect(() => {
+        return () => {
+            if (stageTransformFrameRef.current != null) {
+                window.cancelAnimationFrame(stageTransformFrameRef.current);
+                stageTransformFrameRef.current = null;
+            }
+        };
+    }, []);
+
     // FIX: use a React state for stageDraggable so JSX prop stays in sync
     const [stageDraggable, setStageDraggable] = useState(true);
+
+    const commitStageTransform = useCallback((next: StageTransform) => {
+        stageTransformPendingRef.current = next;
+        if (stageTransformFrameRef.current != null) {
+            return;
+        }
+        stageTransformFrameRef.current = window.requestAnimationFrame(() => {
+            stageTransformFrameRef.current = null;
+            const pending = stageTransformPendingRef.current;
+            if (pending) {
+                setStageTransform(pending);
+            }
+        });
+    }, []);
+
+    const syncStageTransformFromNode = useCallback(() => {
+        const stage = stageRef.current;
+        if (!stage) return;
+        commitStageTransform({
+            x: stage.x(),
+            y: stage.y(),
+            scale: stage.scaleX() || 1,
+        });
+    }, [commitStageTransform]);
 
     const myPlayer = myPlayerId ? players[myPlayerId] : null;
     const isDm     = myPlayer?.role === 'DM';
@@ -347,6 +489,8 @@ const BattleMap: React.FC = () => {
         }
         return null;
     }, [serverVisibility, grid, isDm]);
+
+    const visibleBounds = useMemo(() => computeVisibleBounds(stageTransform, viewport), [stageTransform, viewport]);
 
     const fogEnabled = !isDm;
     const retainExploredCells = useMemo(() => {
@@ -394,28 +538,31 @@ const BattleMap: React.FC = () => {
         });
     }, [fogEnabled, grid, visibleCells, tokens, objects, retainExploredCells, serverVisibility]);
 
-    const fogExplored = serverVisibility ? new Set(serverVisibility.exploredCells ?? []) : (retainExploredCells ? fogMemoryRef.current.explored : new Set<string>());
+    const fogExplored = serverVisibility ? new Set(serverVisibility.exploredCells ?? []) : new Set<string>();
 
     const renderObjects = useMemo(() => {
         const allObjects = Object.values(objects);
-        if (isDm) return allObjects;
-        if (!visibleCells) return [];
+        const intersectVisible = (obj: MapObjectDto) => {
+            const w = Math.max(1, obj.width ?? 1) * grid.cellSize;
+            const h = Math.max(1, obj.height ?? 1) * grid.cellSize;
+            const x = grid.offsetX + obj.col * grid.cellSize;
+            const y = grid.offsetY + obj.row * grid.cellSize;
+            return rectIntersects(visibleBounds, itemBounds(x, y, w, h));
+        };
+        if (isDm) return allObjects.filter(intersectVisible);
+        if (!visibleCells || !serverVisibility) return [];
         if (serverVisibility) {
-            const memory = serverVisibility.objectSnapshots ?? {};
-            return allObjects.flatMap((obj) => {
+            return allObjects.filter((obj) => {
                 const w = Math.max(1, obj.width ?? 1);
                 const h = Math.max(1, obj.height ?? 1);
-                if (isAnyCellVisible(visibleCells, obj.col, obj.row, w, h)) return [obj];
-                const snap = memory[obj.id];
-                if (snap && isAnyCellExplored(fogExplored, snap.col, snap.row, w, h)) return [snap];
-                return [];
+                return intersectVisible(obj) && isAnyCellVisible(visibleCells, obj.col, obj.row, w, h);
             });
         }
         if (!retainExploredCells) {
             return allObjects.filter((obj) => {
                 const w = Math.max(1, obj.width ?? 1);
                 const h = Math.max(1, obj.height ?? 1);
-                return isAnyCellVisible(visibleCells, obj.col, obj.row, w, h);
+                return intersectVisible(obj) && isAnyCellVisible(visibleCells, obj.col, obj.row, w, h);
             });
         }
         const memory = fogMemoryRef.current.objects;
@@ -423,34 +570,39 @@ const BattleMap: React.FC = () => {
         allObjects.forEach((obj) => {
             const w = Math.max(1, obj.width ?? 1);
             const h = Math.max(1, obj.height ?? 1);
-            if (isAnyCellVisible(visibleCells, obj.col, obj.row, w, h)) {
+            const onScreen = intersectVisible(obj);
+            if (onScreen && isAnyCellVisible(visibleCells, obj.col, obj.row, w, h)) {
                 result.push(obj);
                 return;
             }
             const snap = memory[obj.id];
             if (snap && isAnyCellExplored(fogExplored, snap.col, snap.row, w, h)) {
-                result.push(snap);
+                if (onScreen || isAnyCellVisible(visibleCells, snap.col, snap.row, w, h)) {
+                    result.push(snap);
+                }
             }
         });
         return result;
-    }, [objects, visibleCells, fogEnabled, fogExplored, retainExploredCells, isDm, serverVisibility]);
+    }, [objects, visibleCells, fogExplored, retainExploredCells, isDm, serverVisibility, grid.cellSize, grid.offsetX, grid.offsetY, grid.cols, grid.rows, visibleBounds.left, visibleBounds.top, visibleBounds.right, visibleBounds.bottom]);
 
     const renderTokens = useMemo(() => {
         const sceneTokens = Object.values(tokens);
-        if (isDm) return sceneTokens;
-        if (!visibleCells) return [];
+        const intersectVisible = (token: TokenDto) => {
+            const gs = Math.max(1, token.gridSize ?? 1);
+            const size = gs * grid.cellSize;
+            const x = grid.offsetX + token.col * grid.cellSize;
+            const y = grid.offsetY + token.row * grid.cellSize;
+            return rectIntersects(visibleBounds, itemBounds(x, y, size, size));
+        };
+        if (isDm) return sceneTokens.filter(intersectVisible);
+        if (!visibleCells || !serverVisibility) return [];
 
         const isOwnedByMe = (token: TokenDto) => token.ownerId != null && token.ownerId === myPlayerId;
 
         if (serverVisibility) {
-            const memory = serverVisibility.tokenSnapshots ?? {};
-            return sceneTokens.flatMap((token) => {
+            return sceneTokens.filter((token) => {
                 const gs = Math.max(1, token.gridSize ?? 1);
-                if (isOwnedByMe(token)) return [token];
-                if (isAnyCellVisible(visibleCells, token.col, token.row, gs, gs)) return [token];
-                const snap = memory[token.id];
-                if (snap && isAnyCellExplored(fogExplored, snap.col, snap.row, gs, gs)) return [snap];
-                return [];
+                return isOwnedByMe(token) || isAnyCellVisible(visibleCells, token.col, token.row, gs, gs);
             });
         }
         if (!retainExploredCells) {
@@ -473,7 +625,7 @@ const BattleMap: React.FC = () => {
             }
         });
         return result;
-    }, [tokens, visibleCells, fogEnabled, fogExplored, retainExploredCells, isDm, serverVisibility, myPlayerId]);
+    }, [tokens, visibleCells, fogEnabled, fogExplored, retainExploredCells, isDm, serverVisibility, myPlayerId, grid.cellSize, grid.offsetX, grid.offsetY, grid.cols, grid.rows, visibleBounds.left, visibleBounds.top, visibleBounds.right, visibleBounds.bottom]);
 
     // FIX: set React state, not imperative Konva call, so re-renders respect it
     const handleTokenDragStart = useCallback(() => {
@@ -483,7 +635,8 @@ const BattleMap: React.FC = () => {
     const handleDragEnd = useCallback((e: any, token: TokenDto) => {
         setStageDraggable(true);
 
-        if (!grid) return;
+        const gridValue = gridRef.current;
+        if (!gridValue) return;
         const node = e.target;
         const gs   = Math.max(1, token.gridSize ?? 1);
 
@@ -491,10 +644,10 @@ const BattleMap: React.FC = () => {
         const rawX = node.x();
         const rawY = node.y();
 
-        const newCol = Math.round((rawX - grid.offsetX) / grid.cellSize);
-        const newRow = Math.round((rawY - grid.offsetY) / grid.cellSize);
-        const clampedCol = Math.max(0, Math.min(newCol, grid.cols - gs));
-        const clampedRow = Math.max(0, Math.min(newRow, grid.rows - gs));
+        const newCol = Math.round((rawX - gridValue.offsetX) / gridValue.cellSize);
+        const newRow = Math.round((rawY - gridValue.offsetY) / gridValue.cellSize);
+        const clampedCol = Math.max(0, Math.min(newCol, gridValue.cols - gs));
+        const clampedRow = Math.max(0, Math.min(newRow, gridValue.rows - gs));
 
         const movedBounds = {
             left: clampedCol,
@@ -503,7 +656,10 @@ const BattleMap: React.FC = () => {
             bottom: clampedRow + gs,
         };
 
-        const collidesWithToken = Object.values(tokens).some((other) => {
+        const currentTokens = tokensRef.current;
+        const currentObjects = objectsRef.current;
+
+        const collidesWithToken = Object.values(currentTokens).some((other) => {
             if (other.id === token.id) return false;
             const otherSize = Math.max(1, other.gridSize ?? 1);
             return !(
@@ -514,7 +670,7 @@ const BattleMap: React.FC = () => {
             );
         });
 
-        const collidesWithObject = Object.values(objects).some((obj) => {
+        const collidesWithObject = Object.values(currentObjects).some((obj) => {
             if (!obj.blocksMovement) return false;
             const objWidth = Math.max(1, obj.width ?? 1);
             const objHeight = Math.max(1, obj.height ?? 1);
@@ -528,8 +684,8 @@ const BattleMap: React.FC = () => {
 
         if (collidesWithToken || collidesWithObject) {
             node.position({
-                x: grid.offsetX + token.col * grid.cellSize,
-                y: grid.offsetY + token.row * grid.cellSize,
+                x: gridValue.offsetX + token.col * gridValue.cellSize,
+                y: gridValue.offsetY + token.row * gridValue.cellSize,
             });
             return;
         }
@@ -543,8 +699,8 @@ const BattleMap: React.FC = () => {
         // Snap both the Konva node and the React store so the player view
         // updates immediately while the server broadcast catches up.
         node.position({
-            x: grid.offsetX + clampedCol * grid.cellSize,
-            y: grid.offsetY + clampedRow * grid.cellSize,
+            x: gridValue.offsetX + clampedCol * gridValue.cellSize,
+            y: gridValue.offsetY + clampedRow * gridValue.cellSize,
         });
         useGameStore.getState().moveToken(updatedToken);
 
@@ -553,11 +709,7 @@ const BattleMap: React.FC = () => {
             toCol: clampedCol,
             toRow: clampedRow,
         });
-        // Request a state re-sync so the authoritative server state always
-        // wins and both clients converge even when a move is rejected by
-        // collision / path rules or a broadcast is delayed.
-        wsClient.send('/session.sync', {});
-    }, [grid, tokens, objects]);
+    }, []);
 
 
     const clampScale = (value: number) => Math.max(0.22, Math.min(4, value));
@@ -570,7 +722,8 @@ const BattleMap: React.FC = () => {
         stage.scale({ x: nextScale, y: nextScale });
         stage.position({ x, y });
         stage.batchDraw();
-    }, []);
+        commitStageTransform({ x, y, scale: nextScale });
+    }, [commitStageTransform]);
 
     const zoomAtCenter = useCallback((direction: 1 | -1) => {
         const stage = stageRef.current;
@@ -607,6 +760,24 @@ const BattleMap: React.FC = () => {
         const y = (viewport.height - gridPixelH * scale) / 2 - grid.offsetY * scale;
         applyStageTransform(scale, x, y);
     }, [applyStageTransform, grid, viewport.height, viewport.width]);
+
+    useEffect(() => {
+        if (!grid || viewport.width <= 0 || viewport.height <= 0) return;
+        const sceneKey = [
+            backgroundUrl ?? '',
+            grid.cols,
+            grid.rows,
+            grid.cellSize,
+            grid.offsetX,
+            grid.offsetY,
+            terrainLayer ? 'terrain' : 'no-terrain',
+            wallLayer ? 'walls' : 'no-walls',
+        ].join('|');
+        if (lastAutoFitSceneRef.current === sceneKey) return;
+        lastAutoFitSceneRef.current = sceneKey;
+        const raf = window.requestAnimationFrame(() => fitView());
+        return () => window.cancelAnimationFrame(raf);
+    }, [backgroundUrl, fitView, grid, terrainLayer, wallLayer, viewport.height, viewport.width]);
 
     const centerSelectedToken = useCallback(() => {
         if (!grid || !selectedTokenId) return;
@@ -692,26 +863,83 @@ const BattleMap: React.FC = () => {
 
     const gridPixelW = grid.cols * grid.cellSize;
     const gridPixelH = grid.rows * grid.cellSize;
-    const stageW     = Math.max(viewport.width,  grid.offsetX + gridPixelW + 100);
-    const stageH     = Math.max(viewport.height, grid.offsetY + gridPixelH + 100);
+    const stageW     = viewport.width;
+    const stageH     = viewport.height;
 
-    const gridLines: React.ReactNode[] = [];
-    for (let c = 0; c <= grid.cols; c++) {
-        const lx = grid.offsetX + c * grid.cellSize;
-        gridLines.push(
-            <Line key={`v-${c}`}
-                  points={[lx, grid.offsetY, lx, grid.offsetY + gridPixelH]}
-                  stroke="rgba(255,255,255,0.12)" strokeWidth={0.5} />,
-        );
-    }
-    for (let r = 0; r <= grid.rows; r++) {
-        const ly = grid.offsetY + r * grid.cellSize;
-        gridLines.push(
-            <Line key={`h-${r}`}
-                  points={[grid.offsetX, ly, grid.offsetX + gridPixelW, ly]}
-                  stroke="rgba(255,255,255,0.12)" strokeWidth={0.5} />,
-        );
-    }
+    const gridLines = useMemo(() => {
+        const lines: React.ReactNode[] = [];
+        const left = visibleBounds.left;
+        const top = visibleBounds.top;
+        const right = visibleBounds.right;
+        const bottom = visibleBounds.bottom;
+        const startCol = Math.max(0, Math.floor((left - grid.offsetX) / grid.cellSize) - 1);
+        const endCol = Math.min(grid.cols, Math.ceil((right - grid.offsetX) / grid.cellSize) + 1);
+        const startRow = Math.max(0, Math.floor((top - grid.offsetY) / grid.cellSize) - 1);
+        const endRow = Math.min(grid.rows, Math.ceil((bottom - grid.offsetY) / grid.cellSize) + 1);
+        const lineTop = Math.max(grid.offsetY, top - grid.cellSize);
+        const lineBottom = Math.min(grid.offsetY + gridPixelH, bottom + grid.cellSize);
+        const lineLeft = Math.max(grid.offsetX, left - grid.cellSize);
+        const lineRight = Math.min(grid.offsetX + gridPixelW, right + grid.cellSize);
+
+        for (let c = startCol; c <= endCol; c++) {
+            const lx = grid.offsetX + c * grid.cellSize;
+            lines.push(
+                <Line key={`v-${c}`}
+                      points={[lx, lineTop, lx, lineBottom]}
+                      stroke="rgba(255,255,255,0.12)" strokeWidth={0.5} />,
+            );
+        }
+        for (let r = startRow; r <= endRow; r++) {
+            const ly = grid.offsetY + r * grid.cellSize;
+            lines.push(
+                <Line key={`h-${r}`}
+                      points={[lineLeft, ly, lineRight, ly]}
+                      stroke="rgba(255,255,255,0.12)" strokeWidth={0.5} />,
+            );
+        }
+        return lines;
+    }, [grid.cols, grid.rows, grid.cellSize, grid.offsetX, grid.offsetY, gridPixelH, gridPixelW, visibleBounds.left, visibleBounds.top, visibleBounds.right, visibleBounds.bottom]);
+
+    const visibleTerrainCells = useMemo(() => {
+        const cells = Array.isArray((terrainLayer as any)?.cells) ? (terrainLayer as any).cells : [];
+        return cells.filter((cell: any) => {
+            const col = Math.floor(getNum(cell?.col));
+            const row = Math.floor(getNum(cell?.row));
+            const w = Math.max(1, Math.floor(getNum(cell?.width, 1)));
+            const h = Math.max(1, Math.floor(getNum(cell?.height, 1)));
+            const x = grid.offsetX + col * grid.cellSize;
+            const y = grid.offsetY + row * grid.cellSize;
+            return rectIntersects(
+                visibleBounds,
+                itemBounds(x, y, w * grid.cellSize, h * grid.cellSize),
+            );
+        });
+    }, [terrainLayer, grid.cellSize, grid.offsetX, grid.offsetY, grid.cols, grid.rows, visibleBounds.left, visibleBounds.top, visibleBounds.right, visibleBounds.bottom]);
+
+    const visibleWallPaths = useMemo(() => {
+        const paths = Array.isArray((wallLayer as any)?.paths) ? (wallLayer as any).paths : [];
+        return paths.filter((path: any) => {
+            const points = Array.isArray(path?.points) ? path.points : [];
+            if (points.length < 2) return false;
+            let minX = Number.POSITIVE_INFINITY;
+            let minY = Number.POSITIVE_INFINITY;
+            let maxX = Number.NEGATIVE_INFINITY;
+            let maxY = Number.NEGATIVE_INFINITY;
+            for (const pt of points) {
+                const x = getNum(pt?.x);
+                const y = getNum(pt?.y);
+                if (x < minX) minX = x;
+                if (y < minY) minY = y;
+                if (x > maxX) maxX = x;
+                if (y > maxY) maxY = y;
+            }
+            const thickness = Math.max(1.5, getNum(path?.thickness, 2.5));
+            return rectIntersects(
+                visibleBounds,
+                itemBounds(minX - thickness, minY - thickness, (maxX - minX) + thickness * 2, (maxY - minY) + thickness * 2),
+            );
+        });
+    }, [wallLayer, visibleBounds.left, visibleBounds.top, visibleBounds.right, visibleBounds.bottom]);
 
     return (
         <div className="battle-map" style={{ background: 'transparent', overflow: 'hidden', width: '100vw', height: '100dvh', touchAction: 'none' }}>
@@ -727,6 +955,8 @@ const BattleMap: React.FC = () => {
                 }}
                 // FIX: controlled via React state — not overwritten on re-render
                 draggable={stageDraggable}
+                onDragMove={syncStageTransformFromNode}
+                onDragEnd={syncStageTransformFromNode}
                 onWheel={(e) => {
                     e.evt.preventDefault();
                     const stage = stageRef.current;
@@ -746,6 +976,11 @@ const BattleMap: React.FC = () => {
                         y: pointer.y - mousePointTo.y * newScale,
                     });
                     stage.batchDraw();
+                    commitStageTransform({
+                        x: stage.x(),
+                        y: stage.y(),
+                        scale: stage.scaleX() || 1,
+                    });
                 }}
             >
                 {/* Background */}
@@ -768,7 +1003,7 @@ const BattleMap: React.FC = () => {
 
                 {/* Terrain / walls / fog */}
                 <Layer listening={false}>
-                    {Array.isArray((terrainLayer as any)?.cells) && (terrainLayer as any).cells.map((cell: any, idx: number) => {
+                    {visibleTerrainCells.map((cell: any, idx: number) => {
                         const col = Math.floor(getNum(cell?.col));
                         const row = Math.floor(getNum(cell?.row));
                         const w = Math.max(1, Math.floor(getNum(cell?.width, 1)));
@@ -781,7 +1016,7 @@ const BattleMap: React.FC = () => {
                             : 'rgba(46,204,113,0.14)';
                         return <Rect key={`terrain-${idx}`} x={grid.offsetX + col * grid.cellSize} y={grid.offsetY + row * grid.cellSize} width={w * grid.cellSize} height={h * grid.cellSize} fill={fill} listening={false} />;
                     })}
-                    {Array.isArray((wallLayer as any)?.paths) && (wallLayer as any).paths.map((path: any, idx: number) => {
+                    {visibleWallPaths.map((path: any, idx: number) => {
                         const points = Array.isArray(path?.points) ? path.points : [];
                         const flat: number[] = [];
                         for (const pt of points) {
@@ -822,7 +1057,7 @@ const BattleMap: React.FC = () => {
                             cellSize={grid.cellSize}
                             offsetX={grid.offsetX}
                             offsetY={grid.offsetY}
-                            onSelect={() => setSelectedTokenId(token.id)}
+                            onSelect={handleSelectToken}
                             onDragStart={handleTokenDragStart}
                             onDragEnd={handleDragEnd}
                         />

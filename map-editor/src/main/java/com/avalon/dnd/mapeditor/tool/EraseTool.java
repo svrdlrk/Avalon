@@ -27,7 +27,7 @@ public class EraseTool implements Tool {
         var wallHit = canvas.findWallPathAt(event.getX(), event.getY());
         if (wallHit != null && state.getProject() != null && state.getProject().getWallLayer() != null && !state.getProject().getWallLayer().isLocked()) {
             state.recordHistory();
-            state.getProject().getWallLayer().removePathById(wallHit.getId());
+            state.getProject().removeWallPathById(wallHit.getId());
             state.selectWallPath(null);
             canvas.requestRender();
         }

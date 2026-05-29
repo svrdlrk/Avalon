@@ -4,7 +4,6 @@ export interface ConnectionFormProps {
     serverUrl: string;
     sessionId: string;
     playerName: string;
-    isDm: boolean;
     autoConnect: boolean;
     canConnect: boolean;
     status?: string | null;
@@ -20,7 +19,6 @@ export interface ConnectionFormProps {
     onServerUrlChange: (value: string) => void;
     onSessionIdChange: (value: string) => void;
     onPlayerNameChange: (value: string) => void;
-    onIsDmChange: (value: boolean) => void;
     onAutoConnectChange: (value: boolean) => void;
     onConnect: () => void;
     onSessionAction?: () => Promise<boolean>;
@@ -30,7 +28,6 @@ const ConnectionForm: React.FC<ConnectionFormProps> = ({
     serverUrl,
     sessionId,
     playerName,
-    isDm,
     autoConnect,
     canConnect,
     status,
@@ -46,7 +43,6 @@ const ConnectionForm: React.FC<ConnectionFormProps> = ({
     onServerUrlChange,
     onSessionIdChange,
     onPlayerNameChange,
-    onIsDmChange,
     onAutoConnectChange,
     onConnect,
     onSessionAction,
@@ -97,14 +93,6 @@ const ConnectionForm: React.FC<ConnectionFormProps> = ({
                         inputMode="text"
                         onKeyDown={(e) => e.key === 'Enter' && canConnect && onConnect()}
                     />
-                </label>
-
-                <label className="field field--toggle">
-                    <span>
-                        <span className="field__label">Join as DM</span>
-                        <span className="field__meta">Unlock visibility tools and GM controls.</span>
-                    </span>
-                    <input type="checkbox" checked={isDm} onChange={(e) => onIsDmChange(e.target.checked)} />
                 </label>
 
                 <label className="field field--toggle">

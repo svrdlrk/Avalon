@@ -183,10 +183,8 @@ public class MapEditorApplication extends Application {
 
 
     public static void main(String[] args) {
-        String os = System.getProperty("os.name", "").toLowerCase();
-        if (os.contains("win")) {
-            System.setProperty("prism.order", "sw");
-        }
+        System.setProperty("prism.order", "sw");
+        System.setProperty("prism.forceGPU", "false");
         launch(args);
     }
 }

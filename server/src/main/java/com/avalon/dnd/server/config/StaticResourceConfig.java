@@ -14,11 +14,11 @@ import java.util.Set;
 
 /**
  * Раздаёт статические ресурсы:
- *  /uploads/**  — загруженные пользователем карты и ассеты
- *  /assets/**   — встроенные токены и объекты
+ *  /uploads/** — данные карт и сессий из корня проекта
+ *  /assets/**   — общие ассеты из корня проекта
  *
- * Поддерживает запуск как из корня репозитория, так и из подпроектов
- * (например server/, dm-client/), поэтому ищет uploads/ вверх по дереву.
+ * Поддерживает запуск из любого подпроекта, поэтому ищет корень проекта
+ * вверх по дереву по наличию uploads/assets и Gradle wrapper файлов.
  */
 @Configuration
 public class StaticResourceConfig implements WebMvcConfigurer {
@@ -49,9 +49,6 @@ public class StaticResourceConfig implements WebMvcConfigurer {
         for (Path root : resolveProjectRoots()) {
             Path uploadAssets = root.resolve("uploads/assets").toAbsolutePath().normalize();
             locations.add("file:" + ensureTrailingSlash(uploadAssets));
-
-            Path sourceAssets = root.resolve("server/src/main/resources/assets").toAbsolutePath().normalize();
-            locations.add("file:" + ensureTrailingSlash(sourceAssets));
         }
         locations.add("classpath:/assets/");
         return locations.toArray(String[]::new);
@@ -63,17 +60,11 @@ public class StaticResourceConfig implements WebMvcConfigurer {
         addRoot(roots, System.getenv("AVALON_PROJECT_ROOT"));
 
         Path cwd = Paths.get("").toAbsolutePath().normalize();
-        Path current = cwd;
-        while (current != null) {
-            if (looksLikeProjectRoot(current)) {
-                roots.add(current);
-            }
-            current = current.getParent();
+        Path projectRoot = findProjectRoot(cwd);
+        if (projectRoot != null) {
+            roots.add(projectRoot);
         }
 
-        if (roots.isEmpty()) {
-            roots.add(cwd);
-        }
         return new ArrayList<>(roots);
     }
 
@@ -81,23 +72,29 @@ public class StaticResourceConfig implements WebMvcConfigurer {
         if (raw == null || raw.isBlank()) return;
         try {
             Path p = Path.of(raw).toAbsolutePath().normalize();
-            roots.add(p);
-            Path current = p;
-            while (current != null) {
-                if (looksLikeProjectRoot(current)) {
-                    roots.add(current);
-                }
-                current = current.getParent();
+            Path projectRoot = findProjectRoot(p);
+            if (projectRoot != null) {
+                roots.add(projectRoot);
             }
         } catch (Exception ignored) {
         }
     }
 
+    private Path findProjectRoot(Path start) {
+        if (start == null) return null;
+        for (Path current = start.toAbsolutePath().normalize(); current != null; current = current.getParent()) {
+            if (looksLikeProjectRoot(current) && Files.isDirectory(current.resolve("uploads/assets"))) {
+                return current;
+            }
+        }
+        return null;
+    }
+
     private boolean looksLikeProjectRoot(Path dir) {
-        return Files.exists(dir.resolve("gradlew.bat"))
-                || Files.exists(dir.resolve("settings.gradle"))
-                || Files.exists(dir.resolve("build.gradle"))
-                || Files.exists(dir.resolve("uploads"));
+        return Files.exists(dir.resolve("settings.gradle"))
+                || Files.exists(dir.resolve("settings.gradle.kts"))
+                || Files.exists(dir.resolve("gradlew"))
+                || Files.exists(dir.resolve("gradlew.bat"));
     }
 
     private String ensureTrailingSlash(Path path) {

@@ -10,7 +10,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -28,15 +27,18 @@ public class SessionPersistenceService {
     private static final Logger log = LoggerFactory.getLogger(SessionPersistenceService.class);
 
     private final SavedSessionRepository repository;
-    private final SessionService         sessionService;
-    private final ObjectMapper           objectMapper;
+    private final SessionSnapshotRestorer snapshotRestorer;
+    private final SessionSnapshotWriter snapshotWriter;
+    private final ObjectMapper objectMapper;
 
     public SessionPersistenceService(SavedSessionRepository repository,
-                                     SessionService sessionService,
+                                     SessionSnapshotRestorer snapshotRestorer,
+                                     SessionSnapshotWriter snapshotWriter,
                                      ObjectMapper objectMapper) {
-        this.repository     = repository;
-        this.sessionService = sessionService;
-        this.objectMapper   = objectMapper;
+        this.repository = repository;
+        this.snapshotRestorer = snapshotRestorer;
+        this.snapshotWriter = snapshotWriter;
+        this.objectMapper = objectMapper;
     }
 
     // ================================================================ Save
@@ -47,25 +49,7 @@ public class SessionPersistenceService {
      */
     @Transactional
     public void saveSession(String sessionId, String displayName) {
-        GameSession session = sessionService.getSession(sessionId);
-        if (session == null) throw new RuntimeException("Session not found: " + sessionId);
-
-        try {
-            String json = objectMapper.writeValueAsString(SessionSnapshot.from(session));
-
-            SavedSessionEntity entity = repository.findById(sessionId)
-                    .orElseGet(() -> new SavedSessionEntity(sessionId, displayName, json, 0));
-
-            entity.setDisplayName(displayName);
-            entity.setSnapshotJson(json);
-            entity.setVersion(session.getVersion());
-            entity.setSavedAt(LocalDateTime.now());
-            repository.save(entity);
-
-            log.debug("[persist] Saved session '{}' ({})", displayName, sessionId);
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to save session: " + e.getMessage(), e);
-        }
+        snapshotWriter.persistSession(sessionId, displayName);
     }
 
     /**
@@ -75,17 +59,13 @@ public class SessionPersistenceService {
     @Transactional
     public void autoSave(String sessionId) {
         try {
-            GameSession session = sessionService.getSession(sessionId);
-            if (session == null) return;
-
-            // Use existing display name if already saved, otherwise generic name
             String displayName = repository.findById(sessionId)
                     .map(SavedSessionEntity::getDisplayName)
                     .orElse("Сессия " + sessionId.substring(0, 8));
 
-            saveSession(sessionId, displayName);
+            snapshotWriter.persistSession(sessionId, displayName);
         } catch (Exception e) {
-            log.warn("[persist] Auto-save failed for {}: {}", sessionId, e.getMessage());
+            log.warn("[persist] Auto-save failed for {}: {}", sessionId, e.getMessage(), e);
         }
     }
 
@@ -105,7 +85,7 @@ public class SessionPersistenceService {
         try {
             SessionSnapshot snap = objectMapper.readValue(
                     entity.getSnapshotJson(), SessionSnapshot.class);
-            GameSession session = restoreFromSnapshot(snap);
+            GameSession session = snapshotRestorer.restore(snap);
             log.debug("[persist] Loaded session '{}' ({})",
                     entity.getDisplayName(), sessionId);
             return session;
@@ -129,54 +109,6 @@ public class SessionPersistenceService {
     @Transactional
     public void deleteSavedSession(String sessionId) {
         repository.deleteById(sessionId);
-    }
-
-    // ================================================================ Private
-
-    private GameSession restoreFromSnapshot(SessionSnapshot snap) {
-        // createSessionWithId returns existing OR creates new
-        GameSession session = sessionService.createSessionWithId(snap.id);
-
-        if (snap.grid != null) session.setGrid(snap.grid);
-        session.setBackgroundUrl(snap.backgroundUrl);
-        session.setReferenceOverlayLayer(snap.referenceOverlayLayer);
-        session.setTerrainLayer(snap.terrainLayer);
-        session.setWallLayer(snap.wallLayer);
-        session.setFogSettings(snap.fogSettings);
-        session.setAssetPackIds(snap.assetPackIds);
-
-        session.getTokens().clear();
-        if (snap.tokens != null) {
-            snap.tokens.forEach(ts -> {
-                var t = ts.toModel();
-                session.getTokens().put(t.getId(), t);
-            });
-        }
-
-        session.getObjects().clear();
-        if (snap.objects != null) {
-            snap.objects.forEach(os -> {
-                var o = os.toModel(snap.id);
-                session.getObjects().put(o.getId(), o);
-            });
-        }
-
-        // Restore players — but clear existing first to avoid duplicates
-        session.getPlayers().clear();
-        if (snap.players != null) {
-            snap.players.forEach(ps -> {
-                var p = ps.toModel();
-                session.getPlayers().put(p.getId(), p);
-            });
-        }
-
-        // Restore initiative and visibility state if present
-        session.setInitiativeState(snap.initiative);
-        session.setVisibilityState(snap.visibility);
-        session.setSharedVisibilityState(snap.sharedVisibility);
-        session.setVisibilityShareSuggestions(snap.visibilityShareSuggestions);
-
-        return session;
     }
 
     // ================================================================ DTO

@@ -7,7 +7,6 @@ const STORAGE_KEYS = {
     serverUrl: 'avalon.connection.serverUrl',
     sessionId: 'avalon.connection.sessionId',
     playerName: 'avalon.connection.playerName',
-    isDm: 'avalon.connection.isDm',
     autoConnect: 'avalon.connection.autoConnect',
 };
 
@@ -32,19 +31,17 @@ function readInitialConnectionState() {
     const savedServerUrl = readSavedValue(STORAGE_KEYS.serverUrl, DEFAULT_SERVER_BASE_URL);
     const savedSessionId = readSavedValue(STORAGE_KEYS.sessionId);
     const savedPlayerName = readSavedValue(STORAGE_KEYS.playerName);
-    const savedIsDm = readSavedValue(STORAGE_KEYS.isDm, 'false');
     const savedAutoConnect = readSavedValue(STORAGE_KEYS.autoConnect, 'false');
 
     return {
         serverUrl: suggestServerBaseUrl(savedServerUrl),
         sessionId: savedSessionId,
         playerName: savedPlayerName,
-        isDm: savedIsDm === 'true',
         autoConnect: savedAutoConnect === 'true',
     };
 }
 
-function persistConnectionState(serverUrl: string, sessionId: string, playerName: string, isDm: boolean, autoConnect: boolean) {
+function persistConnectionState(serverUrl: string, sessionId: string, playerName: string, autoConnect: boolean) {
     if (typeof window === 'undefined' || typeof localStorage === 'undefined') {
         return;
     }
@@ -52,7 +49,7 @@ function persistConnectionState(serverUrl: string, sessionId: string, playerName
         localStorage.setItem(STORAGE_KEYS.serverUrl, serverUrl);
         localStorage.setItem(STORAGE_KEYS.sessionId, sessionId);
         localStorage.setItem(STORAGE_KEYS.playerName, playerName);
-        localStorage.setItem(STORAGE_KEYS.isDm, String(isDm));
+        localStorage.removeItem('avalon.connection.isDm');
         localStorage.setItem(STORAGE_KEYS.autoConnect, String(autoConnect));
     } catch {
         // Ignore storage failures in private mode / denied storage.
@@ -85,7 +82,6 @@ export interface UseConnectionStateResult {
     serverUrl: string;
     sessionId: string;
     playerName: string;
-    isDm: boolean;
     autoConnect: boolean;
     status: string | null;
     isConnected: boolean;
@@ -94,7 +90,6 @@ export interface UseConnectionStateResult {
     setServerUrl: (value: string) => void;
     setSessionId: (value: string) => void;
     setPlayerName: (value: string) => void;
-    setIsDm: (value: boolean) => void;
     setAutoConnect: (value: boolean) => void;
     connect: () => boolean;
     disconnect: () => void;
@@ -106,7 +101,6 @@ export function useConnectionState(): UseConnectionStateResult {
     const [serverUrl, setServerUrl] = useState(() => initial.serverUrl);
     const [sessionId, setSessionId] = useState(() => initial.sessionId);
     const [playerName, setPlayerName] = useState(() => initial.playerName);
-    const [isDm, setIsDm] = useState(() => initial.isDm);
     const [autoConnect, setAutoConnect] = useState(() => initial.autoConnect);
     const [status, setStatus] = useState<string | null>(null);
     const autoConnectAttempted = useRef(false);
@@ -115,8 +109,8 @@ export function useConnectionState(): UseConnectionStateResult {
     const isConnected = storeSessionId != null && storePlayerId != null;
 
     useEffect(() => {
-        persistConnectionState(serverUrl, sessionId, playerName, isDm, autoConnect);
-    }, [serverUrl, sessionId, playerName, isDm, autoConnect]);
+        persistConnectionState(serverUrl, sessionId, playerName, autoConnect);
+    }, [serverUrl, sessionId, playerName, autoConnect]);
 
     const canConnect = safeTrim(sessionId).length > 0 && safeTrim(playerName).length > 0;
 
@@ -141,20 +135,20 @@ export function useConnectionState(): UseConnectionStateResult {
         setServerUrl(normalizedServer);
         setSessionId(normalizedSessionId);
         setPlayerName(normalizedPlayerName);
-        persistConnectionState(normalizedServer, normalizedSessionId, normalizedPlayerName, isDm, autoConnect);
+        persistConnectionState(normalizedServer, normalizedSessionId, normalizedPlayerName, autoConnect);
         setStatus('Connecting…');
 
         wsClient.connect(
             normalizedServer,
             normalizedSessionId,
             normalizedPlayerName,
-            isDm,
+            false,
             () => {
                 setStatus(null);
             },
         );
         return true;
-    }, [autoConnect, canConnect, serverUrl, sessionId, playerName, isDm]);
+    }, [autoConnect, canConnect, serverUrl, sessionId, playerName]);
 
     useEffect(() => {
         if (!autoConnect) {
@@ -205,7 +199,6 @@ export function useConnectionState(): UseConnectionStateResult {
         serverUrl,
         sessionId,
         playerName,
-        isDm,
         autoConnect,
         status,
         isConnected,
@@ -214,7 +207,6 @@ export function useConnectionState(): UseConnectionStateResult {
         setServerUrl,
         setSessionId,
         setPlayerName,
-        setIsDm,
         setAutoConnect,
         connect,
         disconnect,

@@ -32,17 +32,24 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 
 public class MapEditorCanvas extends Canvas {
 
     private final EditorState state;
     private final Map<String, Image> imageCache = new HashMap<>();
+    private double lastCanvasWidth = -1.0;
+    private double lastCanvasHeight = -1.0;
+    private long cachedFogRevision = -1L;
+    private boolean[][] cachedFogVisible;
 
     private MapPlacement hoverPlacement;
     private Integer hoverCol;
     private Integer hoverRow;
 
-    private boolean resizePending;
+    private boolean renderPending;
+    private boolean renderDirty;
+    private boolean safeRenderingMode;
 
     public enum MicroLocationHandle {
         NONE, MOVE, NW, N, NE, E, SE, S, SW, W
@@ -63,29 +70,39 @@ public class MapEditorCanvas extends Canvas {
 
         setFocusTraversable(true);
 
-        state.addListener(evt -> requestRender());
+        state.addListener(evt -> {
+            if (EditorState.PROP_PROJECT.equals(evt.getPropertyName())) {
+                cachedFogRevision = -1L;
+                cachedFogVisible = null;
+            }
+            requestRender();
+        });
 
         setOnMousePressed(e -> {
             requestFocus();
             if (state.getActiveTool() != null) {
                 state.getActiveTool().onMousePressed(e, this, state);
             }
+            e.consume();
         });
         setOnMouseDragged(e -> {
             if (state.getActiveTool() != null) {
                 state.getActiveTool().onMouseDragged(e, this, state);
             }
+            e.consume();
         });
         setOnMouseReleased(e -> {
             if (state.getActiveTool() != null) {
                 state.getActiveTool().onMouseReleased(e, this, state);
             }
+            e.consume();
         });
         setOnMouseMoved(e -> {
             updateHover(e.getX(), e.getY());
             if (state.getActiveTool() != null) {
                 state.getActiveTool().onMouseMoved(e, this, state);
             }
+            e.consume();
         });
 
         setOnScroll(e -> {
@@ -107,23 +124,112 @@ public class MapEditorCanvas extends Canvas {
     }
 
     public void requestRender() {
-        if (resizePending) return;
-        resizePending = true;
+        renderDirty = true;
+        if (renderPending) {
+            return;
+        }
+        renderPending = true;
         Platform.runLater(() -> {
-            resizePending = false;
+            renderPending = false;
+            if (!renderDirty) {
+                return;
+            }
+            renderDirty = false;
             renderAndFit();
+            if (renderDirty && !renderPending) {
+                requestRender();
+            }
         });
+    }
+
+    private void updateHover(double screenX, double screenY) {
+        int[] cell = screenToCell(screenX, screenY);
+        Integer nextCol = cell == null ? null : cell[0];
+        Integer nextRow = cell == null ? null : cell[1];
+        MapPlacement nextPlacement = findPlacementAt(screenX, screenY);
+        boolean changed = !Objects.equals(hoverCol, nextCol)
+                || !Objects.equals(hoverRow, nextRow)
+                || hoverPlacement != nextPlacement;
+        hoverCol = nextCol;
+        hoverRow = nextRow;
+        hoverPlacement = nextPlacement;
+        if (changed) {
+            requestRender();
+        }
+    }
+
+    private boolean syncCanvasSize(double width, double height) {
+        boolean changed = false;
+        if (Math.abs(lastCanvasWidth - width) > 0.5) {
+            setWidth(width);
+            lastCanvasWidth = width;
+            changed = true;
+        }
+        if (Math.abs(lastCanvasHeight - height) > 0.5) {
+            setHeight(height);
+            lastCanvasHeight = height;
+            changed = true;
+        }
+        return changed;
+    }
+
+    private boolean[][] visibleFogCells(MapProject project) {
+        if (project == null) {
+            cachedFogRevision = -1L;
+            cachedFogVisible = null;
+            return null;
+        }
+        long revision = project.getRevision();
+        if (cachedFogVisible != null && cachedFogRevision == revision) {
+            return cachedFogVisible;
+        }
+        cachedFogVisible = FogCalculator.computeVisibleCells(project);
+        cachedFogRevision = revision;
+        return cachedFogVisible;
+    }
+
+    private int visibleStartCol() {
+        var grid = state.grid();
+        double scale = Math.max(0.25, state.getZoom());
+        int cell = Math.max(1, grid.getCellSize());
+        double left = Math.max(0.0, (-state.getViewOffsetX()) / scale - cell);
+        return Math.max(0, (int) Math.floor((left - grid.getOffsetX()) / cell));
+    }
+
+    private int visibleEndCol() {
+        var grid = state.grid();
+        double scale = Math.max(0.25, state.getZoom());
+        int cell = Math.max(1, grid.getCellSize());
+        double right = ((getWidth() - state.getViewOffsetX()) / scale) + cell;
+        return Math.min(grid.getCols(), (int) Math.ceil((right - grid.getOffsetX()) / cell));
+    }
+
+    private int visibleStartRow() {
+        var grid = state.grid();
+        double scale = Math.max(0.25, state.getZoom());
+        int cell = Math.max(1, grid.getCellSize());
+        double top = Math.max(0.0, (-state.getViewOffsetY()) / scale - cell);
+        return Math.max(0, (int) Math.floor((top - grid.getOffsetY()) / cell));
+    }
+
+    private int visibleEndRow() {
+        var grid = state.grid();
+        double scale = Math.max(0.25, state.getZoom());
+        int cell = Math.max(1, grid.getCellSize());
+        double bottom = ((getHeight() - state.getViewOffsetY()) / scale) + cell;
+        return Math.min(grid.getRows(), (int) Math.ceil((bottom - grid.getOffsetY()) / cell));
     }
 
     private void renderAndFit() {
         MapProject project = state.getProject();
-        if (project == null) return;
+        if (project == null) {
+            render();
+            return;
+        }
 
-        double width = Math.max(1200, state.grid().getOffsetX() + (double) state.grid().getCols() * state.grid().getCellSize());
-        double height = Math.max(800, state.grid().getOffsetY() + (double) state.grid().getRows() * state.grid().getCellSize());
-
-        setWidth(width);
-        setHeight(height);
+        double width = Math.min(4096, Math.max(1200, state.grid().getOffsetX() + (double) state.grid().getCols() * state.grid().getCellSize()));
+        double height = Math.min(4096, Math.max(800, state.grid().getOffsetY() + (double) state.grid().getRows() * state.grid().getCellSize()));
+        syncCanvasSize(width, height);
         render();
     }
 
@@ -135,39 +241,70 @@ public class MapEditorCanvas extends Canvas {
             return;
         }
 
-        gc.setFill(Color.web("#1f1f1f"));
-        gc.fillRect(0, 0, getWidth(), getHeight());
+        try {
+            gc.setFill(Color.web("#1f1f1f"));
+            gc.fillRect(0, 0, getWidth(), getHeight());
 
-        gc.save();
-        gc.translate(state.getViewOffsetX(), state.getViewOffsetY());
-        gc.scale(state.getZoom(), state.getZoom());
+            gc.save();
+            gc.translate(state.getViewOffsetX(), state.getViewOffsetY());
+            gc.scale(state.getZoom(), state.getZoom());
 
-        drawBackground(gc);
-        drawTerrainLayer(gc);
-        drawReferenceOverlay(gc);
-        drawGrid(gc);
-        drawMicroLocations(gc);
-        drawWallLayer(gc);
-        drawPlacements(gc);
-        drawFogPreview(gc);
-        drawWallSnapIndicator(gc);
+            drawBackground(gc);
+            drawTerrainLayer(gc);
+            drawReferenceOverlay(gc);
+            drawGrid(gc);
+            drawMicroLocations(gc);
+            drawWallLayer(gc);
+            drawPlacements(gc);
+            drawFogPreview(gc);
+            drawWallSnapIndicator(gc);
 
-        if (hoverCol != null && hoverRow != null) {
-            drawHoverCell(gc);
+            if (hoverCol != null && hoverRow != null) {
+                drawHoverCell(gc);
+            }
+
+            MapPlacement selected = state.selectedPlacement();
+            if (selected != null) {
+                drawSelection(gc, selected);
+            }
+
+            gc.restore();
+        } catch (Throwable t) {
+            if (!safeRenderingMode) {
+                safeRenderingMode = true;
+                System.err.println("[map-editor] switching to safe rendering mode after canvas failure: " + t);
+            }
+            try {
+                gc.restore();
+            } catch (Exception ignored) {
+            }
+            gc.setFill(Color.web("#1f1f1f"));
+            gc.fillRect(0, 0, getWidth(), getHeight());
+            gc.save();
+            gc.translate(state.getViewOffsetX(), state.getViewOffsetY());
+            gc.scale(state.getZoom(), state.getZoom());
+
+            drawBackground(gc);
+            drawTerrainLayer(gc);
+            drawReferenceOverlay(gc);
+            drawGrid(gc);
+            drawMicroLocations(gc);
+            drawWallLayer(gc);
+            drawPlacements(gc);
+            drawFogPreview(gc);
+            drawWallSnapIndicator(gc);
+
+            if (hoverCol != null && hoverRow != null) {
+                drawHoverCell(gc);
+            }
+
+            MapPlacement selected = state.selectedPlacement();
+            if (selected != null) {
+                drawSelection(gc, selected);
+            }
+
+            gc.restore();
         }
-
-        MapPlacement selected = state.selectedPlacement();
-        if (selected != null) {
-            drawSelection(gc, selected);
-        }
-
-        gc.restore();
-
-        if (hoverPlacement != null) {
-            drawPlacementTooltip(gc, hoverPlacement);
-        }
-
-        drawStatus(gc);
     }
 
     private void drawBackground(GraphicsContext gc) {
@@ -183,6 +320,9 @@ public class MapEditorCanvas extends Canvas {
 
         String backgroundUrl = background.getImageUrl();
         if (backgroundUrl == null || backgroundUrl.isBlank()) {
+            backgroundUrl = project.getBackgroundUrl();
+        }
+        if (backgroundUrl == null || backgroundUrl.isBlank()) {
             return;
         }
 
@@ -190,7 +330,7 @@ public class MapEditorCanvas extends Canvas {
         Image image = imageCache.get(cacheKey);
 
         if (image == null) {
-            image = loadImage(backgroundUrl);
+            image = MapEditorCanvasResources.loadImage(backgroundUrl, this::requestRender);
             if (image != null) {
                 imageCache.put(cacheKey, image);
             } else {
@@ -289,7 +429,7 @@ public class MapEditorCanvas extends Canvas {
         String cacheKey = "ref:" + url;
         Image image = imageCache.get(cacheKey);
         if (image == null) {
-            image = loadImage(url);
+            image = MapEditorCanvasResources.loadImage(url, this::requestRender);
             if (image != null) {
                 imageCache.put(cacheKey, image);
             } else {
@@ -329,10 +469,20 @@ public class MapEditorCanvas extends Canvas {
         int ox = grid.getOffsetX();
         int oy = grid.getOffsetY();
 
+        int startCol = visibleStartCol();
+        int endCol = visibleEndCol();
+        int startRow = visibleStartRow();
+        int endRow = visibleEndRow();
+
         gc.save();
         gc.setGlobalAlpha(terrain.getOpacity());
         for (TerrainCell terrainCell : terrain.getCells()) {
             if (terrainCell == null) {
+                continue;
+            }
+            int cellEndCol = terrainCell.getCol() + Math.max(1, terrainCell.getWidth());
+            int cellEndRow = terrainCell.getRow() + Math.max(1, terrainCell.getHeight());
+            if (terrainCell.getCol() > endCol || cellEndCol < startCol || terrainCell.getRow() > endRow || cellEndRow < startRow) {
                 continue;
             }
             double x = ox + terrainCell.getCol() * cell;
@@ -530,13 +680,18 @@ public class MapEditorCanvas extends Canvas {
         gc.setStroke(Color.web("#3b3b3b"));
         gc.setLineWidth(0.6 / state.getZoom());
 
-        for (int c = 0; c <= grid.getCols(); c++) {
+        int startCol = Math.max(0, visibleStartCol());
+        int endCol = Math.max(startCol, visibleEndCol());
+        int startRow = Math.max(0, visibleStartRow());
+        int endRow = Math.max(startRow, visibleEndRow());
+
+        for (int c = startCol; c <= endCol; c++) {
             double x = ox + c * cell;
-            gc.strokeLine(x, oy, x, oy + grid.getRows() * cell);
+            gc.strokeLine(x, oy + startRow * cell, x, oy + endRow * cell);
         }
-        for (int r = 0; r <= grid.getRows(); r++) {
+        for (int r = startRow; r <= endRow; r++) {
             double y = oy + r * cell;
-            gc.strokeLine(ox, y, ox + grid.getCols() * cell, y);
+            gc.strokeLine(ox + startCol * cell, y, ox + endCol * cell, y);
         }
     }
 
@@ -627,20 +782,23 @@ public class MapEditorCanvas extends Canvas {
             for (MapPlacement placement : project.getPlacements()) {
                 if (!layer.getId().equals(placement.getLayerId())) continue;
 
+                int placementEndCol = placement.getCol() + placement.effectiveWidth();
+                int placementEndRow = placement.getRow() + placement.effectiveHeight();
+                if (placement.getCol() > visibleEndCol() || placementEndCol < visibleStartCol()
+                        || placement.getRow() > visibleEndRow() || placementEndRow < visibleStartRow()) {
+                    continue;
+                }
                 double x = ox + placement.getCol() * cell;
                 double y = oy + placement.getRow() * cell;
                 double w = placement.effectiveWidth() * cell;
                 double h = placement.effectiveHeight() * cell;
                 double rotation = placement.getRotation();
 
-                Image image = imageCache.computeIfAbsent("obj:" + placement.getImageUrl(), key -> loadImage(placement.getImageUrl()));
+                Image image = imageCache.computeIfAbsent("obj:" + placement.getImageUrl(), key -> MapEditorCanvasResources.loadImage(placement.getImageUrl(), this::requestRender));
 
                 gc.save();
                 gc.translate(x + w / 2.0, y + h / 2.0);
                 gc.rotate(rotation);
-                gc.beginPath();
-                gc.rect(-w / 2.0, -h / 2.0, w, h);
-                gc.clip();
 
                 if (image != null && !image.isError()) {
                     gc.drawImage(image, -w / 2.0, -h / 2.0, w, h);
@@ -678,8 +836,8 @@ public class MapEditorCanvas extends Canvas {
             return;
         }
 
-        boolean[][] visible = FogCalculator.computeVisibleCells(state.getProject());
-        if (visible.length == 0 || visible[0].length == 0) {
+        boolean[][] visible = visibleFogCells(state.getProject());
+        if (visible == null || visible.length == 0 || visible[0].length == 0) {
             return;
         }
 
@@ -687,11 +845,15 @@ public class MapEditorCanvas extends Canvas {
         int cell = grid.getCellSize();
         int ox = grid.getOffsetX();
         int oy = grid.getOffsetY();
+        int startCol = Math.max(0, visibleStartCol());
+        int endCol = Math.min(visible[0].length - 1, visibleEndCol());
+        int startRow = Math.max(0, visibleStartRow());
+        int endRow = Math.min(visible.length - 1, visibleEndRow());
 
         gc.save();
         gc.setFill(Color.color(0.0, 0.0, 0.0, settings.getOpacity()));
-        for (int row = 0; row < visible.length; row++) {
-            for (int col = 0; col < visible[row].length; col++) {
+        for (int row = startRow; row <= endRow; row++) {
+            for (int col = startCol; col <= endCol; col++) {
                 if (visible[row][col]) {
                     continue;
                 }
@@ -802,297 +964,59 @@ public class MapEditorCanvas extends Canvas {
         gc.fillText(status, 18, 24);
     }
 
-    public MicroLocationHit findMicroLocationHitAt(double screenX, double screenY) {
-        MapProject project = state.getProject();
-        if (project == null) return null;
-        MicroLocationDto hitZone = null;
-        for (int i = project.getMicroLocations().size() - 1; i >= 0; i--) {
-            MicroLocationDto zone = project.getMicroLocations().get(i);
-            if (zone == null) continue;
-            if (containsMicroLocation(zone, screenX, screenY)) {
-                hitZone = zone;
-                break;
-            }
-        }
-        if (hitZone == null) return null;
-        return new MicroLocationHit(hitZone, findMicroLocationHandleAt(hitZone, screenX, screenY));
-    }
-
-    public MicroLocationDto findMicroLocationAt(double screenX, double screenY) {
-        MicroLocationHit hit = findMicroLocationHitAt(screenX, screenY);
-        return hit == null ? null : hit.zone;
-    }
-
-    public MicroLocationHandle findMicroLocationHandleAt(MicroLocationDto zone, double screenX, double screenY) {
-        if (zone == null) return MicroLocationHandle.NONE;
-        var grid = state.grid();
-        int cell = grid.getCellSize();
-        int ox = grid.getOffsetX();
-        int oy = grid.getOffsetY();
-        double x = ox + zone.getCol() * cell;
-        double y = oy + zone.getRow() * cell;
-        double w = Math.max(1, zone.getWidth()) * cell;
-        double h = Math.max(1, zone.getHeight()) * cell;
-        double threshold = 10.0 / state.getZoom();
-        double worldX = screenToWorldX(screenX);
-        double worldY = screenToWorldY(screenY);
-
-        boolean left = Math.abs(worldX - x) <= threshold;
-        boolean right = Math.abs(worldX - (x + w)) <= threshold;
-        boolean top = Math.abs(worldY - y) <= threshold;
-        boolean bottom = Math.abs(worldY - (y + h)) <= threshold;
-
-        if (left && top) return MicroLocationHandle.NW;
-        if (right && top) return MicroLocationHandle.NE;
-        if (right && bottom) return MicroLocationHandle.SE;
-        if (left && bottom) return MicroLocationHandle.SW;
-        if (top && worldX >= x && worldX <= x + w) return MicroLocationHandle.N;
-        if (bottom && worldX >= x && worldX <= x + w) return MicroLocationHandle.S;
-        if (left && worldY >= y && worldY <= y + h) return MicroLocationHandle.W;
-        if (right && worldY >= y && worldY <= y + h) return MicroLocationHandle.E;
-        return MicroLocationHandle.MOVE;
-    }
-
-    private boolean containsMicroLocation(MicroLocationDto zone, double screenX, double screenY) {
-        var grid = state.grid();
-        int cell = grid.getCellSize();
-        int ox = grid.getOffsetX();
-        int oy = grid.getOffsetY();
-        double worldX = screenToWorldX(screenX);
-        double worldY = screenToWorldY(screenY);
-        double x = ox + zone.getCol() * cell;
-        double y = oy + zone.getRow() * cell;
-        double w = Math.max(1, zone.getWidth()) * cell;
-        double h = Math.max(1, zone.getHeight()) * cell;
-        return worldX >= x && worldX <= x + w && worldY >= y && worldY <= y + h;
-    }
-
-    public MapPlacement findPlacementAt(double screenX, double screenY) {
-        int[] cell = screenToCell(screenX, screenY);
-        if (cell == null) return null;
-
-        int col = cell[0];
-        int row = cell[1];
-
-        MapProject project = state.getProject();
-        if (project == null) return null;
-
-        for (int layerIndex = project.getLayers().size() - 1; layerIndex >= 0; layerIndex--) {
-            MapLayer layer = project.getLayers().get(layerIndex);
-            if (!layer.isVisible()) continue;
-            for (int i = project.getPlacements().size() - 1; i >= 0; i--) {
-                MapPlacement placement = project.getPlacements().get(i);
-                if (!layer.getId().equals(placement.getLayerId())) continue;
-                if (col >= placement.getCol() && col < placement.getCol() + placement.effectiveWidth()
-                        && row >= placement.getRow() && row < placement.getRow() + placement.effectiveHeight()) {
-                    return placement;
-                }
-            }
-        }
-        return null;
-    }
-
     public int getGridCellSize() {
-        return state.grid().getCellSize();
+        return MapEditorCanvasGeometry.getGridCellSize(state);
     }
 
     public int getGridOffsetX() {
-        return state.grid().getOffsetX();
+        return MapEditorCanvasGeometry.getGridOffsetX(state);
     }
 
     public int getGridOffsetY() {
-        return state.grid().getOffsetY();
+        return MapEditorCanvasGeometry.getGridOffsetY(state);
     }
 
     public int[] screenToCell(double screenX, double screenY) {
-        var grid = state.grid();
-        int cell = grid.getCellSize();
-        int ox = grid.getOffsetX();
-        int oy = grid.getOffsetY();
-
-        double worldX = (screenX - state.getViewOffsetX()) / state.getZoom();
-        double worldY = (screenY - state.getViewOffsetY()) / state.getZoom();
-
-        int col = (int) Math.floor((worldX - ox) / cell);
-        int row = (int) Math.floor((worldY - oy) / cell);
-
-        if (col < 0 || row < 0 || col >= grid.getCols() || row >= grid.getRows()) {
-            return null;
-        }
-        return new int[] { col, row };
+        return MapEditorCanvasGeometry.screenToCell(state, screenX, screenY);
     }
 
     public double screenToWorldX(double screenX) {
-        return (screenX - state.getViewOffsetX()) / state.getZoom();
+        return MapEditorCanvasGeometry.screenToWorldX(state, screenX);
     }
 
     public double screenToWorldY(double screenY) {
-        return (screenY - state.getViewOffsetY()) / state.getZoom();
+        return MapEditorCanvasGeometry.screenToWorldY(state, screenY);
     }
 
     public WallPath findWallPathAt(double screenX, double screenY) {
-        MapProject project = state.getProject();
-        if (project == null || project.getWallLayer() == null || !project.getWallLayer().isVisible()) {
-            return null;
-        }
-
-        double worldX = screenToWorldX(screenX);
-        double worldY = screenToWorldY(screenY);
-        double maxDistance = 8.0 / state.getZoom();
-
-        for (int i = project.getWallLayer().getPaths().size() - 1; i >= 0; i--) {
-            WallPath path = project.getWallLayer().getPaths().get(i);
-            if (path == null || !path.isVisible() || path.getPoints().isEmpty()) {
-                continue;
-            }
-
-            if (path.findNearestVertexIndex(worldX, worldY, maxDistance) >= 0) {
-                return path;
-            }
-            if (path.getPoints().size() >= 2 && path.findNearestSegmentInsertIndex(worldX, worldY, maxDistance) >= 0) {
-                return path;
-            }
-        }
-        return null;
+        return MapEditorCanvasGeometry.findWallPathAt(state, screenX, screenY);
     }
 
     public int findWallVertexAt(WallPath path, double screenX, double screenY) {
-        if (path == null) {
-            return -1;
-        }
-        double worldX = screenToWorldX(screenX);
-        double worldY = screenToWorldY(screenY);
-        return path.findNearestVertexIndex(worldX, worldY, 8.0 / state.getZoom());
+        return MapEditorCanvasGeometry.findWallVertexAt(state, path, screenX, screenY);
     }
 
-    private void updateHover(double x, double y) {
-        int[] cell = screenToCell(x, y);
-        if (cell == null) {
-            hoverCol = null;
-            hoverRow = null;
-            hoverPlacement = null;
-            requestRender();
-            return;
-        }
-
-        hoverCol = cell[0];
-        hoverRow = cell[1];
-        MapPlacement hit = findPlacementAt(x, y);
-
-        boolean changed = hit != hoverPlacement;
-        hoverPlacement = hit;
-        if (changed) {
-            requestRender();
-        }
+    public MicroLocationHit findMicroLocationHitAt(double screenX, double screenY) {
+        return MapEditorCanvasGeometry.findMicroLocationHitAt(state, screenX, screenY);
     }
 
-    private Image loadImage(String url) {
-        if (url == null || url.isBlank()) return null;
-        String resolved = resolveImageSource(url.trim());
-        if (resolved == null || resolved.isBlank()) return null;
-        try {
-            Image image = new Image(resolved, false);
-            if (image.isError() || image.getWidth() <= 0 || image.getHeight() <= 0) {
-                return null;
-            }
-            return image;
-        } catch (Exception ex) {
-            return null;
-        }
+    public MicroLocationDto findMicroLocationAt(double screenX, double screenY) {
+        return MapEditorCanvasGeometry.findMicroLocationAt(state, screenX, screenY);
+    }
+
+    public MicroLocationHandle findMicroLocationHandleAt(MicroLocationDto zone, double screenX, double screenY) {
+        return MapEditorCanvasGeometry.findMicroLocationHandleAt(state, zone, screenX, screenY);
     }
 
     private double worldToScreenX(double worldX) {
-        return worldX * state.getZoom() + state.getViewOffsetX();
+        return MapEditorCanvasGeometry.worldToScreenX(state, worldX);
     }
 
     private double worldToScreenY(double worldY) {
-        return worldY * state.getZoom() + state.getViewOffsetY();
+        return MapEditorCanvasGeometry.worldToScreenY(state, worldY);
     }
 
-    private static String encodeUrl(String url) {
-        if (url == null) return null;
-        try {
-            int schemeEnd = url.indexOf("://");
-            if (schemeEnd < 0) return url;
-            int pathStart = url.indexOf('/', schemeEnd + 3);
-            if (pathStart < 0) return url;
-
-            String base = url.substring(0, pathStart);
-            String path = url.substring(pathStart);
-
-            String[] segments = path.split("/", -1);
-            StringBuilder sb = new StringBuilder(base);
-            for (int i = 0; i < segments.length; i++) {
-                if (i > 0) sb.append('/');
-                sb.append(encodePathSegment(segments[i]));
-            }
-            return sb.toString();
-        } catch (Exception e) {
-            return url;
-        }
-    }
-
-    private String resolveImageSource(String url) {
-        if (url == null || url.isBlank()) return null;
-        if (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("jar:") || url.startsWith("file:") || url.startsWith("data:")) {
-            return encodeUrl(url);
-        }
-
-        String cleaned = url.replace('\\', '/');
-        if (cleaned.startsWith("/uploads/") || cleaned.startsWith("uploads/")) {
-            Path local = resolveProjectPath(cleaned.startsWith("/") ? cleaned.substring(1) : cleaned);
-            if (local != null) {
-                return local.toUri().toString();
-            }
-            return cleaned.startsWith("/") ? cleaned : "/" + cleaned;
-        }
-
-        Path local = resolveProjectPath(cleaned.startsWith("/") ? cleaned.substring(1) : cleaned);
-        if (local != null) {
-            return local.toUri().toString();
-        }
-
-        return encodeUrl(cleaned);
-    }
-
-    private Path resolveProjectPath(String relative) {
-        if (relative == null || relative.isBlank()) return null;
-        String cleaned = relative.startsWith("/") ? relative.substring(1) : relative;
-
-        Path cwd = Path.of("").toAbsolutePath().normalize();
-        Path current = cwd;
-        for (int i = 0; i < 6 && current != null; i++, current = current.getParent()) {
-            Path candidate = current.resolve(cleaned).normalize();
-            if (Files.exists(candidate)) {
-                return candidate.toAbsolutePath().normalize();
-            }
-        }
-
-        Path direct = Path.of(cleaned);
-        if (Files.exists(direct)) {
-            return direct.toAbsolutePath().normalize();
-        }
-        return null;
-    }
-
-
-    private static String encodePathSegment(String segment) {
-        if (segment == null || segment.isEmpty()) return segment == null ? "" : segment;
-        try {
-            return new URI(null, null, "/" + segment, null).toASCIIString().substring(1);
-        } catch (Exception e) {
-            byte[] bytes = segment.getBytes(StandardCharsets.UTF_8);
-            StringBuilder sb = new StringBuilder();
-            for (byte b : bytes) {
-                int v = b & 0xFF;
-                if ((v >= 'A' && v <= 'Z') || (v >= 'a' && v <= 'z') ||
-                        (v >= '0' && v <= '9') || v == '-' || v == '_' || v == '.' || v == '~' || v == '+') {
-                    sb.append((char) v);
-                } else {
-                    sb.append(String.format("%%%02X", v));
-                }
-            }
-            return sb.toString();
-        }
+    public MapPlacement findPlacementAt(double screenX, double screenY) {
+        return MapEditorCanvasGeometry.findPlacementAt(state, screenX, screenY);
     }
 }

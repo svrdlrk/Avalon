@@ -7,6 +7,7 @@ public class JoinSessionRequestDto {
     private String sessionId;
     private String playerName;
     private String joinNonce;
+    private String dmSecret;
 
     @JsonProperty("isDm")
     private boolean isDm;
@@ -21,6 +22,9 @@ public class JoinSessionRequestDto {
 
     public String getJoinNonce() { return joinNonce; }
     public void setJoinNonce(String joinNonce) { this.joinNonce = joinNonce; }
+
+    public String getDmSecret() { return dmSecret; }
+    public void setDmSecret(String dmSecret) { this.dmSecret = dmSecret; }
 
     public boolean isDm() { return isDm; }
     public void setDm(boolean dm) { isDm = dm; }

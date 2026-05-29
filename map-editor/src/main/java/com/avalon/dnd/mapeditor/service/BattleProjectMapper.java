@@ -26,6 +26,7 @@ public final class BattleProjectMapper {
         dto.setId(project.getId());
         dto.setName(project.getName());
         dto.setDescription(project.getDescription());
+        dto.setBackgroundUrl(project.getBackgroundUrl());
         dto.setGrid(copyGrid(project.getGrid()));
         dto.setBackgroundLayer(copyBackground(project.getBackgroundLayer()));
         dto.setReferenceOverlayLayer(copyReference(project.getReferenceOverlayLayer()));
@@ -58,6 +59,9 @@ public final class BattleProjectMapper {
         project.setDescription(dto.getDescription());
         project.setGrid(copyGrid(dto.getGrid()));
         project.setBackgroundLayer(copyBackground(dto.getBackgroundLayer()));
+        if (project.getBackgroundUrl() == null || project.getBackgroundUrl().isBlank()) {
+            project.setBackgroundUrl(dto.getBackgroundUrl());
+        }
         project.setReferenceOverlayLayer(copyReference(dto.getReferenceOverlayLayer()));
         project.setTerrainLayer(copyTerrain(dto.getTerrainLayer()));
         project.setWallLayer(copyWall(dto.getWallLayer()));

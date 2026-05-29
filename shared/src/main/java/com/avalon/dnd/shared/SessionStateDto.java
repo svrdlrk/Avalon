@@ -1,5 +1,6 @@
 package com.avalon.dnd.shared;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.databind.JsonNode;
 
 import java.util.ArrayList;
@@ -127,12 +128,16 @@ public class SessionStateDto {
     public void setBackgroundUrl(String v) { this.backgroundUrl = v; }
     public void setInitiative(InitiativeStateDto v) { this.initiative = v; }
     public void setVisibility(VisibilityStateDto v) { this.visibility = v; }
+    @JsonIgnore
     public void setReferenceOverlayLayer(Object v) { this.referenceOverlayLayer = JsonPayloads.toNode(v); }
     public void setReferenceOverlayLayer(JsonNode v) { this.referenceOverlayLayer = v; }
+    @JsonIgnore
     public void setTerrainLayer(Object v) { this.terrainLayer = JsonPayloads.toNode(v); }
     public void setTerrainLayer(JsonNode v) { this.terrainLayer = v; }
+    @JsonIgnore
     public void setWallLayer(Object v) { this.wallLayer = JsonPayloads.toNode(v); }
     public void setWallLayer(JsonNode v) { this.wallLayer = v; }
+    @JsonIgnore
     public void setFogSettings(Object v) { this.fogSettings = JsonPayloads.toNode(v); }
     public void setFogSettings(JsonNode v) { this.fogSettings = v; }
     public void setMicroLocations(List<MicroLocationDto> microLocations) {

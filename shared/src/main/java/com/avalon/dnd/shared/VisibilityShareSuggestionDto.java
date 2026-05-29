@@ -2,6 +2,7 @@ package com.avalon.dnd.shared;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Pending DM approval for turning a private visibility discovery into shared party knowledge.
@@ -45,4 +46,20 @@ public class VisibilityShareSuggestionDto {
 
     public String getTrigger() { return trigger; }
     public void setTrigger(String trigger) { this.trigger = trigger; }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof VisibilityShareSuggestionDto that)) return false;
+        return autoSuggested == that.autoSuggested
+                && Objects.equals(suggestionId, that.suggestionId)
+                && Objects.equals(playerIds, that.playerIds)
+                && Objects.equals(reason, that.reason)
+                && Objects.equals(trigger, that.trigger);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(suggestionId, playerIds, reason, autoSuggested, trigger);
+    }
 }

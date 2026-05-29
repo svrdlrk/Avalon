@@ -129,6 +129,7 @@ public class TerrainBrushTool implements Tool {
         }
         cell.setTerrainType(terrain.getPaintType());
         terrain.upsertCell(cell);
+        state.getProject().touch();
 
         painted.add(key);
         lastCol = col;

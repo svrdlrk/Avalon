@@ -37,10 +37,14 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 
 public final class AssetBrowserWindow {
+
+    private static final int THUMBNAIL_SIZE = 42;
+    private static final Map<String, Image> THUMBNAIL_CACHE = new ConcurrentHashMap<>();
 
     private AssetBrowserWindow() {}
 
@@ -100,23 +104,29 @@ public final class AssetBrowserWindow {
 
         List<AssetDefinition> allAssets = catalog == null ? List.of() : catalog.getAssets().stream()
                 .filter(Objects::nonNull)
-                .filter(filter)
                 .sorted(Comparator
                         .comparing((AssetDefinition a) -> safeCategory(a.getCategory()), String.CASE_INSENSITIVE_ORDER)
                         .thenComparing(a -> safeText(a.getName()), String.CASE_INSENSITIVE_ORDER))
                 .toList();
 
-        TreeItem<String> rootItem = buildCategoryTree(allAssets);
+        List<AssetDefinition> filteredByType = allAssets.stream().filter(filter).toList();
+        if (!allAssets.isEmpty() && filteredByType.isEmpty()) {
+            filteredByType = allAssets;
+        }
+        List<AssetDefinition> browserAssets = filteredByType;
+
+        TreeItem<String> rootItem = buildCategoryTree(browserAssets);
         categoryTree.setRoot(rootItem);
-        if (rootItem != null && !rootItem.getChildren().isEmpty()) {
-            categoryTree.getSelectionModel().select(rootItem.getChildren().get(0));
+        if (rootItem != null) {
+            categoryTree.getSelectionModel().select(rootItem);
         }
 
         Runnable refreshList = () -> {
             String search = safeText(searchField.getText()).toLowerCase(Locale.ROOT);
-            String selectedCategory = selectedCategoryPath(categoryTree.getSelectionModel().getSelectedItem());
+            TreeItem<String> selectedItem = categoryTree.getSelectionModel().getSelectedItem();
+            String selectedCategory = selectedItem == null ? "" : selectedCategoryPath(selectedItem);
             List<AssetDefinition> filtered = new ArrayList<>();
-            for (AssetDefinition asset : allAssets) {
+            for (AssetDefinition asset : browserAssets) {
                 if (!selectedCategory.isBlank() && !categoryMatches(asset, selectedCategory)) {
                     continue;
                 }
@@ -299,9 +309,23 @@ public final class AssetBrowserWindow {
             return null;
         }
 
+        Image cached = THUMBNAIL_CACHE.get(resolved);
+        if (cached != null) {
+            return cached;
+        }
+
         try {
-            Image image = new Image(resolved, 42, 42, true, true, true);
-            return image.isError() ? null : image;
+            Image image = new Image(resolved, THUMBNAIL_SIZE, THUMBNAIL_SIZE, true, true, true);
+            if (image.isError()) {
+                return null;
+            }
+            THUMBNAIL_CACHE.put(resolved, image);
+            image.exceptionProperty().addListener((obs, oldV, ex) -> {
+                if (ex != null) {
+                    THUMBNAIL_CACHE.remove(resolved);
+                }
+            });
+            return image;
         } catch (IllegalArgumentException ex) {
             return null;
         } catch (Exception ex) {
@@ -321,20 +345,38 @@ public final class AssetBrowserWindow {
         }
 
         String cleaned = trimmed.replace('\\', '/');
-        if (cleaned.startsWith("/uploads/") || cleaned.startsWith("uploads/")) {
-            Path local = resolveProjectPath(cleaned.startsWith("/") ? cleaned.substring(1) : cleaned);
+        String noSlash = cleaned.startsWith("/") ? cleaned.substring(1) : cleaned;
+        if (!isCatalogAssetCandidate(noSlash)) {
+            return null;
+        }
+
+        for (String candidate : candidateAssetPaths(noSlash)) {
+            Path local = resolveProjectPath(candidate);
             if (local != null) {
                 return local.toUri().toString();
             }
-            return cleaned.startsWith("/") ? cleaned : "/" + cleaned;
         }
 
-        Path local = resolveProjectPath(cleaned.startsWith("/") ? cleaned.substring(1) : cleaned);
-        if (local != null) {
-            return local.toUri().toString();
-        }
+        return null;
+    }
 
-        return encodeUrl(cleaned);
+    private static java.util.List<String> candidateAssetPaths(String noSlash) {
+        java.util.ArrayList<String> candidates = new java.util.ArrayList<>();
+        if (noSlash.startsWith("uploads/assets/tokens/") || noSlash.startsWith("uploads/assets/objects/")) {
+            candidates.add(noSlash);
+        } else {
+            candidates.add("uploads/assets/tokens/" + noSlash);
+            candidates.add("uploads/assets/objects/" + noSlash);
+        }
+        return candidates;
+    }
+
+    private static boolean isCatalogAssetCandidate(String noSlash) {
+        if (noSlash == null || noSlash.isBlank()) {
+            return false;
+        }
+        String lower = noSlash.toLowerCase(java.util.Locale.ROOT);
+        return lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".gif") || lower.endsWith(".webp") || lower.endsWith(".bmp") || lower.endsWith(".tif") || lower.endsWith(".tiff");
     }
 
     private static Path resolveProjectPath(String relative) {
@@ -343,10 +385,9 @@ public final class AssetBrowserWindow {
         }
 
         String cleaned = relative.startsWith("/") ? relative.substring(1) : relative;
-        Path cwd = Path.of("").toAbsolutePath().normalize();
-        Path current = cwd;
-        for (int i = 0; i < 6 && current != null; i++, current = current.getParent()) {
-            Path candidate = current.resolve(cleaned).normalize();
+        Path projectRoot = findProjectRoot();
+        if (projectRoot != null) {
+            Path candidate = projectRoot.resolve(cleaned).normalize();
             if (Files.exists(candidate)) {
                 return candidate.toAbsolutePath().normalize();
             }
@@ -355,6 +396,21 @@ public final class AssetBrowserWindow {
         Path direct = Path.of(cleaned);
         if (Files.exists(direct)) {
             return direct.toAbsolutePath().normalize();
+        }
+        return null;
+    }
+
+
+    private static Path findProjectRoot() {
+        Path cwd = Path.of("").toAbsolutePath().normalize();
+        for (Path current = cwd; current != null; current = current.getParent()) {
+            if ((Files.exists(current.resolve("settings.gradle"))
+                    || Files.exists(current.resolve("settings.gradle.kts"))
+                    || Files.exists(current.resolve("gradlew"))
+                    || Files.exists(current.resolve("gradlew.bat")))
+                    && Files.isDirectory(current.resolve("uploads/assets"))) {
+                return current;
+            }
         }
         return null;
     }

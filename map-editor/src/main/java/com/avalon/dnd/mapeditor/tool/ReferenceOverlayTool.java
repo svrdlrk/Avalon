@@ -57,6 +57,7 @@ public class ReferenceOverlayTool implements Tool {
 
         overlay.setOffsetX(overlay.getOffsetX() + dx);
         overlay.setOffsetY(overlay.getOffsetY() + dy);
+        state.getProject().touch();
         canvas.requestRender();
     }
 
@@ -77,9 +78,11 @@ public class ReferenceOverlayTool implements Tool {
         if (event.isShiftDown()) {
             double delta = event.getDeltaY() > 0 ? 5.0 : -5.0;
             overlay.setRotation(overlay.getRotation() + delta);
+            state.getProject().touch();
         } else {
             double factor = event.getDeltaY() > 0 ? 1.05 : 1.0 / 1.05;
             overlay.setScale(overlay.getScale() * factor);
+            state.getProject().touch();
         }
         canvas.requestRender();
         event.consume();

@@ -36,6 +36,7 @@ export interface TokenDto {
     imageUrl: string | null;
     dayVision?: number;
     nightVision?: number;
+    facingAngleDeg?: number;
     microLocationId?: string | null;
     blocksMovement?: boolean;
     blocksSight?: boolean;

@@ -31,9 +31,9 @@ public class VisibilityWsController {
 
     @MessageMapping("/visibility.share.approve")
     public void approve(VisibilityShareApprovalRequest request,
-                        @Header("playerId") String playerId,
+                          @Header(value = "simpSessionId", required = false) String wsSessionId,
                         @Header("sessionId") String sessionId) {
-        Player player = validationService.validate(sessionId, playerId);
+        Player player = validationService.validateBound(sessionId, wsSessionId);
         if (player.getRole() != Role.DM) {
             throw new RuntimeException("Only DM can approve visibility sharing");
         }

@@ -47,3 +47,5 @@ data/
 *.png
 *.jpg
 *.json
+!example.catalog.json
+!example.names.ru.json

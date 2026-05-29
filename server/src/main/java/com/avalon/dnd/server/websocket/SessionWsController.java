@@ -5,6 +5,7 @@ import com.avalon.dnd.server.model.Player;
 import com.avalon.dnd.server.service.MapBattleRulesService;
 import com.avalon.dnd.server.service.AssetUrlNormalizer;
 import com.avalon.dnd.server.service.MapObjectService;
+import com.avalon.dnd.server.service.SessionConnectionRegistry;
 import com.avalon.dnd.server.service.SessionService;
 import com.avalon.dnd.server.service.SessionValidationService;
 import com.avalon.dnd.server.service.TokenService;
@@ -15,13 +16,13 @@ import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.stereotype.Controller;
+import jakarta.annotation.PreDestroy;
 import org.springframework.web.socket.messaging.SessionDisconnectEvent;
+
+import com.fasterxml.jackson.databind.JsonNode;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -36,6 +37,7 @@ public class SessionWsController {
     private final SessionService           sessionService;
     private final SimpMessagingTemplate    messaging;
     private final SessionValidationService validationService;
+    private final SessionConnectionRegistry connectionRegistry;
     private final MapBattleRulesService    battleRulesService;
     private final ScheduledExecutorService cleanupExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "session-ws-cleanup");
@@ -43,63 +45,175 @@ public class SessionWsController {
         return t;
     });
 
-    /** WS-session-id → game player reference. Used for disconnect handling. */
-    private final Map<String, PlayerRef> wsToPlayer = new ConcurrentHashMap<>();
-    private final ConcurrentMap<String, ScheduledFuture<?>> pendingDisconnects = new ConcurrentHashMap<>();
-
-    private record PlayerRef(String gameSessionId, String playerId) {}
+    private final ConcurrentMap<String, ScheduledFuture<?>> pendingDisconnects = new java.util.concurrent.ConcurrentHashMap<>();
+    private final ConcurrentMap<String, CachedSharedSnapshot> sharedSnapshotCache = new java.util.concurrent.ConcurrentHashMap<>();
 
     public SessionWsController(SessionService sessionService,
                                SimpMessagingTemplate messaging,
                                SessionValidationService validationService,
+                               SessionConnectionRegistry connectionRegistry,
                                MapBattleRulesService battleRulesService) {
         this.sessionService    = sessionService;
         this.messaging         = messaging;
         this.validationService = validationService;
+        this.connectionRegistry = connectionRegistry;
         this.battleRulesService = battleRulesService;
     }
 
     // ---- state builder ----
 
     public SessionStateDto buildState(GameSession session, String forPlayerId) {
-        if (session.getVisibilityState() == null || session.getVisibilityStatesByPlayer() == null || session.getVisibilityStatesByPlayer().isEmpty()) {
-            battleRulesService.computeVisibility(session);
+        ensureVisibilityComputed(session, forPlayerId);
+        return buildState(session, forPlayerId, snapshotShared(session), battleRulesService.getVisibilityForPlayer(session, forPlayerId));
+    }
+
+    private SessionStateDto buildState(GameSession session, String forPlayerId, SharedSessionSnapshot shared) {
+        return buildState(session, forPlayerId, shared, battleRulesService.getVisibilityForPlayer(session, forPlayerId));
+    }
+
+    private java.util.List<TokenDto> filterTokensForViewer(SharedSessionSnapshot shared, com.avalon.dnd.shared.VisibilityStateDto viewerVisibility, String viewerPlayerId) {
+        if (shared == null || shared.tokens() == null || viewerVisibility == null) {
+            return java.util.List.of();
         }
+        return shared.tokens().stream()
+                .filter(t -> t != null && (isOwnedByViewer(t, viewerPlayerId)
+                        || isAnyCellVisible(viewerVisibility, t.getCol(), t.getRow(),
+                        Math.max(1, t.getGridSize()), Math.max(1, t.getGridSize()))))
+                .toList();
+    }
+
+    private java.util.List<MapObjectDto> filterObjectsForViewer(SharedSessionSnapshot shared, com.avalon.dnd.shared.VisibilityStateDto viewerVisibility) {
+        if (shared == null || shared.objects() == null || viewerVisibility == null) {
+            return java.util.List.of();
+        }
+        return shared.objects().stream()
+                .filter(o -> o != null && isAnyCellVisible(viewerVisibility, o.getCol(), o.getRow(),
+                        Math.max(1, o.getWidth()), Math.max(1, o.getHeight())))
+                .toList();
+    }
+
+    private SessionStateDto buildState(GameSession session,
+                                       String forPlayerId,
+                                       SharedSessionSnapshot shared,
+                                       com.avalon.dnd.shared.VisibilityStateDto viewerVisibility) {
         Player currentPlayer = forPlayerId == null ? null : session.getPlayers().get(forPlayerId);
+        boolean isDm = currentPlayer != null && currentPlayer.getRole() == com.avalon.dnd.server.model.Role.DM;
         java.util.List<com.avalon.dnd.shared.VisibilityShareSuggestionDto> suggestions =
-                currentPlayer != null && currentPlayer.getRole() == com.avalon.dnd.server.model.Role.DM
-                        ? session.getVisibilityShareSuggestions()
-                        : java.util.List.of();
+                isDm ? shared.visibilityShareSuggestions() : java.util.List.of();
+        java.util.List<TokenDto> tokensForViewer = isDm
+                ? shared.tokens() == null ? java.util.List.of() : shared.tokens()
+                : filterTokensForViewer(shared, viewerVisibility, forPlayerId);
+        java.util.List<MapObjectDto> objectsForViewer = isDm
+                ? shared.objects() == null ? java.util.List.of() : shared.objects()
+                : filterObjectsForViewer(shared, viewerVisibility);
         return new SessionStateDto(
                 forPlayerId,
-                session.getGrid(),
-                session.getTokens().values().stream().map(TokenService::toDto).toList(),
-                session.getPlayers().values().stream()
-                        .map(p -> new PlayerDto(p.getId(), p.getName(), p.getRole().name()))
-                        .toList(),
-                session.getObjects().values().stream().map(MapObjectService::toDto).toList(),
-                AssetUrlNormalizer.normalize(session.getBackgroundUrl()),
-                session.getInitiativeState(),
-                battleRulesService.getVisibilityForPlayer(session, forPlayerId),
-                session.getReferenceOverlayLayer(),
-                session.getTerrainLayer(),
-                session.getWallLayer(),
-                session.getFogSettings(),
-                session.getMicroLocations(),
-                session.getAssetPackIds(),
+                shared.grid(),
+                tokensForViewer,
+                shared.players(),
+                objectsForViewer,
+                shared.backgroundUrl(),
+                shared.initiativeState(),
+                viewerVisibility,
+                shared.referenceOverlayLayer(),
+                shared.terrainLayer(),
+                shared.wallLayer(),
+                shared.fogSettings(),
+                shared.microLocations(),
+                shared.assetPackIds(),
                 suggestions
         );
     }
 
     public void broadcastSessionState(GameSession session) {
         if (session == null) return;
-        battleRulesService.computeVisibility(session);
-        session.getPlayers().values().forEach(player -> messaging.convertAndSend(
-                privateTopic(session.getId(), player.getId()),
-                new WsMessage<>(WsEventType.SESSION_STATE,
-                        session.getId(),
-                        session.getVersion(),
-                        buildState(session, player.getId()))));
+        ensureVisibilityComputed(session, null);
+        SharedSessionSnapshot shared = snapshotShared(session);
+        java.util.Map<String, com.avalon.dnd.shared.VisibilityStateDto> visibilityByPlayer = session.getVisibilityStatesByPlayer();
+        com.avalon.dnd.shared.VisibilityStateDto merged = session.getVisibilityState();
+        session.getPlayers().values().forEach(player -> {
+            com.avalon.dnd.shared.VisibilityStateDto viewerVisibility = visibilityByPlayer == null ? null : visibilityByPlayer.get(player.getId());
+            if (player.getRole() == com.avalon.dnd.server.model.Role.DM) {
+                viewerVisibility = merged;
+            }
+            if (viewerVisibility == null) {
+                viewerVisibility = merged;
+            }
+            messaging.convertAndSend(
+                    privateTopic(session.getId(), player.getId()),
+                    new WsMessage<>(WsEventType.SESSION_STATE,
+                            session.getId(),
+                            session.getVersion(),
+                            buildState(session, player.getId(), shared, viewerVisibility)));
+        });
+    }
+
+    private void ensureVisibilityComputed(GameSession session, String forPlayerId) {
+        if (session == null) {
+            return;
+        }
+        var states = session.getVisibilityStatesByPlayer();
+        boolean needsRecompute = session.isVisibilityDirty()
+                || session.getVisibilityState() == null
+                || states == null
+                || states.isEmpty()
+                || states.size() != session.getPlayers().size()
+                || (forPlayerId != null && !forPlayerId.isBlank() && !states.containsKey(forPlayerId));
+        if (needsRecompute) {
+            battleRulesService.computeVisibility(session);
+        }
+    }
+
+    public MapLayoutUpdateDto buildMapLayout(GameSession session, String forPlayerId) {
+        ensureVisibilityComputed(session, forPlayerId);
+        return battleRulesService.buildMapLayout(session, forPlayerId);
+    }
+
+    public void broadcastMapLayout(GameSession session,
+                                   WsEventType eventType,
+                                   MapLayoutUpdateDto baseLayout,
+                                   boolean includePublicTopic) {
+        if (session == null || baseLayout == null) {
+            return;
+        }
+        ensureVisibilityComputed(session, null);
+        long version = session.getVersion();
+        if (includePublicTopic) {
+            messaging.convertAndSend(
+                    "/topic/session/" + session.getId(),
+                    new WsMessage<>(eventType, session.getId(), version, baseLayout));
+        }
+        java.util.Map<String, com.avalon.dnd.shared.VisibilityStateDto> visibilityByPlayer = session.getVisibilityStatesByPlayer();
+        com.avalon.dnd.shared.VisibilityStateDto merged = session.getVisibilityState();
+        for (Player player : session.getPlayers().values()) {
+            com.avalon.dnd.shared.VisibilityStateDto viewerVisibility = visibilityByPlayer == null ? null : visibilityByPlayer.get(player.getId());
+            if (player.getRole() == com.avalon.dnd.server.model.Role.DM) {
+                viewerVisibility = merged;
+            }
+            if (viewerVisibility == null) {
+                viewerVisibility = merged;
+            }
+            MapLayoutUpdateDto recipientLayout = new MapLayoutUpdateDto(
+                    baseLayout.getGrid(),
+                    player.getRole() == com.avalon.dnd.server.model.Role.DM
+                            ? baseLayout.getTokens()
+                            : buildVisibleTokens(baseLayout.getTokens(), viewerVisibility, player.getId()),
+                    player.getRole() == com.avalon.dnd.server.model.Role.DM
+                            ? baseLayout.getObjects()
+                            : buildVisibleObjects(baseLayout.getObjects(), viewerVisibility),
+                    baseLayout.getBackgroundUrl(),
+                    viewerVisibility,
+                    baseLayout.getReferenceOverlayLayer(),
+                    baseLayout.getTerrainLayer(),
+                    baseLayout.getWallLayer(),
+                    baseLayout.getFogSettings(),
+                    baseLayout.getMicroLocations(),
+                    baseLayout.getAssetPackIds()
+            );
+            messaging.convertAndSend(
+                    privateTopic(session.getId(), player.getId()),
+                    new WsMessage<>(eventType, session.getId(), version, recipientLayout));
+        }
     }
 
     // ---- join ----
@@ -118,12 +232,12 @@ public class SessionWsController {
         if (session == null) throw new RuntimeException("Session not found");
 
         Player player = sessionService.joinSession(
-                sessionId, request.getPlayerName(), request.isDm());
+                sessionId, request.getPlayerName(), request.isDm(), request.getDmSecret());
 
         cancelPendingDisconnect(sessionId, player.getId());
 
-        // Map WS session → game player for disconnect cleanup
-        wsToPlayer.put(wsSessionId, new PlayerRef(sessionId, player.getId()));
+        // Map WS session → game player for disconnect cleanup and authority resolution
+        connectionRegistry.bind(wsSessionId, sessionId, player.getId());
 
         // Broadcast PLAYER_JOINED so DM refreshes its player list
         messaging.convertAndSend(
@@ -134,26 +248,30 @@ public class SessionWsController {
                         new PlayerDto(player.getId(), player.getName(), player.getRole().name())));
 
         // Send full state to the joining player
+        ensureVisibilityComputed(session, player.getId());
+        SharedSessionSnapshot shared = snapshotShared(session);
         messaging.convertAndSend(
                 joinTopic(sessionId, request.getJoinNonce()),
                 new WsMessage<>(WsEventType.SESSION_STATE,
                         sessionId,
                         session.getVersion(),
-                        buildState(session, player.getId())));
+                        buildState(session, player.getId(), shared)));
     }
 
     // ---- sync ----
 
     @MessageMapping("/session.sync")
     public void sync(@Header("sessionId") String sessionId,
-                     @Header("playerId")  String playerId) {
+                     @Header(value = "simpSessionId", required = false) String wsSessionId) {
         String normalizedSessionId = normalizeSessionId(sessionId);
-        Player player = validationService.validate(normalizedSessionId, playerId);
+        Player player = validationService.validateBound(normalizedSessionId, wsSessionId);
         GameSession session = sessionService.getSession(normalizedSessionId);
+        ensureVisibilityComputed(session, player.getId());
+        SharedSessionSnapshot shared = snapshotShared(session);
         messaging.convertAndSend(
                 privateTopic(normalizedSessionId, player.getId()),
                 new WsMessage<>(WsEventType.SESSION_STATE, normalizedSessionId,
-                        session.getVersion(), buildState(session, playerId)));
+                        session.getVersion(), buildState(session, player.getId(), shared)));
     }
 
     // ---- disconnect ----
@@ -169,7 +287,7 @@ public class SessionWsController {
         String wsId = sha.getSessionId();
         if (wsId == null) return;
 
-        PlayerRef ref = wsToPlayer.remove(wsId);
+        SessionConnectionRegistry.PlayerBinding ref = connectionRegistry.unbind(wsId);
         if (ref == null) return;   // no record — maybe non-game connection
 
         scheduleDisconnectCleanup(ref);
@@ -177,9 +295,9 @@ public class SessionWsController {
 
     // ---- helpers ----
 
-    private void scheduleDisconnectCleanup(PlayerRef ref) {
-        String key = disconnectKey(ref.gameSessionId(), ref.playerId());
-        cancelPendingDisconnect(ref.gameSessionId(), ref.playerId());
+    private void scheduleDisconnectCleanup(SessionConnectionRegistry.PlayerBinding ref) {
+        String key = disconnectKey(ref.sessionId(), ref.playerId());
+        cancelPendingDisconnect(ref.sessionId(), ref.playerId());
 
         ScheduledFuture<?> future = cleanupExecutor.schedule(() -> cleanupDisconnectedPlayer(ref),
                 RECONNECT_GRACE_SECONDS, TimeUnit.SECONDS);
@@ -195,23 +313,23 @@ public class SessionWsController {
         }
     }
 
-    private void cleanupDisconnectedPlayer(PlayerRef ref) {
-        String key = disconnectKey(ref.gameSessionId(), ref.playerId());
+    private void cleanupDisconnectedPlayer(SessionConnectionRegistry.PlayerBinding ref) {
+        String key = disconnectKey(ref.sessionId(), ref.playerId());
         pendingDisconnects.remove(key);
 
-        GameSession session = sessionService.getSession(ref.gameSessionId());
+        GameSession session = sessionService.getSession(ref.sessionId());
         if (session == null) return;
 
         Player leaving = session.getPlayers().get(ref.playerId());
         if (leaving == null) return;
 
         // If the player has already reconnected, keep them in session.
-        if (wsToPlayer.values().stream().anyMatch(r -> Objects.equals(r.gameSessionId(), ref.gameSessionId())
-                && Objects.equals(r.playerId(), ref.playerId()))) {
+        if (connectionRegistry.isPlayerConnected(ref.sessionId(), ref.playerId())) {
             return;
         }
 
         session.getPlayers().remove(ref.playerId());
+        session.markVisibilityDirty();
 
         // Unassign tokens owned by the leaving player
         List<TokenDto> released = new ArrayList<>();
@@ -226,19 +344,20 @@ public class SessionWsController {
 
         // Notify everyone the player left
         messaging.convertAndSend(
-                "/topic/session/" + ref.gameSessionId(),
+                "/topic/session/" + ref.sessionId(),
                 new WsMessage<>(WsEventType.PLAYER_LEFT,
-                        ref.gameSessionId(), version, ref.playerId()));
+                        ref.sessionId(), version, ref.playerId()));
 
         // Notify everyone about unassigned tokens
         for (TokenDto t : released) {
             version = session.incrementVersion();
             messaging.convertAndSend(
-                    "/topic/session/" + ref.gameSessionId(),
+                    "/topic/session/" + ref.sessionId(),
                     new WsMessage<>(WsEventType.TOKEN_ASSIGNED,
-                            ref.gameSessionId(), version, t));
+                            ref.sessionId(), version, t));
         }
 
+        battleRulesService.computeVisibility(session);
         broadcastSessionState(session);
     }
 
@@ -246,8 +365,142 @@ public class SessionWsController {
         return sessionId + "::" + playerId;
     }
 
+    private SharedSessionSnapshot snapshotShared(GameSession session) {
+        if (session == null) {
+            return new SharedSessionSnapshot(
+                    null,
+                    java.util.List.of(),
+                    java.util.List.of(),
+                    java.util.List.of(),
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    java.util.List.of(),
+                    java.util.List.of(),
+                    java.util.List.of()
+            );
+        }
+        SharedSnapshotKey key = new SharedSnapshotKey(
+                session.getVersion(),
+                session.getVisibilityState(),
+                session.getVisibilityStatesByPlayer(),
+                session.getVisibilityShareSuggestions()
+        );
+        CachedSharedSnapshot cached = sharedSnapshotCache.get(session.getId());
+        if (cached != null && cached.key().equals(key)) {
+            return cached.snapshot();
+        }
+        SharedSessionSnapshot snapshot = buildSharedSnapshot(session);
+        sharedSnapshotCache.put(session.getId(), new CachedSharedSnapshot(key, snapshot));
+        return snapshot;
+    }
+
+    private SharedSessionSnapshot buildSharedSnapshot(GameSession session) {
+        java.util.List<TokenDto> tokens = session.getTokens().values().stream().map(TokenService::toDto).toList();
+        java.util.List<PlayerDto> players = session.getPlayers().values().stream()
+                .map(p -> new PlayerDto(p.getId(), p.getName(), p.getRole().name()))
+                .toList();
+        java.util.List<MapObjectDto> objects = session.getObjects().values().stream().map(MapObjectService::toDto).toList();
+        return new SharedSessionSnapshot(
+                session.getGrid(),
+                tokens,
+                players,
+                objects,
+                AssetUrlNormalizer.normalize(session.getBackgroundUrl()),
+                session.getInitiativeState(),
+                session.getReferenceOverlayLayer(),
+                session.getTerrainLayer(),
+                session.getWallLayer(),
+                session.getFogSettings(),
+                List.copyOf(session.getMicroLocations()),
+                List.copyOf(session.getAssetPackIds()),
+                List.copyOf(session.getVisibilityShareSuggestions())
+        );
+    }
+
+    private record SharedSnapshotKey(long version,
+                                     Object visibilityState,
+                                     Object visibilityStatesByPlayer,
+                                     Object visibilityShareSuggestions) {}
+
+    private record CachedSharedSnapshot(SharedSnapshotKey key, SharedSessionSnapshot snapshot) {}
+
+    private record SharedSessionSnapshot(GridConfig grid,
+                                         java.util.List<TokenDto> tokens,
+                                         java.util.List<PlayerDto> players,
+                                         java.util.List<MapObjectDto> objects,
+                                         String backgroundUrl,
+                                         InitiativeStateDto initiativeState,
+                                         JsonNode referenceOverlayLayer,
+                                         JsonNode terrainLayer,
+                                         JsonNode wallLayer,
+                                         JsonNode fogSettings,
+                                         java.util.List<com.avalon.dnd.shared.MicroLocationDto> microLocations,
+                                         java.util.List<String> assetPackIds,
+                                         java.util.List<com.avalon.dnd.shared.VisibilityShareSuggestionDto> visibilityShareSuggestions) {}
+
     private static String joinTopic(String sid, String nonce) {
         return "/topic/session/" + sid + "/join/" + nonce;
+    }
+
+    @PreDestroy
+    public void shutdown() {
+        pendingDisconnects.values().forEach(future -> future.cancel(false));
+        pendingDisconnects.clear();
+        cleanupExecutor.shutdownNow();
+    }
+
+    private java.util.List<TokenDto> buildVisibleTokens(java.util.List<TokenDto> tokens, com.avalon.dnd.shared.VisibilityStateDto visibility, String viewerPlayerId) {
+        if (tokens == null || tokens.isEmpty()) {
+            return java.util.List.of();
+        }
+        if (visibility == null) {
+            return java.util.List.of();
+        }
+        return tokens.stream()
+                .filter(t -> t != null && (isOwnedByViewer(t, viewerPlayerId)
+                        || isAnyCellVisible(visibility, t.getCol(), t.getRow(),
+                        Math.max(1, t.getGridSize()), Math.max(1, t.getGridSize()))))
+                .toList();
+    }
+
+    private java.util.List<MapObjectDto> buildVisibleObjects(java.util.List<MapObjectDto> objects, com.avalon.dnd.shared.VisibilityStateDto visibility) {
+        if (objects == null || objects.isEmpty()) {
+            return java.util.List.of();
+        }
+        if (visibility == null) {
+            return java.util.List.of();
+        }
+        return objects.stream()
+                .filter(o -> o != null && isAnyCellVisible(visibility, o.getCol(), o.getRow(),
+                        Math.max(1, o.getWidth()), Math.max(1, o.getHeight())))
+                .toList();
+    }
+
+    private boolean isOwnedByViewer(TokenDto token, String viewerPlayerId) {
+        return token != null && viewerPlayerId != null && !viewerPlayerId.isBlank()
+                && viewerPlayerId.equals(token.getOwnerId());
+    }
+
+    private boolean isAnyCellVisible(com.avalon.dnd.shared.VisibilityStateDto visibility, int col, int row, int width, int height) {
+        boolean[][] cells = visibility == null ? null : visibility.getVisibleCells();
+        if (cells == null || cells.length == 0) {
+            return false;
+        }
+        for (int r = row; r < row + height; r++) {
+            if (r < 0 || r >= cells.length || cells[r] == null) {
+                continue;
+            }
+            for (int c = col; c < col + width; c++) {
+                if (c >= 0 && c < cells[r].length && cells[r][c]) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private static String privateTopic(String sid, String playerId) {

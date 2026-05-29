@@ -49,6 +49,7 @@ public class WallBrushTool implements Tool {
         activePath.setBlocksSight(layer.isDefaultBlocksSight());
         addSnappedPoint(layer, canvas, state, activePath, centerX(canvas, cell[0]), centerY(canvas, cell[1]));
         layer.addPath(activePath);
+        state.getProject().touch();
         historyRecorded = true;
         lastCol = cell[0];
         lastRow = cell[1];
@@ -123,6 +124,7 @@ public class WallBrushTool implements Tool {
         }
         if (path != null) {
             path.addPoint(snappedX, snappedY);
+            state.getProject().touch();
         }
         state.setWallSnapIndicator(snappedX, snappedY);
     }

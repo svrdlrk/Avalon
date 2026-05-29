@@ -25,21 +25,24 @@ public class InitiativeWsController {
     private final SessionService           sessionService;
     private final SessionValidationService validationService;
     private final SimpMessagingTemplate    messaging;
+    private final SessionWsController      sessionWsController;
 
     public InitiativeWsController(SessionService sessionService,
                                   SessionValidationService validationService,
-                                  SimpMessagingTemplate messaging) {
+                                  SimpMessagingTemplate messaging,
+                                  SessionWsController sessionWsController) {
         this.sessionService    = sessionService;
         this.validationService = validationService;
         this.messaging         = messaging;
+        this.sessionWsController = sessionWsController;
     }
 
     @MessageMapping("/initiative.update")
     public void update(InitiativeUpdateRequest request,
-                       @Header("playerId")  String playerId,
+                        @Header(value = "simpSessionId", required = false) String wsSessionId,
                        @Header("sessionId") String sessionId) {
 
-        Player player = validationService.validate(sessionId, playerId);
+        Player player = validationService.validateBound(sessionId, wsSessionId);
         if (player.getRole() != Role.DM) {
             throw new RuntimeException("Only DM can update initiative");
         }
@@ -53,21 +56,23 @@ public class InitiativeWsController {
 
         // Сохраняем в сессии чтобы новые игроки получали при SESSION_STATE
         session.setInitiativeState(state);
+        session.markVisibilityDirty();
 
         long version = session.incrementVersion();
         messaging.convertAndSend(
                 "/topic/session/" + sessionId,
                 new WsMessage<>(WsEventType.INITIATIVE_UPDATED, sessionId, version, state));
+        sessionWsController.broadcastSessionState(session);
     }
 
     /**
      * DM сбрасывает инициативу (очищает панель у всех клиентов).
      */
     @MessageMapping("/initiative.clear")
-    public void clear(@Header("playerId")  String playerId,
+    public void clear(@Header(value = "simpSessionId", required = false) String wsSessionId,
                       @Header("sessionId") String sessionId) {
 
-        Player player = validationService.validate(sessionId, playerId);
+        Player player = validationService.validateBound(sessionId, wsSessionId);
         if (player.getRole() != Role.DM) {
             throw new RuntimeException("Only DM can clear initiative");
         }
@@ -76,11 +81,13 @@ public class InitiativeWsController {
         if (session == null) throw new RuntimeException("Session not found");
 
         session.setInitiativeState(null);
+        session.markVisibilityDirty();
 
         long version = session.incrementVersion();
         messaging.convertAndSend(
                 "/topic/session/" + sessionId,
                 new WsMessage<>(WsEventType.INITIATIVE_UPDATED, sessionId, version,
                         new InitiativeStateDto(java.util.List.of(), 0)));
+        sessionWsController.broadcastSessionState(session);
     }
 }

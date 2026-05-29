@@ -5,6 +5,8 @@ import com.avalon.dnd.mapeditor.model.AssetDefinition;
 import com.avalon.dnd.mapeditor.model.PlacementKind;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.avalon.dnd.shared.uploads.AssetCatalogFolderManifestSupport;
+import com.avalon.dnd.shared.uploads.AssetCatalogPathSupport;
 import com.avalon.dnd.shared.uploads.AssetCatalogSupport;
 
 import java.io.IOException;
@@ -19,15 +21,12 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Stream;
+import static com.avalon.dnd.shared.uploads.AssetCatalogJsonSupport.*;
 
 public final class AssetCatalogLoader {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    private static final Pattern SIZE_PATTERN = Pattern.compile("(?i).*(\\d+)\\s*[x×х]\\s*(\\d+).*");
-    private static final Pattern DIGITS_PATTERN = Pattern.compile("(?i).*(\\d+).*");
 
     private AssetCatalogLoader() {}
 
@@ -39,21 +38,7 @@ public final class AssetCatalogLoader {
             mergeInto(merged, tryLoad(Path.of(configured)));
         }
 
-        for (Path candidate : resolveCandidates(List.of(
-                Path.of("uploads/assets/tokens/catalog.json"),
-                Path.of("uploads/assets/objects/catalog.json"),
-                Path.of("uploads/assets/catalog.json"),
-                Path.of("uploads/assets"),
-                Path.of("uploads/maps/reference/catalog.json"),
-                Path.of("uploads/maps/reference"),
-                Path.of("uploads"),
-                Path.of("map-editor/assets/catalog.json"),
-                Path.of("assets/catalog.json"),
-                Path.of("CastleWalls.zip"),
-                Path.of("CastleWalls"),
-                Path.of("CastleWalls/Highres"),
-                Path.of("CastleWalls/Roll20")
-        ))) {
+        for (Path candidate : resolveCatalogCandidates()) {
             mergeInto(merged, tryLoad(candidate));
         }
 
@@ -67,79 +52,8 @@ public final class AssetCatalogLoader {
         fallback.add(new AssetDefinition("sample-token", "Sample Token", "tokens", null, 1, 1, false, false, PlacementKind.TOKEN));
         return fallback;
     }
-
-    private static List<Path> resolveCandidates(List<Path> relativeCandidates) {
-        java.util.LinkedHashSet<Path> resolved = new java.util.LinkedHashSet<>();
-        for (Path root : projectRoots()) {
-            for (Path candidate : relativeCandidates) {
-                resolved.add(resolveAgainstRoot(root, candidate));
-            }
-        }
-        for (Path candidate : relativeCandidates) {
-            if (candidate.isAbsolute()) {
-                resolved.add(candidate.toAbsolutePath().normalize());
-            }
-        }
-        return new ArrayList<>(resolved);
-    }
-
-    private static List<Path> projectRoots() {
-        java.util.LinkedHashSet<Path> roots = new java.util.LinkedHashSet<>();
-        addRoot(roots, System.getProperty("avalon.project.root"));
-        addRoot(roots, System.getenv("AVALON_PROJECT_ROOT"));
-
-        Path cwd = Paths.get("").toAbsolutePath().normalize();
-        Path current = cwd;
-        while (current != null) {
-            if (looksLikeProjectRoot(current)) {
-                roots.add(current);
-            }
-            current = current.getParent();
-        }
-
-        if (roots.isEmpty()) {
-            roots.add(cwd);
-        }
-        return new ArrayList<>(roots);
-    }
-
-    private static void addRoot(java.util.Set<Path> roots, String raw) {
-        if (raw == null || raw.isBlank()) return;
-        try {
-            Path p = Path.of(raw).toAbsolutePath().normalize();
-            roots.add(p);
-            Path current = p;
-            while (current != null) {
-                if (looksLikeProjectRoot(current)) {
-                    roots.add(current);
-                }
-                current = current.getParent();
-            }
-        } catch (Exception ignored) {
-        }
-    }
-
-    private static boolean looksLikeProjectRoot(Path dir) {
-        return Files.exists(dir.resolve("gradlew.bat"))
-                || Files.exists(dir.resolve("settings.gradle"))
-                || Files.exists(dir.resolve("build.gradle"))
-                || Files.exists(dir.resolve("uploads"));
-    }
-
-    private static boolean isExcludedAssetPath(Path path) {
-        String normalized = path.toAbsolutePath().normalize().toString().replace('\\', '/').toLowerCase(Locale.ROOT);
-        return normalized.contains("/uploads/maps/finished/")
-                || normalized.contains("/uploads/maps/backups/");
-    }
-
-    private static Path resolveAgainstRoot(Path root, Path candidate) {
-        if (candidate.isAbsolute()) {
-            return candidate.toAbsolutePath().normalize();
-        }
-        return root.resolve(candidate).toAbsolutePath().normalize();
-    }
-
     private static AssetCatalog tryLoad(Path path) {
+
         try {
             if (Files.isDirectory(path)) {
                 return scanDirectory(path);
@@ -156,8 +70,80 @@ public final class AssetCatalogLoader {
         return new AssetCatalog();
     }
 
+    private static java.util.List<Path> resolveCatalogCandidates() {
+        java.util.LinkedHashSet<Path> candidates = new java.util.LinkedHashSet<>();
+
+        for (Path root : resolveProjectRoots()) {
+            Path assetsRoot = root.resolve("uploads/assets").toAbsolutePath().normalize();
+            if (!Files.isDirectory(assetsRoot)) {
+                continue;
+            }
+
+            Path tokensCatalog = assetsRoot.resolve("tokens/catalog.json");
+            Path objectsCatalog = assetsRoot.resolve("objects/catalog.json");
+            Path tokensDir = assetsRoot.resolve("tokens");
+            Path objectsDir = assetsRoot.resolve("objects");
+
+            if (Files.isRegularFile(tokensCatalog)) candidates.add(tokensCatalog);
+            if (Files.isRegularFile(objectsCatalog)) candidates.add(objectsCatalog);
+            if (Files.isDirectory(tokensDir)) candidates.add(tokensDir);
+            if (Files.isDirectory(objectsDir)) candidates.add(objectsDir);
+        }
+
+        return new java.util.ArrayList<>(candidates);
+    }
+
+    private static java.util.List<Path> resolveProjectRoots() {
+        java.util.LinkedHashSet<Path> roots = new java.util.LinkedHashSet<>();
+        addProjectRoot(roots, System.getProperty("avalon.project.root"));
+        addProjectRoot(roots, System.getenv("AVALON_PROJECT_ROOT"));
+
+        Path cwd = Path.of("").toAbsolutePath().normalize();
+        Path projectRoot = findProjectRoot(cwd);
+        if (projectRoot != null) {
+            roots.add(projectRoot);
+        }
+
+        return new java.util.ArrayList<>(roots);
+    }
+
+    private static void addProjectRoot(java.util.Set<Path> roots, String raw) {
+        if (raw == null || raw.isBlank()) {
+            return;
+        }
+        try {
+            Path path = Path.of(raw).toAbsolutePath().normalize();
+            Path projectRoot = findProjectRoot(path);
+            if (projectRoot != null) {
+                roots.add(projectRoot);
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+
+    private static Path findProjectRoot(Path start) {
+        if (start == null) {
+            return null;
+        }
+        for (Path current = start.toAbsolutePath().normalize(); current != null; current = current.getParent()) {
+            if ((Files.exists(current.resolve("settings.gradle"))
+                    || Files.exists(current.resolve("settings.gradle.kts"))
+                    || Files.exists(current.resolve("gradlew"))
+                    || Files.exists(current.resolve("gradlew.bat")))
+                    && Files.isDirectory(current.resolve("uploads/assets"))) {
+                return current;
+            }
+        }
+        return null;
+    }
+
+
     public static AssetCatalog loadFromJson(Path jsonPath) throws IOException {
         JsonNode root = MAPPER.readTree(Files.newInputStream(jsonPath));
+        if (root != null && root.isObject() && root.has("folders")) {
+            return loadFromFolderManifest(jsonPath, root);
+        }
         AssetCatalog catalog = new AssetCatalog();
         Path baseDir = jsonPath.getParent();
 
@@ -181,12 +167,12 @@ public final class AssetCatalogLoader {
 
             try (Stream<Path> walk = Files.walk(root)) {
                 walk.filter(Files::isRegularFile).forEach(path -> {
-                    if (isExcludedAssetPath(path)) {
+                    if (AssetCatalogSupport.isExcludedAssetPath(path)) {
                         return;
                     }
                     String filename = path.getFileName().toString();
                     String lower = filename.toLowerCase(Locale.ROOT);
-                    if (isNamesFile(filename)) {
+                    if (AssetCatalogSupport.isNamesFile(filename)) {
                         readNamesFile(path, names);
                     } else if (lower.endsWith(".json")) {
                         manifests.add(path);
@@ -251,7 +237,7 @@ public final class AssetCatalogLoader {
 
                 try (Stream<Path> walk = Files.walk(resolvedFolder)) {
                     walk.filter(Files::isRegularFile)
-                            .filter(AssetCatalogLoader::isImageFile)
+                            .filter(AssetCatalogSupport::isImageFile)
                             .forEach(image -> {
                                 AssetDefinition asset = fromFolderImage(baseDir, image, names, defaults, folderNode);
                                 addIfMissing(catalog, asset);
@@ -263,7 +249,7 @@ public final class AssetCatalogLoader {
         if (catalog.getAssets().isEmpty() && baseDir != null && Files.isDirectory(baseDir)) {
             try (Stream<Path> walk = Files.walk(baseDir)) {
                 walk.filter(Files::isRegularFile)
-                        .filter(AssetCatalogLoader::isImageFile)
+                        .filter(AssetCatalogSupport::isImageFile)
                         .forEach(image -> addIfMissing(catalog, fromImageFile(baseDir, image, toWebUrl(image), names)));
             }
         }
@@ -277,110 +263,42 @@ public final class AssetCatalogLoader {
                                                    JsonNode defaults,
                                                    JsonNode folderNode) {
         String imageUrl = toWebUrl(image);
-        String category = relativeCategory(baseDir, image);
+        String category = AssetCatalogFolderManifestSupport.relativeCategory(baseDir, image);
         if (category == null || category.isBlank()) {
             String folderCategory = firstText(folderNode, "category");
             if (folderCategory != null && !folderCategory.isBlank()) {
-                category = normalizeCategoryPath(folderCategory);
+                category = AssetCatalogFolderManifestSupport.normalizeCategoryPath(folderCategory);
             }
         }
 
         String fileName = image.getFileName().toString();
-        String baseName = stripExtension(fileName);
+        String baseName = AssetCatalogSupport.stripExtension(fileName);
         String name = resolveName(null, baseName, imageUrl, names);
         if (name == null) {
-            name = humanize(baseName);
+            name = AssetCatalogSupport.humanize(baseName);
         }
 
         PlacementKind kind = parseKind(folderNode, category, name, imageUrl);
-        int[] size = readFolderSize(folderNode, defaults);
-        boolean blocksMovement = readFolderBoolean(folderNode, defaults, kind == PlacementKind.WALL || kind == PlacementKind.DOOR,
+        int[] size = AssetCatalogFolderManifestSupport.readFolderSize(folderNode, defaults);
+        boolean blocksMovement = AssetCatalogFolderManifestSupport.readFolderBoolean(folderNode, defaults, kind == PlacementKind.WALL || kind == PlacementKind.DOOR,
                 "blocksMovement", "blocksMove", "movementBlock", "solid");
-        boolean blocksSight = readFolderBoolean(folderNode, defaults, blocksMovement,
+        boolean blocksSight = AssetCatalogFolderManifestSupport.readFolderBoolean(folderNode, defaults, blocksMovement,
                 "blocksSight", "blocksVision", "visionBlock", "opaque");
 
         if ((kind == PlacementKind.TOKEN || kind == PlacementKind.SPAWN) && size[0] == 1 && size[1] == 1) {
-            int inferred = inferGridSizeFromPath(baseDir, imageUrl);
+            int inferred = AssetCatalogSupport.inferGridSizeFromPath(baseDir, imageUrl);
             if (inferred > 1) {
                 size = new int[] { inferred, inferred };
             }
         }
 
         String idPrefix = category == null || category.isBlank() ? "asset" : category;
-        String id = toId(idPrefix + "-" + baseName + "-" + lastPathSegment(imageUrl));
+        String id = AssetCatalogSupport.toId(idPrefix + "-" + baseName + "-" + AssetCatalogSupport.lastPathSegment(imageUrl));
         if (id.isBlank()) {
-            id = toId(imageUrl);
+            id = AssetCatalogSupport.toId(imageUrl);
         }
 
         return new AssetDefinition(id, name, category, imageUrl, size[0], size[1], blocksMovement, blocksSight, kind);
-    }
-
-    private static int[] readFolderSize(JsonNode folderNode, JsonNode defaults) {
-        int defaultWidth = readDimension(defaults, 1, "defaultWidth", "width", "w", "sizeX", "gridWidth", "tileWidth", "cellWidth");
-        int defaultHeight = readDimension(defaults, 1, "defaultHeight", "height", "h", "sizeY", "gridHeight", "tileHeight", "cellHeight");
-        int width = readDimension(folderNode, defaultWidth, "defaultWidth", "width", "w", "sizeX", "gridWidth", "tileWidth", "cellWidth");
-        int height = readDimension(folderNode, defaultHeight, "defaultHeight", "height", "h", "sizeY", "gridHeight", "tileHeight", "cellHeight");
-        int gridSize = readDimension(folderNode, readDimension(defaults, 1, "gridSize", "grid", "size"), "gridSize", "grid", "size");
-        if (width <= 1 && height <= 1 && gridSize > 1) {
-            width = gridSize;
-            height = gridSize;
-        }
-        return new int[] { Math.max(1, width), Math.max(1, height) };
-    }
-
-    private static int readFolderInt(JsonNode folderNode, JsonNode defaults, int defaultValue, String... fields) {
-        if (hasAnyField(folderNode, fields)) {
-            return readDimension(folderNode, defaultValue, fields);
-        }
-        if (hasAnyField(defaults, fields)) {
-            return readDimension(defaults, defaultValue, fields);
-        }
-        return defaultValue;
-    }
-
-    private static boolean readFolderBoolean(JsonNode folderNode, JsonNode defaults, boolean defaultValue, String... fields) {
-        if (hasAnyField(folderNode, fields)) {
-            return readBoolean(folderNode, defaultValue, fields);
-        }
-        if (hasAnyField(defaults, fields)) {
-            return readBoolean(defaults, defaultValue, fields);
-        }
-        return defaultValue;
-    }
-
-    private static boolean hasAnyField(JsonNode node, String... fields) {
-        if (node == null) return false;
-        for (String field : fields) {
-            JsonNode value = node.get(field);
-            if (value != null && !value.isNull()) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static String normalizeCategoryPath(String category) {
-        if (category == null) return null;
-        return category.replace('\\', '/').replaceAll("^/+", "").replaceAll("/+$", "").toLowerCase(Locale.ROOT);
-    }
-
-    private static String relativeCategory(Path baseDir, Path image) {
-        if (baseDir != null && image != null) {
-            try {
-                Path normalizedBase = baseDir.toAbsolutePath().normalize();
-                Path normalizedImage = image.toAbsolutePath().normalize();
-                Path parent = normalizedImage.getParent();
-                if (parent != null && parent.startsWith(normalizedBase)) {
-                    Path relative = normalizedBase.relativize(parent);
-                    String text = relative.toString().replace('\\', '/').trim();
-                    if (!text.isBlank()) {
-                        return text.toLowerCase(Locale.ROOT);
-                    }
-                }
-            } catch (Exception ignored) {
-            }
-        }
-        return deriveCategory(baseDir, image == null ? null : image.toString());
     }
 
     public static AssetCatalog scanZip(Path zipPath) {
@@ -397,7 +315,7 @@ public final class AssetCatalogLoader {
                             .forEach(path -> {
                                 String filename = path.getFileName().toString();
                                 String lower = filename.toLowerCase(Locale.ROOT);
-                                if (isNamesFile(filename)) {
+                                if (AssetCatalogSupport.isNamesFile(filename)) {
                                     readNamesFile(path, names);
                                 } else if (lower.endsWith(".json")) {
                                     manifests.add(path);
@@ -424,25 +342,17 @@ public final class AssetCatalogLoader {
         return catalog;
     }
 
-    private static boolean isImageFile(Path path) {
-        return AssetCatalogSupport.isImageFile(path);
-    }
-
-    private static boolean isNamesFile(String filename) {
-        return AssetCatalogSupport.isNamesFile(filename);
-    }
-
     private static AssetDefinition fromImageFile(Path root, Path image, String imageUrl, Map<String, String> names) {
         String fileName = image.getFileName().toString();
-        String baseName = stripExtension(fileName);
-        int[] size = parseSizeFromName(baseName);
-        int inferred = inferGridSizeFromPath(root, imageUrl);
+        String baseName = AssetCatalogSupport.stripExtension(fileName);
+        int[] size = AssetCatalogFolderManifestSupport.parseSizeFromName(baseName);
+        int inferred = AssetCatalogSupport.inferGridSizeFromPath(root, imageUrl);
         if (inferred > 0 && size[0] == 1 && size[1] == 1) {
             size = new int[] { inferred, inferred };
         }
-        String category = relativeCategory(root, image);
+        String category = AssetCatalogFolderManifestSupport.relativeCategory(root, image);
         if (category == null || category.isBlank()) {
-            category = deriveCategory(root, imageUrl);
+            category = AssetCatalogSupport.deriveCategory(root, imageUrl);
         }
         PlacementKind kind = inferKind(baseName, category);
         boolean blocksMovement = kind == PlacementKind.WALL || kind == PlacementKind.DOOR
@@ -450,29 +360,15 @@ public final class AssetCatalogLoader {
         boolean blocksSight = blocksMovement && !containsAny(baseName, "window", "arrowslit");
         String name = resolveName(null, baseName, imageUrl, names);
         if (name == null) {
-            name = humanize(baseName);
+            name = AssetCatalogSupport.humanize(baseName);
         }
         int[] vision = inferVisionFromPath(root, imageUrl, kind);
-        String id = toId((category == null ? "asset" : category) + "-" + baseName);
+        String id = AssetCatalogSupport.toId((category == null ? "asset" : category) + "-" + baseName);
         return new AssetDefinition(id, name, category, imageUrl, size[0], size[1], blocksMovement, blocksSight, kind, vision[0], vision[1]);
     }
 
     private static String toWebUrl(Path file) {
         return localToWebUrl(file);
-    }
-
-    private static String text(JsonNode node, String... fields) {
-        if (node == null) return null;
-        for (String field : fields) {
-            JsonNode value = node.get(field);
-            if (value != null && !value.isNull()) {
-                String text = value.asText();
-                if (text != null && !text.isBlank()) {
-                    return text.trim();
-                }
-            }
-        }
-        return null;
     }
 
     private static void readNamesFile(Path path, Map<String, String> names) {
@@ -492,13 +388,13 @@ public final class AssetCatalogLoader {
 
     private static void addIfMissing(AssetCatalog catalog, AssetDefinition asset) {
         if (catalog == null || asset == null) return;
-        String assetId = normalizeKey(asset.getId());
-        String assetUrl = normalizeKey(asset.getImageUrl());
-        String assetName = normalizeKey(asset.getName());
+        String assetId = AssetCatalogSupport.normalizeKey(asset.getId());
+        String assetUrl = AssetCatalogSupport.normalizeKey(asset.getImageUrl());
+        String assetName = AssetCatalogSupport.normalizeKey(asset.getName());
         for (AssetDefinition existing : catalog.getAssets()) {
-            if (!assetId.isBlank() && assetId.equals(normalizeKey(existing.getId()))) return;
-            if (!assetUrl.isBlank() && assetUrl.equals(normalizeKey(existing.getImageUrl()))) return;
-            if (!assetName.isBlank() && assetName.equals(normalizeKey(existing.getName()))) return;
+            if (!assetId.isBlank() && assetId.equals(AssetCatalogSupport.normalizeKey(existing.getId()))) return;
+            if (!assetUrl.isBlank() && assetUrl.equals(AssetCatalogSupport.normalizeKey(existing.getImageUrl()))) return;
+            if (!assetName.isBlank() && assetName.equals(AssetCatalogSupport.normalizeKey(existing.getName()))) return;
         }
         catalog.add(asset);
     }
@@ -507,36 +403,9 @@ public final class AssetCatalogLoader {
         try {
             Files.walk(dir)
                     .filter(Files::isRegularFile)
-                    .filter(path -> isNamesFile(path.getFileName().toString()))
+                    .filter(path -> AssetCatalogSupport.isNamesFile(path.getFileName().toString()))
                     .forEach(path -> readNamesFile(path, names));
         } catch (IOException ignored) {
-        }
-    }
-
-    private static void collectNames(JsonNode node, Map<String, String> names) {
-        if (node == null || node.isNull()) {
-            return;
-        }
-        if (node.isObject()) {
-            if (looksLikeNamesMap(node)) {
-                node.fields().forEachRemaining(entry -> {
-                    JsonNode value = entry.getValue();
-                    if (value != null && value.isTextual()) {
-                        names.putIfAbsent(normalizeKey(entry.getKey()), value.asText());
-                    } else if (value != null && value.isObject()) {
-                        String key = text(value, "id", "assetId", "key", "name", "file", "filename");
-                        String name = text(value, "name", "title", "displayName", "label", "ru");
-                        if (key != null && name != null) {
-                            names.putIfAbsent(normalizeKey(key), name);
-                        }
-                    }
-                });
-            }
-            node.fields().forEachRemaining(entry -> collectNames(entry.getValue(), names));
-        } else if (node.isArray()) {
-            for (JsonNode item : node) {
-                collectNames(item, names);
-            }
         }
     }
 
@@ -569,26 +438,13 @@ public final class AssetCatalogLoader {
 
         if (looksLikeAssetNode(node)) {
             AssetDefinition asset = readAsset(node, baseDir, names);
-            if (asset != null) {
+            if (asset != null && isAllowedCatalogAsset(asset.getImageUrl())) {
                 catalog.add(asset);
             }
             return;
         }
 
         node.fields().forEachRemaining(entry -> collectAssets(entry.getValue(), baseDir, names, catalog));
-    }
-
-    private static boolean looksLikeAssetNode(JsonNode node) {
-        boolean hasImage = node.hasNonNull("imageUrl") || node.hasNonNull("image") || node.hasNonNull("path") || node.hasNonNull("file")
-                || node.hasNonNull("src") || node.hasNonNull("url") || node.hasNonNull("filename") || node.hasNonNull("fileName")
-                || node.hasNonNull("imagePath") || node.hasNonNull("assetPath") || node.hasNonNull("sprite") || node.hasNonNull("thumbnail");
-        boolean hasSize = node.hasNonNull("width") || node.hasNonNull("height") || node.hasNonNull("gridSize")
-                || node.hasNonNull("defaultWidth") || node.hasNonNull("defaultHeight")
-                || node.hasNonNull("size") || node.hasNonNull("dimensions");
-        boolean hasBehavior = node.hasNonNull("kind") || node.hasNonNull("blocksMovement") || node.hasNonNull("blocksSight")
-                || node.hasNonNull("movementBlock") || node.hasNonNull("visionBlock") || node.hasNonNull("solid") || node.hasNonNull("opaque")
-                || node.hasNonNull("dayVision") || node.hasNonNull("nightVision") || node.hasNonNull("category");
-        return hasImage || hasSize || hasBehavior;
     }
 
     private static AssetDefinition readAsset(JsonNode node, Path baseDir, Map<String, String> names) {
@@ -602,7 +458,7 @@ public final class AssetCatalogLoader {
         int height = readDimension(node, 1, "height", "h", "sizeY", "gridHeight", "tileHeight", "cellHeight");
         int[] size = readSize(node);
         if (size == null && (kind == PlacementKind.TOKEN || kind == PlacementKind.SPAWN)) {
-            int inferred = inferGridSizeFromPath(baseDir, imageUrl);
+            int inferred = AssetCatalogSupport.inferGridSizeFromPath(baseDir, imageUrl);
             if (inferred > 0) {
                 size = new int[] { inferred, inferred };
             }
@@ -614,7 +470,7 @@ public final class AssetCatalogLoader {
 
         if ((kind == PlacementKind.TOKEN || kind == PlacementKind.SPAWN) && width == 1 && height == 1) {
             int gridSize = Math.max(readDimension(node, 1, "gridSize", "grid", "size"), Math.max(width, height));
-            int inferred = inferGridSizeFromPath(baseDir, imageUrl);
+            int inferred = AssetCatalogSupport.inferGridSizeFromPath(baseDir, imageUrl);
             if (gridSize <= 1 && inferred > 1) {
                 gridSize = inferred;
             }
@@ -626,21 +482,21 @@ public final class AssetCatalogLoader {
         boolean blocksSight = readBoolean(node, blocksMovement, "blocksSight", "blocksVision", "visionBlock", "opaque");
 
         if (imageUrl != null) {
-            imageUrl = normalizeImageUrl(imageUrl, baseDir);
+            imageUrl = AssetCatalogSupport.normalizeImageUrl(imageUrl, baseDir);
         }
 
         String resolvedName = resolveName(rawName, rawId, imageUrl, names);
         if (resolvedName == null) {
-            resolvedName = humanize(rawId != null ? rawId : stripExtension(lastPathSegment(imageUrl)));
+            resolvedName = AssetCatalogSupport.humanize(rawId != null ? rawId : AssetCatalogSupport.stripExtension(AssetCatalogSupport.lastPathSegment(imageUrl)));
         }
 
-        String id = rawId != null ? toId(rawId) : toId((resolvedName != null ? resolvedName : "asset") + "-" + lastPathSegment(imageUrl));
+        String id = rawId != null ? AssetCatalogSupport.toId(rawId) : AssetCatalogSupport.toId((resolvedName != null ? resolvedName : "asset") + "-" + AssetCatalogSupport.lastPathSegment(imageUrl));
         if (id.isBlank()) {
-            id = toId(lastPathSegment(imageUrl));
+            id = AssetCatalogSupport.toId(AssetCatalogSupport.lastPathSegment(imageUrl));
         }
 
         if (category == null || category.isBlank()) {
-            category = deriveCategory(baseDir, imageUrl);
+            category = AssetCatalogSupport.deriveCategory(baseDir, imageUrl);
         }
 
         if (!blocksMovement && (kind == PlacementKind.WALL || kind == PlacementKind.DOOR)) {
@@ -650,54 +506,10 @@ public final class AssetCatalogLoader {
             blocksSight = true;
         }
 
-        int dayVision = readFolderInt(node, node, 0, "dayVision", "visionDay", "visionRadiusDay", "daySight");
-        int nightVision = readFolderInt(node, node, 0, "nightVision", "visionNight", "visionRadiusNight", "nightSight");
+        int dayVision = AssetCatalogFolderManifestSupport.readFolderInt(node, node, 0, "dayVision", "visionDay", "visionRadiusDay", "daySight");
+        int nightVision = AssetCatalogFolderManifestSupport.readFolderInt(node, node, 0, "nightVision", "visionNight", "visionRadiusNight", "nightSight");
 
         return new AssetDefinition(id, resolvedName, category, imageUrl, width, height, blocksMovement, blocksSight, kind, dayVision, nightVision);
-    }
-
-    private static String normalizeImageUrl(String imageUrl, Path baseDir) {
-        return AssetCatalogSupport.normalizeImageUrl(imageUrl, baseDir);
-    }
-
-    private static Path resolveRelativePath(String relative, Path baseDir) {
-        if (relative == null || relative.isBlank()) {
-            return null;
-        }
-        String cleaned = relative.startsWith("/") ? relative.substring(1) : relative;
-        List<Path> candidates = new ArrayList<>();
-        if (baseDir != null) {
-            candidates.add(baseDir);
-            Path current = baseDir;
-            for (int i = 0; i < 4 && current != null; i++) {
-                current = current.getParent();
-                if (current != null) {
-                    candidates.add(current);
-                }
-            }
-        }
-        Path cwd = Paths.get("").toAbsolutePath().normalize();
-        candidates.add(cwd);
-        Path current = cwd;
-        for (int i = 0; i < 4 && current != null; i++) {
-            current = current.getParent();
-            if (current != null) {
-                candidates.add(current);
-            }
-        }
-
-        for (Path base : candidates) {
-            Path candidate = base.resolve(cleaned).normalize();
-            if (Files.exists(candidate)) {
-                return candidate.toAbsolutePath().normalize();
-            }
-        }
-
-        Path direct = Paths.get(cleaned);
-        if (Files.exists(direct)) {
-            return direct.toAbsolutePath().normalize();
-        }
-        return null;
     }
 
     private static String localToWebUrl(Path path) {
@@ -716,7 +528,7 @@ public final class AssetCatalogLoader {
             return explicitName;
         }
         for (String key : nameLookupKeys(id, imageUrl)) {
-            String normalized = normalizeKey(key);
+            String normalized = AssetCatalogSupport.normalizeKey(key);
             String value = names.get(normalized);
             if (value != null && !value.isBlank()) {
                 return value;
@@ -729,154 +541,29 @@ public final class AssetCatalogLoader {
         List<String> keys = new ArrayList<>();
         if (id != null && !id.isBlank()) {
             keys.add(id);
-            keys.add(stripExtension(lastPathSegment(id)));
+            keys.add(AssetCatalogSupport.stripExtension(AssetCatalogSupport.lastPathSegment(id)));
         }
         if (imageUrl != null && !imageUrl.isBlank()) {
-            keys.add(lastPathSegment(imageUrl));
-            keys.add(stripExtension(lastPathSegment(imageUrl)));
+            keys.add(AssetCatalogSupport.lastPathSegment(imageUrl));
+            keys.add(AssetCatalogSupport.stripExtension(AssetCatalogSupport.lastPathSegment(imageUrl)));
             String normalized = imageUrl.replace('\\', '/');
             keys.add(normalized);
-            keys.add(stripExtension(normalized));
+            keys.add(AssetCatalogSupport.stripExtension(normalized));
         }
         return keys;
     }
 
-    private static String firstText(JsonNode node, String... fields) {
-        for (String field : fields) {
-            JsonNode value = node.get(field);
-            if (value != null && !value.isNull()) {
-                String text = value.asText();
-                if (text != null && !text.isBlank()) {
-                    return text.trim();
-                }
-            }
+    private static boolean isAllowedCatalogAsset(String imageUrl) {
+        if (imageUrl == null || imageUrl.isBlank()) {
+            return false;
         }
-        return null;
-    }
-
-    private static boolean readBoolean(JsonNode node, boolean defaultValue, String... fields) {
-        for (String field : fields) {
-            JsonNode value = node.get(field);
-            if (value != null && !value.isNull()) {
-                if (value.isBoolean()) {
-                    return value.asBoolean();
-                }
-                return Boolean.parseBoolean(value.asText());
-            }
+        String cleaned = imageUrl.replace('\\', '/');
+        String noSlash = cleaned.startsWith("/") ? cleaned.substring(1) : cleaned;
+        String lower = noSlash.toLowerCase(Locale.ROOT);
+        if (!(lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".gif") || lower.endsWith(".webp") || lower.endsWith(".bmp") || lower.endsWith(".tif") || lower.endsWith(".tiff"))) {
+            return false;
         }
-        return defaultValue;
-    }
-
-    private static int readDimension(JsonNode node, int defaultValue, String... fields) {
-        for (String field : fields) {
-            JsonNode value = node.get(field);
-            if (value != null && !value.isNull()) {
-                if (value.isNumber()) {
-                    return Math.max(1, value.asInt());
-                }
-                try {
-                    return Math.max(1, Integer.parseInt(value.asText().trim()));
-                } catch (Exception ignored) {
-                }
-            }
-        }
-        return defaultValue;
-    }
-
-    private static int[] readSize(JsonNode node) {
-        JsonNode value = node.get("size");
-        if (value != null) {
-            if (value.isTextual()) {
-                int[] parsed = parseSizeString(value.asText());
-                if (parsed != null) return parsed;
-            }
-            if (value.isArray() && value.size() >= 2) {
-                int w = Math.max(1, value.get(0).asInt(1));
-                int h = Math.max(1, value.get(1).asInt(1));
-                return new int[] { w, h };
-            }
-            if (value.isObject()) {
-                int w = readDimension(value, 1, "width", "w", "x");
-                int h = readDimension(value, 1, "height", "h", "y");
-                if (w > 0 || h > 0) {
-                    return new int[] { Math.max(1, w), Math.max(1, h) };
-                }
-            }
-        }
-
-        JsonNode dimensions = node.get("dimensions");
-        if (dimensions != null) {
-            if (dimensions.isArray() && dimensions.size() >= 2) {
-                int w = Math.max(1, dimensions.get(0).asInt(1));
-                int h = Math.max(1, dimensions.get(1).asInt(1));
-                return new int[] { w, h };
-            }
-            if (dimensions.isObject()) {
-                int w = readDimension(dimensions, 1, "width", "w", "x");
-                int h = readDimension(dimensions, 1, "height", "h", "y");
-                if (w > 0 || h > 0) {
-                    return new int[] { Math.max(1, w), Math.max(1, h) };
-                }
-            }
-        }
-
-        JsonNode grid = node.get("gridSize");
-        if (grid != null) {
-            if (grid.isTextual()) {
-                int[] parsed = parseSizeString(grid.asText());
-                if (parsed != null) return parsed;
-            }
-            if (grid.isArray() && grid.size() >= 2) {
-                int w = Math.max(1, grid.get(0).asInt(1));
-                int h = Math.max(1, grid.get(1).asInt(1));
-                return new int[] { w, h };
-            }
-            if (grid.isObject()) {
-                int w = readDimension(grid, 1, "width", "w", "x");
-                int h = readDimension(grid, 1, "height", "h", "y");
-                if (w > 0 || h > 0) {
-                    return new int[] { Math.max(1, w), Math.max(1, h) };
-                }
-            }
-        }
-
-        String gridSize = firstText(node, "gridSize", "grid", "tileSize");
-        if (gridSize != null) {
-            int[] parsed = parseSizeString(gridSize);
-            if (parsed != null) return parsed;
-            try {
-                int size = Math.max(1, Integer.parseInt(gridSize.trim()));
-                return new int[] { size, size };
-            } catch (Exception ignored) {
-            }
-        }
-
-        return null;
-    }
-
-    private static int[] parseSizeFromName(String baseName) {
-        int[] parsed = parseSizeString(baseName);
-        return parsed != null ? parsed : new int[] {1, 1};
-    }
-
-    private static int[] parseSizeString(String text) {
-        if (text == null) return null;
-        Matcher matcher = SIZE_PATTERN.matcher(text.trim());
-        if (matcher.matches()) {
-            try {
-                return new int[] { Math.max(1, Integer.parseInt(matcher.group(1))), Math.max(1, Integer.parseInt(matcher.group(2))) };
-            } catch (Exception ignored) {
-            }
-        }
-        Matcher digits = DIGITS_PATTERN.matcher(text.trim());
-        if (digits.matches()) {
-            try {
-                int size = Math.max(1, Integer.parseInt(digits.group(1)));
-                return new int[] { size, size };
-            } catch (Exception ignored) {
-            }
-        }
-        return null;
+        return noSlash.startsWith("uploads/assets/tokens/") || noSlash.startsWith("uploads/assets/objects/");
     }
 
     private static PlacementKind parseKind(JsonNode node, String category, String name, String imageUrl) {
@@ -897,38 +584,20 @@ public final class AssetCatalogLoader {
         return PlacementKind.OBJECT;
     }
 
-    private static int inferGridSizeFromPath(Path baseDir, String imageUrl) {
-        return AssetCatalogSupport.inferGridSizeFromPath(baseDir, imageUrl);
-    }
 
-    private static String deriveCategory(Path baseDir, String imageUrl) {
-        if (imageUrl != null && !imageUrl.isBlank()) {
-            try {
-                Path resolved = resolveRelativePath(imageUrl, baseDir);
-                if (resolved != null) {
-                    Path normalized = resolved.toAbsolutePath().normalize();
-                    Path parent = normalized.getParent();
-                    if (parent != null) {
-                        if (baseDir != null) {
-                            Path base = baseDir.toAbsolutePath().normalize();
-                            if (parent.startsWith(base)) {
-                                Path rel = base.relativize(parent);
-                                String text = rel.toString().replace('\\', '/').trim();
-                                if (!text.isBlank()) {
-                                    return text.toLowerCase(Locale.ROOT);
-                                }
-                            }
-                        }
-                        String text = parent.toString().replace('\\', '/').trim();
-                        if (!text.isBlank()) {
-                            return text.toLowerCase(Locale.ROOT);
-                        }
-                    }
-                }
-            } catch (Exception ignored) {
-            }
+    private static boolean isImageFile(Path path) {
+        if (path == null) {
+            return false;
         }
-        return AssetCatalogSupport.deriveCategory(baseDir, imageUrl);
+        String filename = path.getFileName().toString().toLowerCase(Locale.ROOT);
+        return filename.endsWith(".png")
+                || filename.endsWith(".jpg")
+                || filename.endsWith(".jpeg")
+                || filename.endsWith(".gif")
+                || filename.endsWith(".webp")
+                || filename.endsWith(".bmp")
+                || filename.endsWith(".tif")
+                || filename.endsWith(".tiff");
     }
 
     private static int[] inferVisionFromPath(Path root, String imageUrl, PlacementKind kind) {
@@ -975,26 +644,6 @@ public final class AssetCatalogLoader {
             }
         }
         return false;
-    }
-
-    private static String stripExtension(String fileName) {
-        return AssetCatalogSupport.stripExtension(fileName);
-    }
-
-    private static String lastPathSegment(String value) {
-        return AssetCatalogSupport.lastPathSegment(value);
-    }
-
-    private static String humanize(String text) {
-        return AssetCatalogSupport.humanize(text);
-    }
-
-    private static String normalizeKey(String source) {
-        return AssetCatalogSupport.normalizeKey(source);
-    }
-
-    private static String toId(String source) {
-        return AssetCatalogSupport.toId(source);
     }
 
     private static String toJarUrl(Path zipPath, String entryPath) {

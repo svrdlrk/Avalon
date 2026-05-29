@@ -1,0 +1,99 @@
+{
+  "root": "uploads/assets/tokens",
+  "defaults": {
+    "kind": "token",
+    "category": "neutral",
+    "gridSize": 1,
+    "defaultWidth": 1,
+    "defaultHeight": 1,
+    "blocksMovement": true,
+    "blocksSight": false,
+    "isToken": true,
+    "isDecoration": false,
+    "displayNameFrom": "filename",
+    "nameTransform": "title_case"
+  },
+  "folders": [
+    {
+      "path": "small/players",
+      "category": "player",
+      "gridSize": 1,
+      "defaultWidth": 1,
+      "defaultHeight": 1,
+      "dayVision": 8,
+      "nightVision": 4
+    },
+    {
+      "path": "small/creatures",
+      "category": "creature",
+      "gridSize": 1,
+      "defaultWidth": 1,
+      "defaultHeight": 1,
+      "dayVision": 6,
+      "nightVision": 3
+    },
+    {
+      "path": "medium/players",
+      "category": "player",
+      "gridSize": 1,
+      "defaultWidth": 1,
+      "defaultHeight": 1,
+      "dayVision": 8,
+      "nightVision": 4
+    },
+    {
+      "path": "medium/creatures",
+      "category": "creature",
+      "gridSize": 1,
+      "defaultWidth": 1,
+      "defaultHeight": 1,
+      "dayVision": 6,
+      "nightVision": 3
+    },
+    {
+      "path": "large/players",
+      "category": "player",
+      "gridSize": 2,
+      "defaultWidth": 2,
+      "defaultHeight": 2,
+      "dayVision": 10,
+      "nightVision": 5
+    },
+    {
+      "path": "large/creatures",
+      "category": "creature",
+      "gridSize": 2,
+      "defaultWidth": 2,
+      "defaultHeight": 2,
+      "dayVision": 8,
+      "nightVision": 4
+    },
+    {
+      "path": "huge/players",
+      "category": "player",
+      "gridSize": 3,
+      "defaultWidth": 3,
+      "defaultHeight": 3,
+      "dayVision": 12,
+      "nightVision": 6
+    },
+    {
+      "path": "huge/creatures",
+      "category": "creature",
+      "gridSize": 3,
+      "defaultWidth": 3,
+      "defaultHeight": 3,
+      "dayVision": 10,
+      "nightVision": 5
+    },
+    {
+      "path": "npc",
+      "category": "npc",
+      "gridSize": 1,
+      "defaultWidth": 1,
+      "defaultHeight": 1,
+      "dayVision": 6,
+      "nightVision": 3
+    }
+  ]
+}

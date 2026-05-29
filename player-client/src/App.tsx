@@ -68,7 +68,6 @@ function App() {
     const visibility = useGameStore((state) => state.visibility);
     const clearSelection = useGameStore((state) => state.clearSelection);
 
-    const myPlayer = myPlayerId ? players[myPlayerId] : null;
     const selectedToken = selectedTokenId ? tokens[selectedTokenId] : null;
     const selectedOwner = selectedToken?.ownerId ? players[selectedToken.ownerId] : null;
     const playerCount = useMemo(() => Object.values(players).filter((player) => player.role === 'PLAYER').length, [players]);
@@ -122,10 +121,6 @@ function App() {
         ];
         return pieces.join(' · ');
     }, [backgroundUrl, grid, visibility]);
-
-    const connectionSummary = sessionId
-        ? `${sessionId.slice(0, 8)}${sessionId.length > 8 ? '…' : ''}`
-        : 'Not connected';
 
     const isConnected = Boolean(sessionId && myPlayerId);
 
@@ -225,9 +220,7 @@ function App() {
 
                     <div className="battle-chrome__center">
                         <div className="hud-chip hud-chip--accent">{sceneTitle}</div>
-                        <div className="hud-chip">Session {connectionSummary}</div>
                         <div className="hud-chip">Players {playerCount}</div>
-                        {myPlayer && <div className="hud-chip hud-chip--strong">{myPlayer.name}{myPlayer.role === 'DM' ? ' · DM' : ''}</div>}
                         {currentTurn && <div className="hud-chip hud-chip--turn">Turn · {currentTurn.name}</div>}
                         {hudNotice && <div className="hud-chip hud-chip--notice">{hudNotice}</div>}
                     </div>
