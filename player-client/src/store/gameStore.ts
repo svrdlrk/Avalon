@@ -13,6 +13,28 @@ import type {
     VisibilityShareSuggestionDto,
 } from '../types/types';
 
+function extractBackgroundCandidate(value: JsonValue | null | undefined): string | null {
+    if (value == null || typeof value !== 'object' || Array.isArray(value)) {
+        return null;
+    }
+    const record = value as Record<string, unknown>;
+    for (const key of ['imageUrl', 'image', 'path', 'src', 'url', 'file', 'imagePath', 'assetPath', 'backgroundUrl']) {
+        const candidate = record[key];
+        if (typeof candidate === 'string' && candidate.trim()) {
+            return candidate.trim();
+        }
+    }
+    return null;
+}
+
+function resolveBackgroundUrl(backgroundUrl: string | null | undefined, referenceOverlayLayer: JsonValue | null | undefined): string | null {
+    const direct = typeof backgroundUrl === 'string' ? backgroundUrl.trim() : '';
+    if (direct) {
+        return direct;
+    }
+    return extractBackgroundCandidate(referenceOverlayLayer);
+}
+
 interface GameState {
     sessionId: string | null;
     myPlayerId: string | null;
@@ -77,7 +99,7 @@ export const useGameStore = create<GameState>((set) => ({
             tokens: Object.fromEntries(state.tokens.map((t) => [t.id, t])),
             objects: Object.fromEntries(state.objects.map((o) => [o.id, o])),
             players: Object.fromEntries(state.players.map((p) => [p.id, p])),
-            backgroundUrl: state.backgroundUrl ?? null,
+            backgroundUrl: resolveBackgroundUrl(state.backgroundUrl ?? null, state.referenceOverlayLayer ?? null),
             initiative: state.initiative ?? null,
             referenceOverlayLayer: state.referenceOverlayLayer ?? null,
             terrainLayer: state.terrainLayer ?? null,
@@ -94,7 +116,7 @@ export const useGameStore = create<GameState>((set) => ({
             grid: dto.grid,
             tokens: Object.fromEntries(dto.tokens.map((t) => [t.id, t])),
             objects: dto.objects ? Object.fromEntries(dto.objects.map((o) => [o.id, o])) : current.objects,
-            backgroundUrl: dto.backgroundUrl ?? current.backgroundUrl,
+            backgroundUrl: resolveBackgroundUrl(dto.backgroundUrl ?? current.backgroundUrl, dto.referenceOverlayLayer ?? current.referenceOverlayLayer),
             referenceOverlayLayer: dto.referenceOverlayLayer ?? current.referenceOverlayLayer,
             terrainLayer: dto.terrainLayer ?? current.terrainLayer,
             wallLayer: dto.wallLayer ?? current.wallLayer,

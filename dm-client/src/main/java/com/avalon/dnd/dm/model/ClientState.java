@@ -74,7 +74,7 @@ public class ClientState {
         this.sessionId = nextSessionId;
         this.playerId = safeText(playerId, this.playerId);
         this.grid = copyGrid(state.getGrid() != null ? state.getGrid() : this.grid);
-        this.backgroundUrl = state.getBackgroundUrl();
+        this.backgroundUrl = resolveBackgroundUrl(state.getBackgroundUrl(), state.getReferenceOverlayLayer());
         this.referenceOverlayLayer = state.getReferenceOverlayLayer();
         this.terrainLayer = state.getTerrainLayer();
         this.wallLayer = state.getWallLayer();
@@ -98,7 +98,7 @@ public class ClientState {
         if (dto.getGrid() != null) {
             this.grid = copyGrid(dto.getGrid());
         }
-        this.backgroundUrl = dto.getBackgroundUrl();
+        this.backgroundUrl = resolveBackgroundUrl(dto.getBackgroundUrl(), dto.getReferenceOverlayLayer());
         this.referenceOverlayLayer = dto.getReferenceOverlayLayer();
         this.terrainLayer = dto.getTerrainLayer();
         this.wallLayer = dto.getWallLayer();
@@ -343,6 +343,29 @@ public class ClientState {
 
     public void setAssetPackIds(List<String> value) {
         this.assetPackIds = new CopyOnWriteArrayList<>(safeList(value));
+    }
+
+    private String resolveBackgroundUrl(String backgroundUrl, JsonNode referenceOverlayLayer) {
+        if (backgroundUrl != null && !backgroundUrl.isBlank()) {
+            return backgroundUrl;
+        }
+        return extractLayerImageUrl(referenceOverlayLayer);
+    }
+
+    private String extractLayerImageUrl(JsonNode layer) {
+        if (layer == null || layer.isNull() || layer.isMissingNode()) {
+            return null;
+        }
+        for (String key : new String[]{"imageUrl", "image", "path", "src", "url", "file", "imagePath", "assetPath", "backgroundUrl"}) {
+            JsonNode value = layer.get(key);
+            if (value != null && !value.isNull()) {
+                String text = value.asText(null);
+                if (text != null && !text.isBlank()) {
+                    return text;
+                }
+            }
+        }
+        return null;
     }
 
     private void cacheOpaqueLayers() {

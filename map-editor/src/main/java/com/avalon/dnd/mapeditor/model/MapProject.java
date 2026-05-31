@@ -192,7 +192,13 @@ public class MapProject {
         if (backgroundLayer != null && backgroundLayer.getImageUrl() != null && !backgroundLayer.getImageUrl().isBlank()) {
             return backgroundLayer.getImageUrl();
         }
-        return backgroundUrl;
+        if (backgroundUrl != null && !backgroundUrl.isBlank()) {
+            return backgroundUrl;
+        }
+        if (referenceOverlay != null && referenceOverlay.getImageUrl() != null && !referenceOverlay.getImageUrl().isBlank()) {
+            return referenceOverlay.getImageUrl();
+        }
+        return null;
     }
 
     public BackgroundLayer getBackgroundLayer() { return backgroundLayer; }

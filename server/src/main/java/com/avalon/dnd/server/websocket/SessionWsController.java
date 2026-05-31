@@ -409,7 +409,10 @@ public class SessionWsController {
                 tokens,
                 players,
                 objects,
-                AssetUrlNormalizer.normalize(session.getBackgroundUrl()),
+                AssetUrlNormalizer.normalizeMapBackground(
+                        session.getBackgroundUrl(),
+                        session.getReferenceOverlayLayer()
+                ),
                 session.getInitiativeState(),
                 session.getReferenceOverlayLayer(),
                 session.getTerrainLayer(),

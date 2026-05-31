@@ -27,7 +27,12 @@ public class SessionSnapshotRestorer {
         session.setDmSecret(snap.dmSecret);
 
         if (snap.grid != null) session.setGrid(snap.grid);
-        session.setBackgroundUrl(AssetUrlNormalizer.normalize(snap.backgroundUrl));
+        session.setBackgroundUrl(
+                AssetUrlNormalizer.normalizeMapBackground(
+                        snap.backgroundUrl,
+                        snap.referenceOverlayLayer
+                )
+        );
         session.setReferenceOverlayLayer(snap.referenceOverlayLayer);
         session.setTerrainLayer(snap.terrainLayer);
         session.setWallLayer(snap.wallLayer);
