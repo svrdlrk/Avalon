@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useGameStore } from '../store/gameStore';
 import { normalizeAssetUrl } from '../utils/assetUrl';
 import { wsClient } from '../net/wsClient';
-import { dispatchMapCommand } from '../utils/mapCommands';
 
 const InitiativeBar: React.FC = () => {
     const initiative = useGameStore((state) => state.initiative);
@@ -71,7 +70,7 @@ const InitiativeBar: React.FC = () => {
                             type="button"
                             onClick={() => {
                                 setSelectedTokenId(currentEntry.tokenId);
-                                dispatchMapCommand('center-selected', { tokenId: currentEntry.tokenId });
+                                window.dispatchEvent(new Event('avalon-map:center-selected'));
                             }}
                         >
                             Focus active

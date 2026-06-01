@@ -2,37 +2,17 @@ import { create } from 'zustand';
 import type {
     GridConfig,
     InitiativeStateDto,
-    JsonValue,
     MapLayoutUpdateDto,
     MapObjectDto,
-    MicroLocationDto,
     PlayerDto,
     SessionStateDto,
     TokenDto,
     VisibilityStateDto,
-    VisibilityShareSuggestionDto,
 } from '../types/types';
 
-function extractBackgroundCandidate(value: JsonValue | null | undefined): string | null {
-    if (value == null || typeof value !== 'object' || Array.isArray(value)) {
-        return null;
-    }
-    const record = value as Record<string, unknown>;
-    for (const key of ['imageUrl', 'image', 'path', 'src', 'url', 'file', 'imagePath', 'assetPath', 'backgroundUrl']) {
-        const candidate = record[key];
-        if (typeof candidate === 'string' && candidate.trim()) {
-            return candidate.trim();
-        }
-    }
-    return null;
-}
-
-function resolveBackgroundUrl(backgroundUrl: string | null | undefined, referenceOverlayLayer: JsonValue | null | undefined): string | null {
+function resolveBackgroundUrl(backgroundUrl: string | null | undefined): string | null {
     const direct = typeof backgroundUrl === 'string' ? backgroundUrl.trim() : '';
-    if (direct) {
-        return direct;
-    }
-    return extractBackgroundCandidate(referenceOverlayLayer);
+    return direct || null;
 }
 
 interface GameState {
@@ -45,14 +25,7 @@ interface GameState {
     players: Record<string, PlayerDto>;
     backgroundUrl: string | null;
     initiative: InitiativeStateDto | null;
-    referenceOverlayLayer: JsonValue | null;
-    terrainLayer: JsonValue | null;
-    wallLayer: JsonValue | null;
-    fogSettings: JsonValue | null;
     visibility: VisibilityStateDto | null;
-    visibilityShareSuggestions: VisibilityShareSuggestionDto[];
-    microLocations: MicroLocationDto[];
-    assetPackIds: string[];
 
     applyState: (state: SessionStateDto, sessionId: string) => void;
     applyMapLayoutUpdate: (dto: MapLayoutUpdateDto) => void;
@@ -78,14 +51,7 @@ export const useGameStore = create<GameState>((set) => ({
     players: {},
     backgroundUrl: null,
     initiative: null,
-    referenceOverlayLayer: null,
-    terrainLayer: null,
-    wallLayer: null,
-    fogSettings: null,
     visibility: null,
-    visibilityShareSuggestions: [],
-    microLocations: [],
-    assetPackIds: [],
 
     applyState: (state, sessionId) =>
         set((current) => ({
@@ -99,16 +65,9 @@ export const useGameStore = create<GameState>((set) => ({
             tokens: Object.fromEntries(state.tokens.map((t) => [t.id, t])),
             objects: Object.fromEntries(state.objects.map((o) => [o.id, o])),
             players: Object.fromEntries(state.players.map((p) => [p.id, p])),
-            backgroundUrl: resolveBackgroundUrl(state.backgroundUrl ?? null, state.referenceOverlayLayer ?? null),
+            backgroundUrl: resolveBackgroundUrl(state.backgroundUrl ?? null),
             initiative: state.initiative ?? null,
-            referenceOverlayLayer: state.referenceOverlayLayer ?? null,
-            terrainLayer: state.terrainLayer ?? null,
-            wallLayer: state.wallLayer ?? null,
-            fogSettings: state.fogSettings ?? null,
             visibility: state.visibility ?? null,
-            visibilityShareSuggestions: state.visibilityShareSuggestions ?? [],
-            microLocations: state.microLocations ?? [],
-            assetPackIds: state.assetPackIds ?? [],
         })),
 
     applyMapLayoutUpdate: (dto) =>
@@ -116,15 +75,8 @@ export const useGameStore = create<GameState>((set) => ({
             grid: dto.grid,
             tokens: Object.fromEntries(dto.tokens.map((t) => [t.id, t])),
             objects: dto.objects ? Object.fromEntries(dto.objects.map((o) => [o.id, o])) : current.objects,
-            backgroundUrl: resolveBackgroundUrl(dto.backgroundUrl ?? current.backgroundUrl, dto.referenceOverlayLayer ?? current.referenceOverlayLayer),
-            referenceOverlayLayer: dto.referenceOverlayLayer ?? current.referenceOverlayLayer,
-            terrainLayer: dto.terrainLayer ?? current.terrainLayer,
-            wallLayer: dto.wallLayer ?? current.wallLayer,
-            fogSettings: dto.fogSettings ?? current.fogSettings,
+            backgroundUrl: resolveBackgroundUrl(dto.backgroundUrl ?? current.backgroundUrl),
             visibility: dto.visibility ?? current.visibility,
-            visibilityShareSuggestions: current.visibilityShareSuggestions,
-            microLocations: dto.microLocations ?? current.microLocations,
-            assetPackIds: dto.assetPackIds ?? current.assetPackIds,
         })),
 
     moveToken: (token) =>

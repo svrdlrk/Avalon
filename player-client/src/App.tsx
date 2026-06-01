@@ -1,9 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import BattleMap from './components/BattleMap';
 import ConnectionPanel from './components/ConnectionPanel';
 import InitiativeBar from './components/InitiativeBar';
-import BattleCommandDock from './components/BattleCommandDock';
-import { dispatchMapCommand } from './utils/mapCommands';
 import ErrorBoundary from './components/ErrorBoundary';
 import JoinSessionScreen from './components/JoinSessionScreen';
 import { DEFAULT_LAUNCHER_CONTROL_URL } from './config/runtime';
@@ -30,13 +28,13 @@ function notifyLauncher(endpoint: 'client-closed' | 'client-heartbeat') {
     }).catch(() => undefined);
 }
 
+function dispatchMapCenterSelected() {
+    window.dispatchEvent(new Event('avalon-map:center-selected'));
+}
+
 function App() {
     const [chromeCollapsed, setChromeCollapsed] = useState(() => typeof window !== 'undefined' ? window.matchMedia('(max-width: 760px)').matches : false);
-    const [commandDockCollapsed, setCommandDockCollapsed] = useState(() => typeof window !== 'undefined' ? window.matchMedia('(max-width: 760px)').matches : false);
-    const [isCompactViewport, setIsCompactViewport] = useState(() => typeof window !== 'undefined' ? window.matchMedia('(max-width: 760px)').matches : false);
     const [isNarrowViewport, setIsNarrowViewport] = useState(() => typeof window !== 'undefined' ? window.matchMedia('(max-width: 960px)').matches : false);
-    const [isBattleSheetOpen, setBattleSheetOpen] = useState(false);
-    const [dismissedTokenId, setDismissedTokenId] = useState<string | null>(null);
     const [hudNotice, setHudNotice] = useState<string | null>(null);
     const hudNoticeTimer = useRef<number | null>(null);
 
@@ -57,20 +55,37 @@ function App() {
         };
     }, []);
 
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+
+        const compactQuery = window.matchMedia('(max-width: 760px)');
+        const narrowQuery = window.matchMedia('(max-width: 960px)');
+        const update = () => {
+            setChromeCollapsed(compactQuery.matches);
+            setIsNarrowViewport(narrowQuery.matches);
+        };
+
+        update();
+        compactQuery.addEventListener('change', update);
+        narrowQuery.addEventListener('change', update);
+
+        return () => {
+            compactQuery.removeEventListener('change', update);
+            narrowQuery.removeEventListener('change', update);
+        };
+    }, []);
+
     const sessionId = useGameStore((state) => state.sessionId);
     const myPlayerId = useGameStore((state) => state.myPlayerId);
     const selectedTokenId = useGameStore((state) => state.selectedTokenId);
     const tokens = useGameStore((state) => state.tokens);
     const players = useGameStore((state) => state.players);
     const initiative = useGameStore((state) => state.initiative);
-    const grid = useGameStore((state) => state.grid);
-    const backgroundUrl = useGameStore((state) => state.backgroundUrl);
-    const visibility = useGameStore((state) => state.visibility);
     const clearSelection = useGameStore((state) => state.clearSelection);
 
     const selectedToken = selectedTokenId ? tokens[selectedTokenId] : null;
     const selectedOwner = selectedToken?.ownerId ? players[selectedToken.ownerId] : null;
-    const playerCount = useMemo(() => Object.values(players).filter((player) => player.role === 'PLAYER').length, [players]);
+    const playerCount = Object.values(players).filter((player) => player.role === 'PLAYER').length;
     const currentTurn = initiative?.entries?.[initiative.currentIndex] ?? null;
     const selectedTokenIsPlayerOwned = Boolean(selectedToken?.ownerId);
     const selectedTokenHpText = selectedToken
@@ -78,6 +93,8 @@ function App() {
             ? `${selectedToken.hp}/${selectedToken.maxHp || '—'}`
             : '??/??'
         : '—';
+
+    const isConnected = Boolean(sessionId && myPlayerId);
 
     const pushHudNotice = useCallback((message: string) => {
         setHudNotice(message);
@@ -87,7 +104,7 @@ function App() {
         hudNoticeTimer.current = window.setTimeout(() => {
             setHudNotice(null);
             hudNoticeTimer.current = null;
-        }, 2400);
+        }, 1800);
     }, []);
 
     const copySelectedTokenDetails = useCallback(async () => {
@@ -113,55 +130,11 @@ function App() {
         }
     }, [pushHudNotice, selectedOwner?.name, selectedToken, selectedTokenIsPlayerOwned]);
 
-    const sceneTitle = useMemo(() => {
-        const pieces = [
-            backgroundUrl ? 'Battle scene loaded' : 'No background',
-            grid ? `${grid.cols}×${grid.rows}` : 'Grid unavailable',
-            visibility ? 'Fog active' : 'Open view',
-        ];
-        return pieces.join(' · ');
-    }, [backgroundUrl, grid, visibility]);
-
-    const isConnected = Boolean(sessionId && myPlayerId);
-
-    useEffect(() => {
-        if (typeof window === 'undefined') return;
-
-        const compactQuery = window.matchMedia('(max-width: 760px)');
-        const narrowQuery = window.matchMedia('(max-width: 960px)');
-        const update = () => {
-            setIsCompactViewport(compactQuery.matches);
-            setIsNarrowViewport(narrowQuery.matches);
-        };
-
-        update();
-        compactQuery.addEventListener('change', update);
-        narrowQuery.addEventListener('change', update);
-
-        return () => {
-            compactQuery.removeEventListener('change', update);
-            narrowQuery.removeEventListener('change', update);
-        };
+    useEffect(() => () => {
+        if (hudNoticeTimer.current != null) {
+            window.clearTimeout(hudNoticeTimer.current);
+        }
     }, []);
-
-    useEffect(() => {
-        if (isCompactViewport) {
-            setChromeCollapsed(true);
-            setCommandDockCollapsed(true);
-        }
-    }, [isCompactViewport]);
-
-    useEffect(() => {
-        if (!selectedToken) {
-            setBattleSheetOpen(false);
-            setDismissedTokenId(null);
-            return;
-        }
-
-        if (dismissedTokenId !== selectedToken.id) {
-            setBattleSheetOpen(true);
-        }
-    }, [dismissedTokenId, selectedToken]);
 
     useEffect(() => {
         if (typeof window === 'undefined') return;
@@ -169,31 +142,15 @@ function App() {
         const onKeyDown = (event: KeyboardEvent) => {
             if (event.key !== 'Escape') return;
             clearSelection();
-            setBattleSheetOpen(false);
-            setDismissedTokenId(null);
         };
 
         window.addEventListener('keydown', onKeyDown);
         return () => window.removeEventListener('keydown', onKeyDown);
     }, [clearSelection]);
 
-    useEffect(() => () => {
-        if (hudNoticeTimer.current != null) {
-            window.clearTimeout(hudNoticeTimer.current);
-        }
-    }, []);
-
     const handleCloseBattleSheet = useCallback(() => {
-        if (selectedToken) {
-            setDismissedTokenId(selectedToken.id);
-        }
-        setBattleSheetOpen(false);
-    }, [selectedToken]);
-
-    const handleOpenBattleSheet = useCallback(() => {
-        setDismissedTokenId(null);
-        setBattleSheetOpen(true);
-    }, []);
+        clearSelection();
+    }, [clearSelection]);
 
     if (!isConnected) {
         return (
@@ -205,7 +162,7 @@ function App() {
 
     return (
         <ErrorBoundary>
-            <div className={`app-shell ${chromeCollapsed ? 'app-shell--immersive' : ''} ${isCompactViewport ? 'app-shell--compact' : ''}`}>
+            <div className={`app-shell ${chromeCollapsed ? 'app-shell--immersive' : ''} ${isNarrowViewport ? 'app-shell--compact' : ''}`}>
                 <div className="app-shell__ambient app-shell__ambient--a" aria-hidden="true" />
                 <div className="app-shell__ambient app-shell__ambient--b" aria-hidden="true" />
 
@@ -214,12 +171,11 @@ function App() {
                         <div className="battle-chrome__sigil">A</div>
                         <div className="battle-chrome__text">
                             <div className="battle-chrome__title">Avalon DnD</div>
-                            <div className="battle-chrome__subtitle">Player view · immersive tactical HUD</div>
+                            <div className="battle-chrome__subtitle">Player view · tactical HUD</div>
                         </div>
                     </div>
 
                     <div className="battle-chrome__center">
-                        <div className="hud-chip hud-chip--accent">{sceneTitle}</div>
                         <div className="hud-chip">Players {playerCount}</div>
                         {currentTurn && <div className="hud-chip hud-chip--turn">Turn · {currentTurn.name}</div>}
                         {hudNotice && <div className="hud-chip hud-chip--notice">{hudNotice}</div>}
@@ -239,15 +195,7 @@ function App() {
 
                 <InitiativeBar />
 
-                <BattleCommandDock
-                    chromeCollapsed={chromeCollapsed}
-                    collapsed={commandDockCollapsed}
-                    compactViewport={isCompactViewport}
-                    onToggleChrome={() => setChromeCollapsed((value) => !value)}
-                    onToggleCollapsed={() => setCommandDockCollapsed((value) => !value)}
-                />
-
-                {selectedToken && isBattleSheetOpen && (
+                {selectedToken && (
                     <aside className={`battle-sheet ${isNarrowViewport ? 'battle-sheet--mobile' : ''}`} aria-label="Selected token">
                         <div className="battle-sheet__card battle-sheet__card--selected">
                             <div className="battle-sheet__topline">
@@ -279,34 +227,15 @@ function App() {
                             </div>
 
                             <div className="battle-sheet__actions">
-                                <button
-                                    className="primary-action"
-                                    onClick={() => dispatchMapCommand('center-selected', { tokenId: selectedToken.id })}
-                                >
+                                <button className="primary-action" onClick={dispatchMapCenterSelected}>
                                     Center on token
                                 </button>
-                                <button
-                                    className="secondary-action"
-                                    onClick={copySelectedTokenDetails}
-                                >
+                                <button className="secondary-action" onClick={copySelectedTokenDetails}>
                                     Copy details
                                 </button>
                             </div>
                         </div>
                     </aside>
-                )}
-
-                {selectedToken && !isBattleSheetOpen && (
-                    <button
-                        className={`battle-sheet__launcher battle-sheet__launcher--mini ${isNarrowViewport ? 'battle-sheet__launcher--mobile' : ''}`}
-                        type="button"
-                        onClick={handleOpenBattleSheet}
-                        aria-label="Open token inspector"
-                    >
-                        <span className="battle-sheet__launcher-eyebrow">Token inspector</span>
-                        <span className="battle-sheet__launcher-title">{selectedToken.name}</span>
-                        <span className="battle-sheet__launcher-meta">Open quick details</span>
-                    </button>
                 )}
 
                 <ConnectionPanel />

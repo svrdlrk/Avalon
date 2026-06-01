@@ -37,12 +37,12 @@ public class MapLayoutAssembler {
                 objects,
                 backgroundUrl,
                 visibility,
-                session == null ? null : session.getReferenceOverlayLayer(),
-                session == null ? null : session.getTerrainLayer(),
-                session == null ? null : session.getWallLayer(),
-                session == null ? null : session.getFogSettings(),
-                session == null ? null : session.getMicroLocations(),
-                session == null ? null : session.getAssetPackIds()
+                isDm && session != null ? session.getReferenceOverlayLayer() : null,
+                isDm && session != null ? session.getTerrainLayer() : null,
+                isDm && session != null ? session.getWallLayer() : null,
+                isDm && session != null ? session.getFogSettings() : null,
+                isDm && session != null ? session.getMicroLocations() : List.of(),
+                isDm && session != null ? session.getAssetPackIds() : List.of()
         );
     }
 

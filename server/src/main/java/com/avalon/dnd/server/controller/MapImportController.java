@@ -102,7 +102,7 @@ public class MapImportController {
             }
             long version = session.getVersion();
             MapLayoutUpdateDto baseLayout = battleRulesService.buildMapLayout(session, null);
-            sessionWsController.broadcastMapLayout(session, WsEventType.MAP_UPDATED, baseLayout, true);
+            sessionWsController.broadcastMapLayout(session, WsEventType.MAP_UPDATED, baseLayout, false);
             sessionWsController.broadcastSessionState(session);
 
             return ResponseEntity.ok(new SessionController.SessionCreatedResponse(session.getId(), session.getDmSecret()));

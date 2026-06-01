@@ -52,7 +52,7 @@ function persistConnectionState(serverUrl: string, sessionId: string, playerName
         localStorage.removeItem('avalon.connection.isDm');
         localStorage.setItem(STORAGE_KEYS.autoConnect, String(autoConnect));
     } catch {
-        // Ignore storage failures in private mode / denied storage.
+        // Ignore storage failures.
     }
 }
 
@@ -67,14 +67,7 @@ function resetGameStore() {
         players: {},
         backgroundUrl: null,
         initiative: null,
-        referenceOverlayLayer: null,
-        terrainLayer: null,
-        wallLayer: null,
-        fogSettings: null,
         visibility: null,
-        visibilityShareSuggestions: [],
-        microLocations: [],
-        assetPackIds: [],
     });
 }
 

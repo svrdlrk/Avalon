@@ -2,9 +2,8 @@ import React, { useMemo, useState } from 'react';
 import { useGameStore } from '../store/gameStore';
 import { useConnectionState } from '../hooks/useConnectionState';
 import ConnectionForm from './ConnectionForm';
-import { dispatchMapCommand } from '../utils/mapCommands';
 
-type LandingTab = 'battle' | 'map' | 'settings';
+type LandingTab = 'battle' | 'settings';
 
 const JoinSessionScreen: React.FC = () => {
     const {
@@ -25,14 +24,10 @@ const JoinSessionScreen: React.FC = () => {
     } = useConnectionState();
 
     const [activeTab, setActiveTab] = useState<LandingTab>('battle');
-    const [commandsExpanded, setCommandsExpanded] = useState(false);
     const [hudVisible, setHudVisible] = useState(true);
 
     const players = useGameStore((state) => state.players);
-    const playerCount = useMemo(
-        () => Object.values(players).filter((player) => player.role === 'PLAYER').length,
-        [players],
-    );
+    const playerCount = useMemo(() => Object.values(players).filter((player) => player.role === 'PLAYER').length, [players]);
 
     return (
         <div className="player-shell player-shell--landing">
@@ -67,7 +62,7 @@ const JoinSessionScreen: React.FC = () => {
                                 <div className="player-hero__copy">
                                     <h1 className="player-hero__title">Join a Session</h1>
                                     <p className="player-hero__text">
-                                        Connect to a session and keep the map readable, compact, and responsive during play.
+                                        Connect to a session and keep the battle surface clear. Hidden map controls are not exposed to the player client.
                                     </p>
                                 </div>
                                 <div className="player-hero__art" aria-hidden="true">
@@ -81,7 +76,7 @@ const JoinSessionScreen: React.FC = () => {
                             </div>
                             {hudVisible && (
                                 <p className="player-card__support">
-                                    A slim interface keeps your game surface clear. Use the HUD only for joining, controls, and quick inspection.
+                                    A slim interface keeps your game surface clear. Use the HUD only for joining and quick inspection.
                                 </p>
                             )}
                             <div className="player-chip-row">
@@ -125,83 +120,23 @@ const JoinSessionScreen: React.FC = () => {
                         <section className="player-card player-commands-card">
                             <div className="player-card__header">
                                 <div>
-                                    <div className="player-card__eyebrow">Map commands</div>
-                                    <h2 className="player-card__title">Quick tools</h2>
+                                    <div className="player-card__eyebrow">Battle guidance</div>
+                                    <h2 className="player-card__title">Quick access</h2>
                                 </div>
-                                <button type="button" className="player-chip-button" onClick={() => setCommandsExpanded((value) => !value)}>
-                                    {commandsExpanded ? 'Compact' : 'Expand'}
-                                </button>
-                            </div>
-
-                            <div className={`player-command-grid ${commandsExpanded ? 'player-command-grid--expanded' : ''}`}>
-                                <button type="button" className="player-command-button" onClick={() => dispatchMapCommand('zoom-out')}>
-                                    <span className="player-command-button__icon">⊖</span>
-                                    <span>Zoom −</span>
-                                </button>
-                                <button type="button" className="player-command-button" onClick={() => dispatchMapCommand('zoom-in')}>
-                                    <span className="player-command-button__icon">⊕</span>
-                                    <span>Zoom +</span>
-                                </button>
-                                <button type="button" className="player-command-button" onClick={() => dispatchMapCommand('fit')}>
-                                    <span className="player-command-button__icon">↔</span>
-                                    <span>Fit to map</span>
-                                </button>
-                                <button type="button" className="player-command-button" onClick={() => dispatchMapCommand('reset')}>
-                                    <span className="player-command-button__icon">◌</span>
-                                    <span>Reset view</span>
-                                </button>
-                                <button type="button" className="player-command-button" onClick={() => dispatchMapCommand('center-selected')}>
-                                    <span className="player-command-button__icon">◎</span>
-                                    <span>Center</span>
-                                </button>
-                                <button type="button" className="player-command-button" onClick={() => setHudVisible((value) => !value)}>
-                                    <span className="player-command-button__icon">◔</span>
-                                    <span>{hudVisible ? 'Hide HUD' : 'Show HUD'}</span>
+                                <button type="button" className="player-chip-button" onClick={() => setHudVisible((value) => !value)}>
+                                    {hudVisible ? 'Hide hints' : 'Show hints'}
                                 </button>
                             </div>
 
                             <div className="player-chip-row">
-                                <button type="button" className="player-secondary-button" onClick={() => setActiveTab('map')}>Expand tools</button>
-                                <button type="button" className="player-secondary-button" onClick={() => setActiveTab('settings')}>Session settings</button>
-                            </div>
-                            <p className="player-card__support player-card__support--compact player-card__support--muted">
-                                Token inspector stays hidden until you tap a token in battle.
-                            </p>
-                        </section>
-                    </main>
-                )}
-
-                {activeTab === 'map' && (
-                    <main className="player-home__stack">
-                        <section className="player-card player-map-preview">
-                            <div className="player-card__eyebrow">Map view</div>
-                            <h1 className="player-hero__title">Focused map mode</h1>
-                            <p className="player-card__support">
-                                Use this tab when you want more space for the board and fewer overlays on screen.
-                            </p>
-                            <div className="player-map-preview__frame" aria-hidden="true">
-                                <div className="player-map-preview__grid" />
-                                <div className="player-map-preview__glow" />
-                            </div>
-                            <div className="player-chip-row">
-                                <button type="button" className="player-secondary-button" onClick={() => dispatchMapCommand('fit')}>Fit map</button>
-                                <button type="button" className="player-secondary-button" onClick={() => dispatchMapCommand('center-selected')}>Center token</button>
-                            </div>
-                        </section>
-
-                        <section className="player-card player-commands-card">
-                            <div className="player-card__header">
-                                <div>
-                                    <div className="player-card__eyebrow">Live controls</div>
-                                    <h2 className="player-card__title">Keep the map responsive</h2>
-                                </div>
-                                <button type="button" className="player-chip-button" onClick={() => setActiveTab('battle')}>Back</button>
-                            </div>
-                            <div className="player-chip-row">
-                                <span className="player-pill">Pinch to zoom</span>
-                                <span className="player-pill">Drag to pan</span>
                                 <span className="player-pill">Tap to select</span>
+                                <span className="player-pill">Drag to move</span>
+                                <span className="player-pill">Pinch to zoom</span>
                             </div>
+
+                            <p className="player-card__support player-card__support--compact player-card__support--muted">
+                                Token inspector appears only when you select a token in battle.
+                            </p>
                         </section>
                     </main>
                 )}
@@ -234,10 +169,6 @@ const JoinSessionScreen: React.FC = () => {
                     <button type="button" className={`player-bottom-nav__item ${activeTab === 'battle' ? 'is-active' : ''}`} onClick={() => setActiveTab('battle')}>
                         <span className="player-bottom-nav__icon">⌂</span>
                         <span>Battle</span>
-                    </button>
-                    <button type="button" className={`player-bottom-nav__item ${activeTab === 'map' ? 'is-active' : ''}`} onClick={() => setActiveTab('map')}>
-                        <span className="player-bottom-nav__icon">🗺</span>
-                        <span>Map</span>
                     </button>
                     <button type="button" className={`player-bottom-nav__item ${activeTab === 'settings' ? 'is-active' : ''}`} onClick={() => setActiveTab('settings')}>
                         <span className="player-bottom-nav__icon">⚙</span>

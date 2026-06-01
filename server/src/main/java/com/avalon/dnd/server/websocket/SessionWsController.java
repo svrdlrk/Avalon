@@ -115,13 +115,13 @@ public class SessionWsController {
                 shared.backgroundUrl(),
                 shared.initiativeState(),
                 viewerVisibility,
-                shared.referenceOverlayLayer(),
-                shared.terrainLayer(),
-                shared.wallLayer(),
-                shared.fogSettings(),
-                shared.microLocations(),
-                shared.assetPackIds(),
-                suggestions
+                isDm ? shared.referenceOverlayLayer() : null,
+                isDm ? shared.terrainLayer() : null,
+                isDm ? shared.wallLayer() : null,
+                isDm ? shared.fogSettings() : null,
+                isDm ? shared.microLocations() : java.util.List.of(),
+                isDm ? shared.assetPackIds() : java.util.List.of(),
+                isDm ? suggestions : java.util.List.of()
         );
     }
 
@@ -193,22 +193,23 @@ public class SessionWsController {
             if (viewerVisibility == null) {
                 viewerVisibility = merged;
             }
+            boolean recipientIsDm = player.getRole() == com.avalon.dnd.server.model.Role.DM;
             MapLayoutUpdateDto recipientLayout = new MapLayoutUpdateDto(
                     baseLayout.getGrid(),
-                    player.getRole() == com.avalon.dnd.server.model.Role.DM
+                    recipientIsDm
                             ? baseLayout.getTokens()
                             : buildVisibleTokens(baseLayout.getTokens(), viewerVisibility, player.getId()),
-                    player.getRole() == com.avalon.dnd.server.model.Role.DM
+                    recipientIsDm
                             ? baseLayout.getObjects()
                             : buildVisibleObjects(baseLayout.getObjects(), viewerVisibility),
                     baseLayout.getBackgroundUrl(),
                     viewerVisibility,
-                    baseLayout.getReferenceOverlayLayer(),
-                    baseLayout.getTerrainLayer(),
-                    baseLayout.getWallLayer(),
-                    baseLayout.getFogSettings(),
-                    baseLayout.getMicroLocations(),
-                    baseLayout.getAssetPackIds()
+                    recipientIsDm ? baseLayout.getReferenceOverlayLayer() : null,
+                    recipientIsDm ? baseLayout.getTerrainLayer() : null,
+                    recipientIsDm ? baseLayout.getWallLayer() : null,
+                    recipientIsDm ? baseLayout.getFogSettings() : null,
+                    recipientIsDm ? baseLayout.getMicroLocations() : java.util.List.of(),
+                    recipientIsDm ? baseLayout.getAssetPackIds() : java.util.List.of()
             );
             messaging.convertAndSend(
                     privateTopic(session.getId(), player.getId()),

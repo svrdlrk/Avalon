@@ -3,7 +3,7 @@ import {
     Stage, Layer, Rect, Line, Circle, Text, Group, Image as KonvaImage,
 } from 'react-konva';
 import { useGameStore } from '../store/gameStore';
-import type { TokenDto, MapObjectDto, VisibilityStateDto } from '../types/types';
+import type { TokenDto, MapObjectDto } from '../types/types';
 import { wsClient } from '../net/wsClient';
 import useImage from '../hooks/useImage';
 import type Konva from 'konva';
@@ -22,41 +22,8 @@ function hpColor(hp: number, maxHp: number): string {
 }
 
 
-function getNum(v: any, def = 0): number {
-    const n = typeof v === 'number' ? v : Number(v);
-    return Number.isFinite(n) ? n : def;
-}
-
 function cellKey(row: number, col: number): string {
     return `${row}:${col}`;
-}
-
-function isAnyCellVisible(visible: boolean[][], col: number, row: number, width: number, height: number) {
-    for (let r = row; r < row + height; r++) {
-        if (r < 0 || r >= visible.length) continue;
-        for (let c = col; c < col + width; c++) {
-            if (c < 0 || c >= visible[r].length) continue;
-            if (visible[r][c]) return true;
-        }
-    }
-    return false;
-}
-
-function isAnyCellExplored(explored: Set<string>, col: number, row: number, width: number, height: number) {
-    for (let r = row; r < row + height; r++) {
-        for (let c = col; c < col + width; c++) {
-            if (explored.has(cellKey(r, c))) return true;
-        }
-    }
-    return false;
-}
-
-function cloneToken(token: TokenDto): TokenDto {
-    return { ...token };
-}
-
-function cloneObject(obj: MapObjectDto): MapObjectDto {
-    return { ...obj };
 }
 
 type StageTransform = {
@@ -378,21 +345,33 @@ const ObjectShape: React.FC<ObjectShapeProps> = React.memo(({ obj, cellSize, off
 }, objectShapePropsEqual);
 ObjectShape.displayName = 'ObjectShape';
 
+
 // ================================================================ BattleMap
 
 const BattleMap: React.FC = () => {
     const grid = useGameStore((s) => s.grid);
     const tokens = useGameStore((s) => s.tokens);
     const objects = useGameStore((s) => s.objects);
+    const players = useGameStore((s) => s.players);
     const myPlayerId = useGameStore((s) => s.myPlayerId);
     const selectedTokenId = useGameStore((s) => s.selectedTokenId);
     const setSelectedTokenId = useGameStore((s) => s.setSelectedTokenId);
-    const handleSelectToken = useCallback((tokenId: string) => {
-        setSelectedTokenId(tokenId);
-    }, [setSelectedTokenId]);
+    const clearSelection = useGameStore((s) => s.clearSelection);
+    const backgroundUrl = useGameStore((s) => s.backgroundUrl);
+    const visibility = useGameStore((s) => s.visibility);
+    const stageRef = useRef<Konva.Stage>(null);
     const gridRef = useRef(grid);
     const tokensRef = useRef(tokens);
     const objectsRef = useRef(objects);
+    const [stageTransform, setStageTransform] = useState<StageTransform>({ x: 0, y: 0, scale: 1 });
+    const stageTransformFrameRef = useRef<number | null>(null);
+    const stageTransformPendingRef = useRef<StageTransform | null>(null);
+    const lastAutoFitSceneRef = useRef<string | null>(null);
+    const [stageDraggable, setStageDraggable] = useState(true);
+    const [viewport, setViewport] = useState(() => ({
+        width: typeof window !== 'undefined' ? window.innerWidth : 1280,
+        height: typeof window !== 'undefined' ? window.innerHeight : 720,
+    }));
 
     useEffect(() => {
         gridRef.current = grid;
@@ -405,23 +384,6 @@ const BattleMap: React.FC = () => {
     useEffect(() => {
         objectsRef.current = objects;
     }, [objects]);
-    const clearSelection = useGameStore((s) => s.clearSelection);
-    const backgroundUrl = useGameStore((s) => s.backgroundUrl);
-    const players = useGameStore((s) => s.players);
-    const terrainLayer = useGameStore((s) => s.terrainLayer);
-    const wallLayer = useGameStore((s) => s.wallLayer);
-    const fogSettings = useGameStore((s) => s.fogSettings);
-    const visibility = useGameStore((s) => s.visibility);
-    const stageRef = useRef<Konva.Stage>(null);
-    const [stageTransform, setStageTransform] = useState<StageTransform>({ x: 0, y: 0, scale: 1 });
-    const stageTransformFrameRef = useRef<number | null>(null);
-    const stageTransformPendingRef = useRef<StageTransform | null>(null);
-    const lastAutoFitSceneRef = useRef<string | null>(null);
-
-    const [viewport, setViewport] = useState(() => ({
-        width: typeof window !== 'undefined' ? window.innerWidth : 1280,
-        height: typeof window !== 'undefined' ? window.innerHeight : 720,
-    }));
 
     useEffect(() => {
         const update = () => setViewport({
@@ -448,14 +410,32 @@ const BattleMap: React.FC = () => {
         };
     }, []);
 
-    // FIX: use a React state for stageDraggable so JSX prop stays in sync
-    const [stageDraggable, setStageDraggable] = useState(true);
+    const myPlayer = myPlayerId ? players[myPlayerId] : null;
+    const isDm = myPlayer?.role === 'DM';
+
+    const fullBgUrl = normalizeAssetUrl(backgroundUrl, wsClient.getServerBaseUrl());
+    const [bgImage] = useImage(fullBgUrl);
+
+    const visibleCells = useMemo(() => {
+        if (!grid) return null;
+        if (isDm) {
+            return Array.from({ length: grid.rows }, () => Array<boolean>(grid.cols).fill(true));
+        }
+        return visibility?.visibleCells ?? null;
+    }, [grid, isDm, visibility]);
+
+    const exploredCells = useMemo(() => {
+        if (isDm) {
+            return new Set<string>();
+        }
+        return new Set(visibility?.exploredCells ?? []);
+    }, [isDm, visibility]);
+
+    const visibleBounds = useMemo(() => computeVisibleBounds(stageTransform, viewport), [stageTransform, viewport]);
 
     const commitStageTransform = useCallback((next: StageTransform) => {
         stageTransformPendingRef.current = next;
-        if (stageTransformFrameRef.current != null) {
-            return;
-        }
+        if (stageTransformFrameRef.current != null) return;
         stageTransformFrameRef.current = window.requestAnimationFrame(() => {
             stageTransformFrameRef.current = null;
             const pending = stageTransformPendingRef.current;
@@ -475,260 +455,21 @@ const BattleMap: React.FC = () => {
         });
     }, [commitStageTransform]);
 
-    const myPlayer = myPlayerId ? players[myPlayerId] : null;
-    const isDm     = myPlayer?.role === 'DM';
-
-    const fullBgUrl = normalizeAssetUrl(backgroundUrl, wsClient.getServerBaseUrl());
-    const [bgImage] = useImage(fullBgUrl);
-    const serverVisibility: VisibilityStateDto | null = !isDm ? (visibility ?? null) : null;
-    const visibleCells = useMemo(() => {
-        if (serverVisibility?.visibleCells) return serverVisibility.visibleCells;
-        if (!grid) return null;
-        if (isDm) {
-            return Array.from({ length: grid.rows }, () => Array<boolean>(grid.cols).fill(true));
-        }
-        return null;
-    }, [serverVisibility, grid, isDm]);
-
-    const visibleBounds = useMemo(() => computeVisibleBounds(stageTransform, viewport), [stageTransform, viewport]);
-
-    const fogEnabled = !isDm;
-    const retainExploredCells = useMemo(() => {
-        const fog = fogSettings && typeof fogSettings === 'object' ? (fogSettings as Record<string, any>) : null;
-        return fog ? Boolean(fog.retainExploredCells ?? true) : true;
-    }, [fogSettings]);
-
-    const fogMemoryRef = useRef<{
-        explored: Set<string>;
-        tokens: Record<string, TokenDto>;
-        objects: Record<string, MapObjectDto>;
-    }>({ explored: new Set<string>(), tokens: {}, objects: {} });
-
-    useEffect(() => {
-        if (serverVisibility) return;
-        fogMemoryRef.current = { explored: new Set<string>(), tokens: {}, objects: {} };
-    }, [backgroundUrl, grid?.cols, grid?.rows, terrainLayer, wallLayer, fogSettings, serverVisibility]);
-
-    useEffect(() => {
-        if (serverVisibility) return;
-        if (!fogEnabled || !grid || !visibleCells) return;
-        const memory = fogMemoryRef.current;
-        if (!retainExploredCells) {
-            memory.explored.clear();
-            memory.tokens = {};
-            memory.objects = {};
-        }
-        for (let r = 0; r < visibleCells.length; r++) {
-            for (let c = 0; c < visibleCells[r].length; c++) {
-                if (visibleCells[r][c]) memory.explored.add(cellKey(r, c));
-            }
-        }
-        Object.values(tokens).forEach((token) => {
-            const gs = Math.max(1, token.gridSize ?? 1);
-            if (isAnyCellVisible(visibleCells, token.col, token.row, gs, gs)) {
-                memory.tokens[token.id] = cloneToken(token);
-            }
-        });
-        Object.values(objects).forEach((obj) => {
-            const w = Math.max(1, obj.width ?? 1);
-            const h = Math.max(1, obj.height ?? 1);
-            if (isAnyCellVisible(visibleCells, obj.col, obj.row, w, h)) {
-                memory.objects[obj.id] = cloneObject(obj);
-            }
-        });
-    }, [fogEnabled, grid, visibleCells, tokens, objects, retainExploredCells, serverVisibility]);
-
-    const fogExplored = serverVisibility ? new Set(serverVisibility.exploredCells ?? []) : new Set<string>();
-
-    const renderObjects = useMemo(() => {
-        const allObjects = Object.values(objects);
-        const intersectVisible = (obj: MapObjectDto) => {
-            const w = Math.max(1, obj.width ?? 1) * grid.cellSize;
-            const h = Math.max(1, obj.height ?? 1) * grid.cellSize;
-            const x = grid.offsetX + obj.col * grid.cellSize;
-            const y = grid.offsetY + obj.row * grid.cellSize;
-            return rectIntersects(visibleBounds, itemBounds(x, y, w, h));
-        };
-        if (isDm) return allObjects.filter(intersectVisible);
-        if (!visibleCells || !serverVisibility) return [];
-        if (serverVisibility) {
-            return allObjects.filter((obj) => {
-                const w = Math.max(1, obj.width ?? 1);
-                const h = Math.max(1, obj.height ?? 1);
-                return intersectVisible(obj) && isAnyCellVisible(visibleCells, obj.col, obj.row, w, h);
-            });
-        }
-        if (!retainExploredCells) {
-            return allObjects.filter((obj) => {
-                const w = Math.max(1, obj.width ?? 1);
-                const h = Math.max(1, obj.height ?? 1);
-                return intersectVisible(obj) && isAnyCellVisible(visibleCells, obj.col, obj.row, w, h);
-            });
-        }
-        const memory = fogMemoryRef.current.objects;
-        const result: MapObjectDto[] = [];
-        allObjects.forEach((obj) => {
-            const w = Math.max(1, obj.width ?? 1);
-            const h = Math.max(1, obj.height ?? 1);
-            const onScreen = intersectVisible(obj);
-            if (onScreen && isAnyCellVisible(visibleCells, obj.col, obj.row, w, h)) {
-                result.push(obj);
-                return;
-            }
-            const snap = memory[obj.id];
-            if (snap && isAnyCellExplored(fogExplored, snap.col, snap.row, w, h)) {
-                if (onScreen || isAnyCellVisible(visibleCells, snap.col, snap.row, w, h)) {
-                    result.push(snap);
-                }
-            }
-        });
-        return result;
-    }, [objects, visibleCells, fogExplored, retainExploredCells, isDm, serverVisibility, grid.cellSize, grid.offsetX, grid.offsetY, grid.cols, grid.rows, visibleBounds.left, visibleBounds.top, visibleBounds.right, visibleBounds.bottom]);
-
-    const renderTokens = useMemo(() => {
-        const sceneTokens = Object.values(tokens);
-        const intersectVisible = (token: TokenDto) => {
-            const gs = Math.max(1, token.gridSize ?? 1);
-            const size = gs * grid.cellSize;
-            const x = grid.offsetX + token.col * grid.cellSize;
-            const y = grid.offsetY + token.row * grid.cellSize;
-            return rectIntersects(visibleBounds, itemBounds(x, y, size, size));
-        };
-        if (isDm) return sceneTokens.filter(intersectVisible);
-        if (!visibleCells || !serverVisibility) return [];
-
-        const isOwnedByMe = (token: TokenDto) => token.ownerId != null && token.ownerId === myPlayerId;
-
-        if (serverVisibility) {
-            return sceneTokens.filter((token) => {
-                const gs = Math.max(1, token.gridSize ?? 1);
-                return isOwnedByMe(token) || isAnyCellVisible(visibleCells, token.col, token.row, gs, gs);
-            });
-        }
-        if (!retainExploredCells) {
-            return sceneTokens.filter((token) => {
-                const gs = Math.max(1, token.gridSize ?? 1);
-                return isOwnedByMe(token) || isAnyCellVisible(visibleCells, token.col, token.row, gs, gs);
-            });
-        }
-        const memory = fogMemoryRef.current.tokens;
-        const result: TokenDto[] = [];
-        sceneTokens.forEach((token) => {
-            const gs = Math.max(1, token.gridSize ?? 1);
-            if (isOwnedByMe(token) || isAnyCellVisible(visibleCells, token.col, token.row, gs, gs)) {
-                result.push(token);
-                return;
-            }
-            const snap = memory[token.id];
-            if (snap && isAnyCellExplored(fogExplored, snap.col, snap.row, gs, gs)) {
-                result.push(snap);
-            }
-        });
-        return result;
-    }, [tokens, visibleCells, fogEnabled, fogExplored, retainExploredCells, isDm, serverVisibility, myPlayerId, grid.cellSize, grid.offsetX, grid.offsetY, grid.cols, grid.rows, visibleBounds.left, visibleBounds.top, visibleBounds.right, visibleBounds.bottom]);
-
-    // FIX: set React state, not imperative Konva call, so re-renders respect it
-    const handleTokenDragStart = useCallback(() => {
-        setStageDraggable(false);
-    }, []);
-
-    const handleDragEnd = useCallback((e: any, token: TokenDto) => {
-        setStageDraggable(true);
-
-        const gridValue = gridRef.current;
-        if (!gridValue) return;
-        const node = e.target;
-        const gs   = Math.max(1, token.gridSize ?? 1);
-
-        // node.x() / node.y() = top-left of the group after drag
-        const rawX = node.x();
-        const rawY = node.y();
-
-        const newCol = Math.round((rawX - gridValue.offsetX) / gridValue.cellSize);
-        const newRow = Math.round((rawY - gridValue.offsetY) / gridValue.cellSize);
-        const clampedCol = Math.max(0, Math.min(newCol, gridValue.cols - gs));
-        const clampedRow = Math.max(0, Math.min(newRow, gridValue.rows - gs));
-
-        const movedBounds = {
-            left: clampedCol,
-            top: clampedRow,
-            right: clampedCol + gs,
-            bottom: clampedRow + gs,
-        };
-
-        const currentTokens = tokensRef.current;
-        const currentObjects = objectsRef.current;
-
-        const collidesWithToken = Object.values(currentTokens).some((other) => {
-            if (other.id === token.id) return false;
-            const otherSize = Math.max(1, other.gridSize ?? 1);
-            return !(
-                movedBounds.right <= other.col ||
-                movedBounds.left >= other.col + otherSize ||
-                movedBounds.bottom <= other.row ||
-                movedBounds.top >= other.row + otherSize
-            );
-        });
-
-        const collidesWithObject = Object.values(currentObjects).some((obj) => {
-            if (!obj.blocksMovement) return false;
-            const objWidth = Math.max(1, obj.width ?? 1);
-            const objHeight = Math.max(1, obj.height ?? 1);
-            return !(
-                movedBounds.right <= obj.col ||
-                movedBounds.left >= obj.col + objWidth ||
-                movedBounds.bottom <= obj.row ||
-                movedBounds.top >= obj.row + objHeight
-            );
-        });
-
-        if (collidesWithToken || collidesWithObject) {
-            node.position({
-                x: gridValue.offsetX + token.col * gridValue.cellSize,
-                y: gridValue.offsetY + token.row * gridValue.cellSize,
-            });
-            return;
-        }
-
-        const updatedToken: TokenDto = {
-            ...token,
-            col: clampedCol,
-            row: clampedRow,
-        };
-
-        // Snap both the Konva node and the React store so the player view
-        // updates immediately while the server broadcast catches up.
-        node.position({
-            x: gridValue.offsetX + clampedCol * gridValue.cellSize,
-            y: gridValue.offsetY + clampedRow * gridValue.cellSize,
-        });
-        useGameStore.getState().moveToken(updatedToken);
-
-        wsClient.send('/token.move', {
-            tokenId: token.id,
-            toCol: clampedCol,
-            toRow: clampedRow,
-        });
-    }, []);
-
-
-    const clampScale = (value: number) => Math.max(0.22, Math.min(4, value));
+    const clampScale = useCallback((value: number) => Math.max(0.22, Math.min(4, value)), []);
 
     const applyStageTransform = useCallback((scale: number, x: number, y: number) => {
         const stage = stageRef.current;
         if (!stage) return;
-
         const nextScale = clampScale(scale);
         stage.scale({ x: nextScale, y: nextScale });
         stage.position({ x, y });
         stage.batchDraw();
         commitStageTransform({ x, y, scale: nextScale });
-    }, [commitStageTransform]);
+    }, [clampScale, commitStageTransform]);
 
     const zoomAtCenter = useCallback((direction: 1 | -1) => {
         const stage = stageRef.current;
         if (!stage) return;
-
         const oldScale = stage.scaleX() || 1;
         const nextScale = clampScale(oldScale * (direction > 0 ? 1.12 : 0.89));
         const focusX = viewport.width / 2;
@@ -737,13 +478,12 @@ const BattleMap: React.FC = () => {
             x: (focusX - stage.x()) / oldScale,
             y: (focusY - stage.y()) / oldScale,
         };
-
         applyStageTransform(
             nextScale,
             focusX - mousePointTo.x * nextScale,
             focusY - mousePointTo.y * nextScale,
         );
-    }, [applyStageTransform, viewport.height, viewport.width]);
+    }, [applyStageTransform, clampScale, viewport.height, viewport.width]);
 
     const resetView = useCallback(() => {
         applyStageTransform(1, 0, 0);
@@ -759,7 +499,7 @@ const BattleMap: React.FC = () => {
         const x = (viewport.width - gridPixelW * scale) / 2 - grid.offsetX * scale;
         const y = (viewport.height - gridPixelH * scale) / 2 - grid.offsetY * scale;
         applyStageTransform(scale, x, y);
-    }, [applyStageTransform, grid, viewport.height, viewport.width]);
+    }, [applyStageTransform, clampScale, grid, viewport.height, viewport.width]);
 
     useEffect(() => {
         if (!grid || viewport.width <= 0 || viewport.height <= 0) return;
@@ -770,14 +510,12 @@ const BattleMap: React.FC = () => {
             grid.cellSize,
             grid.offsetX,
             grid.offsetY,
-            terrainLayer ? 'terrain' : 'no-terrain',
-            wallLayer ? 'walls' : 'no-walls',
         ].join('|');
         if (lastAutoFitSceneRef.current === sceneKey) return;
         lastAutoFitSceneRef.current = sceneKey;
         const raf = window.requestAnimationFrame(() => fitView());
         return () => window.cancelAnimationFrame(raf);
-    }, [backgroundUrl, fitView, grid, terrainLayer, wallLayer, viewport.height, viewport.width]);
+    }, [backgroundUrl, fitView, grid, viewport.height, viewport.width]);
 
     const centerSelectedToken = useCallback(() => {
         if (!grid || !selectedTokenId) return;
@@ -789,15 +527,12 @@ const BattleMap: React.FC = () => {
         const tokenSize = Math.max(1, token.gridSize ?? 1);
         const centerX = (grid.offsetX + (token.col + tokenSize / 2) * grid.cellSize) * scale;
         const centerY = (grid.offsetY + (token.row + tokenSize / 2) * grid.cellSize) * scale;
-        const x = viewport.width / 2 - centerX;
-        const y = viewport.height / 2 - centerY;
-        applyStageTransform(scale, x, y);
-    }, [applyStageTransform, grid, selectedTokenId, tokens, viewport.height, viewport.width]);
+        applyStageTransform(scale, viewport.width / 2 - centerX, viewport.height / 2 - centerY);
+    }, [applyStageTransform, clampScale, grid, selectedTokenId, tokens, viewport.height, viewport.width]);
 
     useEffect(() => {
         const onCommand = (event: Event) => {
-            const custom = event as CustomEvent;
-            const type = String(custom.type);
+            const type = event.type;
             if (type === 'avalon-map:zoom-in') zoomAtCenter(1);
             if (type === 'avalon-map:zoom-out') zoomAtCenter(-1);
             if (type === 'avalon-map:reset') resetView();
@@ -863,8 +598,6 @@ const BattleMap: React.FC = () => {
 
     const gridPixelW = grid.cols * grid.cellSize;
     const gridPixelH = grid.rows * grid.cellSize;
-    const stageW     = viewport.width;
-    const stageH     = viewport.height;
 
     const gridLines = useMemo(() => {
         const lines: React.ReactNode[] = [];
@@ -884,180 +617,213 @@ const BattleMap: React.FC = () => {
         for (let c = startCol; c <= endCol; c++) {
             const lx = grid.offsetX + c * grid.cellSize;
             lines.push(
-                <Line key={`v-${c}`}
-                      points={[lx, lineTop, lx, lineBottom]}
-                      stroke="rgba(255,255,255,0.12)" strokeWidth={0.5} />,
+                <Line key={`v-${c}`} points={[lx, lineTop, lx, lineBottom]} stroke="rgba(255,255,255,0.12)" strokeWidth={0.5} />,
             );
         }
         for (let r = startRow; r <= endRow; r++) {
             const ly = grid.offsetY + r * grid.cellSize;
             lines.push(
-                <Line key={`h-${r}`}
-                      points={[lineLeft, ly, lineRight, ly]}
-                      stroke="rgba(255,255,255,0.12)" strokeWidth={0.5} />,
+                <Line key={`h-${r}`} points={[lineLeft, ly, lineRight, ly]} stroke="rgba(255,255,255,0.12)" strokeWidth={0.5} />,
             );
         }
         return lines;
-    }, [grid.cols, grid.rows, grid.cellSize, grid.offsetX, grid.offsetY, gridPixelH, gridPixelW, visibleBounds.left, visibleBounds.top, visibleBounds.right, visibleBounds.bottom]);
+    }, [grid.cellSize, grid.offsetX, grid.offsetY, grid.rows, grid.cols, gridPixelH, gridPixelW, visibleBounds.left, visibleBounds.top, visibleBounds.right, visibleBounds.bottom]);
 
-    const visibleTerrainCells = useMemo(() => {
-        const cells = Array.isArray((terrainLayer as any)?.cells) ? (terrainLayer as any).cells : [];
-        return cells.filter((cell: any) => {
-            const col = Math.floor(getNum(cell?.col));
-            const row = Math.floor(getNum(cell?.row));
-            const w = Math.max(1, Math.floor(getNum(cell?.width, 1)));
-            const h = Math.max(1, Math.floor(getNum(cell?.height, 1)));
-            const x = grid.offsetX + col * grid.cellSize;
-            const y = grid.offsetY + row * grid.cellSize;
-            return rectIntersects(
-                visibleBounds,
-                itemBounds(x, y, w * grid.cellSize, h * grid.cellSize),
-            );
-        });
-    }, [terrainLayer, grid.cellSize, grid.offsetX, grid.offsetY, grid.cols, grid.rows, visibleBounds.left, visibleBounds.top, visibleBounds.right, visibleBounds.bottom]);
+    const fogOverlay = useMemo(() => {
+        if (isDm || !visibleCells) return [];
+        const leftCol = Math.max(0, Math.floor((visibleBounds.left - grid.offsetX) / grid.cellSize) - 1);
+        const rightCol = Math.min(grid.cols - 1, Math.ceil((visibleBounds.right - grid.offsetX) / grid.cellSize) + 1);
+        const topRow = Math.max(0, Math.floor((visibleBounds.top - grid.offsetY) / grid.cellSize) - 1);
+        const bottomRow = Math.min(grid.rows - 1, Math.ceil((visibleBounds.bottom - grid.offsetY) / grid.cellSize) + 1);
+        const nodes: React.ReactNode[] = [];
 
-    const visibleWallPaths = useMemo(() => {
-        const paths = Array.isArray((wallLayer as any)?.paths) ? (wallLayer as any).paths : [];
-        return paths.filter((path: any) => {
-            const points = Array.isArray(path?.points) ? path.points : [];
-            if (points.length < 2) return false;
-            let minX = Number.POSITIVE_INFINITY;
-            let minY = Number.POSITIVE_INFINITY;
-            let maxX = Number.NEGATIVE_INFINITY;
-            let maxY = Number.NEGATIVE_INFINITY;
-            for (const pt of points) {
-                const x = getNum(pt?.x);
-                const y = getNum(pt?.y);
-                if (x < minX) minX = x;
-                if (y < minY) minY = y;
-                if (x > maxX) maxX = x;
-                if (y > maxY) maxY = y;
+        for (let row = topRow; row <= bottomRow; row++) {
+            for (let col = leftCol; col <= rightCol; col++) {
+                const visible = Boolean(visibleCells[row]?.[col]);
+                if (visible) continue;
+                const explored = exploredCells.has(cellKey(row, col));
+                const x = grid.offsetX + col * grid.cellSize;
+                const y = grid.offsetY + row * grid.cellSize;
+                nodes.push(
+                    <Rect
+                        key={`fog-${row}-${col}`}
+                        x={x}
+                        y={y}
+                        width={grid.cellSize}
+                        height={grid.cellSize}
+                        fill={explored ? 'rgba(8, 12, 20, 0.45)' : 'rgba(3, 5, 10, 0.82)'}
+                        listening={false}
+                    />,
+                );
             }
-            const thickness = Math.max(1.5, getNum(path?.thickness, 2.5));
-            return rectIntersects(
-                visibleBounds,
-                itemBounds(minX - thickness, minY - thickness, (maxX - minX) + thickness * 2, (maxY - minY) + thickness * 2),
+        }
+
+        return nodes;
+    }, [exploredCells, grid.cellSize, grid.cols, grid.offsetX, grid.offsetY, grid.rows, isDm, visibleCells, visibleBounds.left, visibleBounds.top, visibleBounds.right, visibleBounds.bottom]);
+
+    const renderObjects = useMemo(() => {
+        const allObjects = Object.values(objects);
+        return allObjects.filter((obj) => {
+            const w = Math.max(1, obj.width ?? 1) * grid.cellSize;
+            const h = Math.max(1, obj.height ?? 1) * grid.cellSize;
+            const x = grid.offsetX + obj.col * grid.cellSize;
+            const y = grid.offsetY + obj.row * grid.cellSize;
+            return rectIntersects(visibleBounds, itemBounds(x, y, w, h));
+        });
+    }, [objects, grid.cellSize, grid.offsetX, grid.offsetY, visibleBounds.left, visibleBounds.top, visibleBounds.right, visibleBounds.bottom]);
+
+    const renderTokens = useMemo(() => {
+        const sceneTokens = Object.values(tokens);
+        return sceneTokens.filter((token) => {
+            const gs = Math.max(1, token.gridSize ?? 1);
+            const size = gs * grid.cellSize;
+            const x = grid.offsetX + token.col * grid.cellSize;
+            const y = grid.offsetY + token.row * grid.cellSize;
+            return rectIntersects(visibleBounds, itemBounds(x, y, size, size));
+        });
+    }, [grid.cellSize, grid.offsetX, grid.offsetY, tokens, visibleBounds.left, visibleBounds.top, visibleBounds.right, visibleBounds.bottom]);
+
+    const handleTokenDragStart = useCallback(() => {
+        setStageDraggable(false);
+    }, []);
+
+    const handleDragEnd = useCallback((e: any, token: TokenDto) => {
+        setStageDraggable(true);
+
+        const gridValue = gridRef.current;
+        if (!gridValue) return;
+        const node = e.target;
+        const gs = Math.max(1, token.gridSize ?? 1);
+
+        const rawX = node.x();
+        const rawY = node.y();
+
+        const newCol = Math.round((rawX - gridValue.offsetX) / gridValue.cellSize);
+        const newRow = Math.round((rawY - gridValue.offsetY) / gridValue.cellSize);
+        const clampedCol = Math.max(0, Math.min(newCol, gridValue.cols - gs));
+        const clampedRow = Math.max(0, Math.min(newRow, gridValue.rows - gs));
+
+        const movedBounds = {
+            left: clampedCol,
+            top: clampedRow,
+            right: clampedCol + gs,
+            bottom: clampedRow + gs,
+        };
+
+        const currentTokens = tokensRef.current;
+        const currentObjects = objectsRef.current;
+
+        const collidesWithToken = Object.values(currentTokens).some((other) => {
+            if (other.id === token.id) return false;
+            const otherSize = Math.max(1, other.gridSize ?? 1);
+            return !(
+                movedBounds.right <= other.col ||
+                movedBounds.left >= other.col + otherSize ||
+                movedBounds.bottom <= other.row ||
+                movedBounds.top >= other.row + otherSize
             );
         });
-    }, [wallLayer, visibleBounds.left, visibleBounds.top, visibleBounds.right, visibleBounds.bottom]);
+
+        const collidesWithObject = Object.values(currentObjects).some((obj) => {
+            if (!obj.blocksMovement) return false;
+            const objWidth = Math.max(1, obj.width ?? 1);
+            const objHeight = Math.max(1, obj.height ?? 1);
+            return !(
+                movedBounds.right <= obj.col ||
+                movedBounds.left >= obj.col + objWidth ||
+                movedBounds.bottom <= obj.row ||
+                movedBounds.top >= obj.row + objHeight
+            );
+        });
+
+        if (collidesWithToken || collidesWithObject) {
+            node.position({
+                x: gridValue.offsetX + token.col * gridValue.cellSize,
+                y: gridValue.offsetY + token.row * gridValue.cellSize,
+            });
+            return;
+        }
+
+        const updatedToken: TokenDto = {
+            ...token,
+            col: clampedCol,
+            row: clampedRow,
+        };
+
+        node.position({
+            x: gridValue.offsetX + clampedCol * gridValue.cellSize,
+            y: gridValue.offsetY + clampedRow * gridValue.cellSize,
+        });
+        useGameStore.getState().moveToken(updatedToken);
+
+        wsClient.send('/token.move', {
+            tokenId: token.id,
+            toCol: clampedCol,
+            toRow: clampedRow,
+        });
+    }, []);
+
+    if (!grid) {
+        return null;
+    }
 
     return (
-        <div className="battle-map" style={{ background: 'transparent', overflow: 'hidden', width: '100vw', height: '100dvh', touchAction: 'none' }}>
+        <div className="battle-map">
             <Stage
                 ref={stageRef}
-                width={stageW}
-                height={stageH}
-                onMouseDown={(e) => {
-                    if (e.target === e.currentTarget) clearSelection();
-                }}
-                onTouchStart={(e) => {
-                    if (e.target === e.currentTarget) clearSelection();
-                }}
-                // FIX: controlled via React state — not overwritten on re-render
+                width={viewport.width}
+                height={viewport.height}
                 draggable={stageDraggable}
                 onDragMove={syncStageTransformFromNode}
                 onDragEnd={syncStageTransformFromNode}
-                onWheel={(e) => {
-                    e.evt.preventDefault();
-                    const stage = stageRef.current;
-                    if (!stage) return;
-                    const oldScale = stage.scaleX() || 1;
-                    const pointer  = stage.getPointerPosition();
-                    if (!pointer) return;
-                    const mousePointTo = {
-                        x: (pointer.x - stage.x()) / oldScale,
-                        y: (pointer.y - stage.y()) / oldScale,
-                    };
-                    const direction = e.evt.deltaY > 0 ? -1 : 1;
-                    const newScale  = Math.max(0.2, Math.min(4, oldScale * (1 + direction * 0.1)));
-                    stage.scale({ x: newScale, y: newScale });
-                    stage.position({
-                        x: pointer.x - mousePointTo.x * newScale,
-                        y: pointer.y - mousePointTo.y * newScale,
-                    });
-                    stage.batchDraw();
-                    commitStageTransform({
-                        x: stage.x(),
-                        y: stage.y(),
-                        scale: stage.scaleX() || 1,
-                    });
+                onWheel={(event) => {
+                    event.evt.preventDefault();
+                    zoomAtCenter(event.evt.deltaY > 0 ? -1 : 1);
+                }}
+                onMouseDown={(event) => {
+                    if (event.target === event.target.getStage()) {
+                        clearSelection();
+                    }
                 }}
             >
-                {/* Background */}
                 <Layer>
-                    <Rect x={0} y={0} width={stageW} height={stageH} fill="#0f1117" />
-                    {bgImage ? (
+                    {bgImage && (
                         <KonvaImage
                             image={bgImage}
-                            x={grid.offsetX} y={grid.offsetY}
-                            width={gridPixelW} height={gridPixelH}
-                        />
-                    ) : (
-                        <Rect
-                            x={grid.offsetX} y={grid.offsetY}
-                            width={gridPixelW} height={gridPixelH}
-                            fill="#1a2035"
+                            x={grid.offsetX}
+                            y={grid.offsetY}
+                            width={gridPixelW}
+                            height={gridPixelH}
+                            listening={false}
+                            opacity={0.96}
                         />
                     )}
-                </Layer>
-
-                {/* Terrain / walls / fog */}
-                <Layer listening={false}>
-                    {visibleTerrainCells.map((cell: any, idx: number) => {
-                        const col = Math.floor(getNum(cell?.col));
-                        const row = Math.floor(getNum(cell?.row));
-                        const w = Math.max(1, Math.floor(getNum(cell?.width, 1)));
-                        const h = Math.max(1, Math.floor(getNum(cell?.height, 1)));
-                        const type = String(cell?.terrainType ?? 'grass');
-                        const fill = type.includes('water') ? 'rgba(52,152,219,0.34)'
-                            : type.includes('sand') ? 'rgba(241,196,15,0.18)'
-                            : type.includes('stone') || type.includes('rock') ? 'rgba(149,165,166,0.20)'
-                            : type.includes('dirt') ? 'rgba(139,69,19,0.18)'
-                            : 'rgba(46,204,113,0.14)';
-                        return <Rect key={`terrain-${idx}`} x={grid.offsetX + col * grid.cellSize} y={grid.offsetY + row * grid.cellSize} width={w * grid.cellSize} height={h * grid.cellSize} fill={fill} listening={false} />;
-                    })}
-                    {visibleWallPaths.map((path: any, idx: number) => {
-                        const points = Array.isArray(path?.points) ? path.points : [];
-                        const flat: number[] = [];
-                        for (const pt of points) {
-                            flat.push(getNum(pt?.x), getNum(pt?.y));
-                        }
-                        if (flat.length < 4) return null;
-                        const thickness = Math.max(1.5, getNum(path?.thickness, 2.5));
-                        return <Line key={`wall-${idx}`} points={flat} stroke={path?.blocksSight === false ? 'rgba(189,195,199,0.75)' : 'rgba(236,240,241,0.85)'} strokeWidth={thickness} lineCap="round" lineJoin="round" listening={false} />;
-                    })}
-                    {/* Unseen cells are left as the base map; explored memory is restored via token/object snapshots. */}
-                </Layer>
-
-                {/* Grid */}
-                <Layer listening={false}>{gridLines}</Layer>
-
-                {/* Objects */}
-                <Layer>
-                    {renderObjects.map((obj: MapObjectDto) => (
-                        <ObjectShape
-                            key={obj.id}
-                            obj={obj}
-                            cellSize={grid.cellSize}
-                            offsetX={grid.offsetX}
-                            offsetY={grid.offsetY}
+                    {!bgImage && (
+                        <Rect
+                            x={grid.offsetX}
+                            y={grid.offsetY}
+                            width={gridPixelW}
+                            height={gridPixelH}
+                            fill="#142033"
+                            listening={false}
                         />
+                    )}
+                    {fogOverlay}
+                    {gridLines}
+                    {renderObjects.map((obj) => (
+                        <ObjectShape key={obj.id} obj={obj} cellSize={grid.cellSize} offsetX={grid.offsetX} offsetY={grid.offsetY} />
                     ))}
-                </Layer>
-
-                {/* Tokens */}
-                <Layer>
-                    {renderTokens.map((token: TokenDto) => (
+                    {renderTokens.map((token) => (
                         <TokenShape
                             key={token.id}
                             token={token}
-                            isMyToken={token.ownerId === myPlayerId}
+                            isMyToken={token.ownerId != null && token.ownerId === myPlayerId}
                             isDm={isDm}
-                            isSelected={token.id === selectedTokenId}
+                            isSelected={selectedTokenId === token.id}
                             cellSize={grid.cellSize}
                             offsetX={grid.offsetX}
                             offsetY={grid.offsetY}
-                            onSelect={handleSelectToken}
+                            onSelect={setSelectedTokenId}
                             onDragStart={handleTokenDragStart}
                             onDragEnd={handleDragEnd}
                         />
@@ -1069,3 +835,4 @@ const BattleMap: React.FC = () => {
 };
 
 export default BattleMap;
+
