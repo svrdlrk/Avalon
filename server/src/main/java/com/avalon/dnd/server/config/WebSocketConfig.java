@@ -15,8 +15,8 @@ import java.util.stream.Collectors;
 @EnableWebSocketMessageBroker
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
-    @Value("${app.cors.allowed-origins:http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173}")
-    private String allowedOrigins;
+    @Value("${app.cors.allowed-origin-patterns:http://*:5173,http://*:4173}")
+    private String allowedOriginPatterns;
 
     @Override
     public void configureMessageBroker(MessageBrokerRegistry config) {
@@ -28,19 +28,18 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
         registry.addEndpoint("/ws")
-                .setAllowedOrigins(resolveAllowedOrigins())
+                .setAllowedOriginPatterns("*")
                 .withSockJS();
     }
 
-    private String[] resolveAllowedOrigins() {
-        if (!StringUtils.hasText(allowedOrigins)) {
-            return new String[] {"http://localhost:5173"};
+    private String[] resolveAllowedOriginPatterns() {
+        if (!StringUtils.hasText(allowedOriginPatterns)) {
+            return new String[]{"http://*:5173"};
         }
-        return Arrays.stream(allowedOrigins.split(","))
+        return Arrays.stream(allowedOriginPatterns.split(","))
                 .map(String::trim)
                 .filter(StringUtils::hasText)
-                .collect(Collectors.toList())
-                .toArray(new String[0]);
+                .toArray(String[]::new);
     }
 
 }

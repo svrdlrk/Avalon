@@ -17,7 +17,7 @@ final class MapBattleRulesFogSupport {
     static FogSnapshot snapshot(JsonNode fogSettings, int sharedVisionFallback) {
         Map<String, Object> fogMap = JsonPayloads.toMap(fogSettings);
         if (fogMap.isEmpty()) {
-            return new FogSnapshot(false, false, false, false, Math.max(0, sharedVisionFallback));
+            return new FogSnapshot(true, true, false, false, Math.max(0, sharedVisionFallback));
         }
         boolean enabled = readBoolean(fogMap, "fogEnabled", "enabled", "isEnabled", "fog", "active", "visibilityEnabled");
         boolean revealFromTokens = readBoolean(fogMap, "revealFromTokens", "revealTokens", "tokensReveal", "showFromTokens");

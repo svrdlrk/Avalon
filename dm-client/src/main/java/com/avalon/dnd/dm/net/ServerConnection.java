@@ -605,4 +605,26 @@ public class ServerConnection {
         if (comma >= 0) normalized = normalized.substring(0, comma).trim();
         return normalized;
     }
+
+    public void setFogEnabled(String serverUrl, String sessionId,
+                              boolean enabled, Consumer<Boolean> onDone) {
+        String baseUrl = normalizeServerUrl(serverUrl);
+        runAsync("dm-fog", () -> {
+            try {
+                HttpUrl url = HttpUrl.parse(baseUrl + "/api/session/" + sessionId + "/fog")
+                        .newBuilder()
+                        .addQueryParameter("enabled", String.valueOf(enabled))
+                        .addQueryParameter("revealFromTokens", "true")
+                        .build();
+                try (Response r = httpClient.newCall(
+                        new Request.Builder().url(url)
+                                .post(RequestBody.create(new byte[0])).build()).execute()) {
+                    Platform.runLater(() -> onDone.accept(r.isSuccessful()));
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+                Platform.runLater(() -> onDone.accept(false));
+            }
+        });
+    }
 }

@@ -630,7 +630,8 @@ const BattleMap: React.FC = () => {
     }, [grid.cellSize, grid.offsetX, grid.offsetY, grid.rows, grid.cols, gridPixelH, gridPixelW, visibleBounds.left, visibleBounds.top, visibleBounds.right, visibleBounds.bottom]);
 
     const fogOverlay = useMemo(() => {
-        if (isDm || !visibleCells) return [];
+        if (isDm) return [];
+
         const leftCol = Math.max(0, Math.floor((visibleBounds.left - grid.offsetX) / grid.cellSize) - 1);
         const rightCol = Math.min(grid.cols - 1, Math.ceil((visibleBounds.right - grid.offsetX) / grid.cellSize) + 1);
         const topRow = Math.max(0, Math.floor((visibleBounds.top - grid.offsetY) / grid.cellSize) - 1);
@@ -639,7 +640,10 @@ const BattleMap: React.FC = () => {
 
         for (let row = topRow; row <= bottomRow; row++) {
             for (let col = leftCol; col <= rightCol; col++) {
-                const visible = Boolean(visibleCells[row]?.[col]);
+                // Ключевое изменение: null visibleCells → все клетки закрыты туманом
+                const visible = visibleCells != null
+                    ? Boolean(visibleCells[row]?.[col])
+                    : false;
                 if (visible) continue;
                 const explored = exploredCells.has(cellKey(row, col));
                 const x = grid.offsetX + col * grid.cellSize;
@@ -657,7 +661,6 @@ const BattleMap: React.FC = () => {
                 );
             }
         }
-
         return nodes;
     }, [exploredCells, grid.cellSize, grid.cols, grid.offsetX, grid.offsetY, grid.rows, isDm, visibleCells, visibleBounds.left, visibleBounds.top, visibleBounds.right, visibleBounds.bottom]);
 

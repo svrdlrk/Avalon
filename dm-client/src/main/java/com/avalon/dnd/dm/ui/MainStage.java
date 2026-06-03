@@ -731,7 +731,31 @@ public class MainStage {
         });
         FlowPane row = DmUiControls.flowRow(8, 8, new Label("cols:"), cols, new Label("rows:"), rows,
                 new Label("cell px:"), cell, applyBtn, new Separator(), uploadBtn, importMapBtn, upSt);
-        tab.setContent(row); return tab;
+        tab.setContent(row);
+        ToggleButton fogBtn = new ToggleButton("🌫 Туман: ВЫКЛ");
+        fogBtn.getStyleClass().add("dm-nav-toggle");
+        Label fogStatus = new Label("");
+
+        fogBtn.setOnAction(e -> {
+            boolean on = fogBtn.isSelected();
+            fogBtn.setText(on ? "🌫 Туман: ВКЛ" : "🌫 Туман: ВЫКЛ");
+            fogStatus.setText("...");
+            ServerConnection.getInstance().setFogEnabled(
+                    currentServerUrl, sessionId, on,
+                    ok -> fogStatus.setText(ok
+                            ? (on ? "✅ Туман включён" : "☀ Туман выключен")
+                            : "❌ Ошибка")
+            );
+        });
+
+        FlowPane gridRow = DmUiControls.flowRow(8, 8,
+                new Label("cols:"), cols, new Label("rows:"), rows,
+                new Label("cell px:"), cell, applyBtn,
+                new Separator(), uploadBtn, importMapBtn, upSt);
+        FlowPane fogRow = DmUiControls.flowRow(8, 8, fogBtn, fogStatus);
+
+        tab.setContent(new VBox(gridRow, new Separator(), fogRow));
+        return tab;
     }
 
     // ================================================================ Tab: ❤ HP

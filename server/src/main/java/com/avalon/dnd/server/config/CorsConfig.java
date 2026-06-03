@@ -14,42 +14,26 @@ import java.util.stream.Collectors;
 @Configuration
 public class CorsConfig {
 
-    @Value("${app.cors.allowed-origins:http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173}")
-    private String allowedOrigins;
-
     @Bean
     public WebMvcConfigurer corsConfigurer() {
         return new WebMvcConfigurer() {
             @Override
             public void addCorsMappings(CorsRegistry registry) {
-                String[] origins = resolveAllowedOrigins();
-
                 registry.addMapping("/api/**")
-                        .allowedOrigins(origins)
+                        .allowedOriginPatterns("*")   // ← было allowedOrigins(origins)
                         .allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
                         .allowedHeaders("*");
 
                 registry.addMapping("/assets/**")
-                        .allowedOrigins(origins)
+                        .allowedOriginPatterns("*")
                         .allowedMethods("GET", "OPTIONS")
                         .allowedHeaders("*");
 
                 registry.addMapping("/uploads/**")
-                        .allowedOrigins(origins)
+                        .allowedOriginPatterns("*")
                         .allowedMethods("GET", "OPTIONS")
                         .allowedHeaders("*");
             }
         };
-    }
-
-    private String[] resolveAllowedOrigins() {
-        if (!StringUtils.hasText(allowedOrigins)) {
-            return new String[] {"http://localhost:5173"};
-        }
-        List<String> origins = Arrays.stream(allowedOrigins.split(","))
-                .map(String::trim)
-                .filter(StringUtils::hasText)
-                .collect(Collectors.toList());
-        return origins.toArray(new String[0]);
     }
 }
