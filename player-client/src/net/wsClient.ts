@@ -3,8 +3,12 @@ import SockJS from 'sockjs-client';
 import { useGameStore } from '../store/gameStore';
 import { DEFAULT_SERVER_BASE_URL, normalizeServerBaseUrl } from '../config/runtime';
 import type {
+    InitiativeStateDto,
     MapLayoutUpdateDto,
+    MapObjectDto,
+    PlayerDto,
     SessionStateDto,
+    TokenDto,
     WsMessage,
 } from '../types/types';
 
@@ -15,6 +19,7 @@ class WsClient {
     private serverBaseUrl = DEFAULT_SERVER_BASE_URL;
     private onConnectedCallback: (() => void) | null = null;
     private connectedOnce = false;
+    private privateSubscriptionKey: string | null = null;
     // ---------------------------------------------------------------- helpers
 
     /**
@@ -29,23 +34,82 @@ class WsClient {
         return s;
     }
 
+    private createJoinNonce(): string {
+        if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+            return crypto.randomUUID();
+        }
+        const bytes = new Uint8Array(16);
+        if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+            crypto.getRandomValues(bytes);
+        } else {
+            for (let i = 0; i < bytes.length; i++) {
+                bytes[i] = Math.floor(Math.random() * 256);
+            }
+        }
+        bytes[6] = (bytes[6] & 0x0f) | 0x40;
+        bytes[8] = (bytes[8] & 0x3f) | 0x80;
+        const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0'));
+        return `${hex.slice(0, 4).join('')}-${hex.slice(4, 6).join('')}-${hex.slice(6, 8).join('')}-${hex.slice(8, 10).join('')}-${hex.slice(10).join('')}`;
+    }
+
     private applySessionState(msg: WsMessage<SessionStateDto>, sid: string) {
         const state   = msg.payload;
         this.playerId = state.myPlayerId;
         useGameStore.getState().applyState(state, sid);
     }
 
+    private handleSessionMessage(msg: WsMessage<unknown>, sid: string) {
+        const store = useGameStore.getState();
+        switch (msg.type) {
+            case 'SESSION_STATE':
+                this.applySessionState(msg as WsMessage<SessionStateDto>, sid);
+                this.subscribePrivateChannel(sid);
+                break;
+            case 'MAP_UPDATED':
+                store.applyMapLayoutUpdate(msg.payload as MapLayoutUpdateDto);
+                break;
+            case 'TOKEN_MOVED':
+            case 'TOKEN_ADDED':
+            case 'TOKEN_ASSIGNED':
+            case 'TOKEN_HP':
+                store.moveToken(msg.payload as TokenDto);
+                break;
+            case 'TOKEN_REMOVED':
+                store.removeToken(msg.payload as string);
+                break;
+            case 'MAP_OBJECT_ADDED':
+                store.addObject(msg.payload as MapObjectDto);
+                break;
+            case 'MAP_OBJECT_REMOVED':
+                store.removeObject(msg.payload as string);
+                break;
+            case 'PLAYER_JOINED':
+                store.addPlayer(msg.payload as PlayerDto);
+                break;
+            case 'PLAYER_LEFT':
+                store.removePlayer(msg.payload as string);
+                break;
+            case 'MAP_BACKGROUND_UPDATED':
+                store.setBackground(msg.payload as string | null);
+                break;
+            case 'INITIATIVE_UPDATED':
+                store.setInitiative(msg.payload as InitiativeStateDto);
+                break;
+            default:
+                break;
+        }
+    }
+
     private subscribePrivateChannel(sid: string) {
         if (!this.client?.connected || !this.playerId) return;
+        const key = `${sid}:${this.playerId}`;
+        if (this.privateSubscriptionKey === key) return;
+        this.privateSubscriptionKey = key;
         this.client.subscribe(
             `/topic/session/${sid}/private/${this.playerId}`,
             (frame) => {
                 const msg: WsMessage<unknown> = JSON.parse(frame.body);
-                if (msg.type === 'SESSION_STATE') {
-                    this.applySessionState(msg as WsMessage<SessionStateDto>, sid);
-                } else if (msg.type === 'MAP_UPDATED') {
-                    useGameStore.getState().applyMapLayoutUpdate(msg.payload as MapLayoutUpdateDto);
-                }
+                this.handleSessionMessage(msg, sid);
             },
         );
     }
@@ -69,7 +133,8 @@ class WsClient {
         this.sessionId = cleanSessionId;
         this.playerId  = null;
         this.serverBaseUrl = this.normalizeServerUrl(serverUrl);
-        const joinNonce = crypto.randomUUID();
+        this.privateSubscriptionKey = null;
+        const joinNonce = this.createJoinNonce();
 
         this.client = new Client({
             webSocketFactory: () => new SockJS(`${this.serverBaseUrl}/ws`),
@@ -77,6 +142,13 @@ class WsClient {
 
             onConnect: () => {
                 console.log("CONNECTED");
+                this.client!.subscribe(
+                    `/topic/session/${cleanSessionId}`,
+                    (frame) => {
+                        const msg: WsMessage<unknown> = JSON.parse(frame.body);
+                        this.handleSessionMessage(msg, cleanSessionId);
+                    },
+                );
                 // One-time join channel
                 this.client!.subscribe(
                     `/topic/session/${cleanSessionId}/join/${joinNonce}`,
@@ -151,6 +223,7 @@ class WsClient {
         this.sessionId = null;
         this.playerId = null;
         this.connectedOnce = false;
+        this.privateSubscriptionKey = null;
         this.onConnectedCallback = null;
     }
 

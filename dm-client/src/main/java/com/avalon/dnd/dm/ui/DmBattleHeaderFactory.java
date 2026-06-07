@@ -62,7 +62,9 @@ public final class DmBattleHeaderFactory {
         copySessionBtn.setOnAction(e -> copyToClipboard.accept(sessionId));
 
         Button copyPlayerBtn = new Button("Copy player URL");
-        copyPlayerBtn.setOnAction(e -> copyToClipboard.accept(resolvePlayerClientBase(playerUrlSupplier == null ? null : playerUrlSupplier.get())));
+        copyPlayerBtn.setOnAction(e -> copyToClipboard.accept(buildPlayerSessionUrl(
+                resolvePlayerClientBase(playerUrlSupplier == null ? null : playerUrlSupplier.get()),
+                sessionId)));
 
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
@@ -121,5 +123,15 @@ public final class DmBattleHeaderFactory {
     private static String resolvePlayerClientBase(String value) {
         String normalized = value == null ? "" : value.trim();
         return normalized.isEmpty() ? RuntimeConfig.defaultPlayerClientUrl() : normalized;
+    }
+
+    private static String buildPlayerSessionUrl(String base, String sessionId) {
+        String normalizedBase = resolvePlayerClientBase(base).replaceAll("/+$", "");
+        String sid = sessionId == null ? "" : sessionId.trim();
+        if (sid.isBlank()) {
+            return normalizedBase;
+        }
+        String separator = normalizedBase.contains("?") ? "&" : "?";
+        return normalizedBase + separator + "sessionId=" + java.net.URLEncoder.encode(sid, java.nio.charset.StandardCharsets.UTF_8);
     }
 }

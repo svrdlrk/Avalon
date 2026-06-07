@@ -49,6 +49,7 @@ public class DevLauncher {
         Runtime.getRuntime().addShutdownHook(new Thread(DevLauncher::shutdownAll, "avalon-shutdown"));
         startCleanupWatchdog(root, launcherSession);
 
+        ensurePortFree(SERVER_PORT, "server");
         ensurePortFree(PLAYER_PORT, "player-client");
 
         startServer(root);

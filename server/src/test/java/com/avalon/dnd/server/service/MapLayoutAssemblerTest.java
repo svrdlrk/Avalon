@@ -10,7 +10,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class MapLayoutAssemblerTest {
 
     @Test
-    void nonDmLayoutRedactsHiddenSceneLayers() {
+    void nonDmLayoutRedactsDmOnlySceneLayersButKeepsBattleGeometry() {
         SessionService sessionService = new SessionService();
         GameSession session = sessionService.createSession();
         session.setGrid(new GridConfig(32, 12, 10));
@@ -28,8 +28,8 @@ class MapLayoutAssemblerTest {
         assertNotNull(layout);
         assertEquals("/assets/maps/orcs.png", layout.getBackgroundUrl());
         assertNull(layout.getReferenceOverlayLayer());
-        assertNull(layout.getTerrainLayer());
-        assertNull(layout.getWallLayer());
+        assertNotNull(layout.getTerrainLayer());
+        assertNotNull(layout.getWallLayer());
         assertNull(layout.getFogSettings());
         assertTrue(layout.getMicroLocations() == null || layout.getMicroLocations().isEmpty());
         assertTrue(layout.getAssetPackIds() == null || layout.getAssetPackIds().isEmpty());

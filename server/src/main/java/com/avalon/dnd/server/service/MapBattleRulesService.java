@@ -83,11 +83,9 @@ public class MapBattleRulesService {
             return false;
         }
 
-        // Only validate the destination rectangle here. Path-based blocking
-        // caused overly strict rejections on imported maps (especially when
-        // walls/terrain metadata is dense). The destination still cannot land
-        // inside blocked geometry or overlap other tokens.
-        return true;
+        return !intersectsWallSegment(session, token.getCol(), token.getRow(), size, toCol, toRow, true)
+                && MapBattleRulesGeometrySupport.hasLineOfSight(token.getCol() + size / 2, token.getRow() + size / 2,
+                toCol + size / 2, toRow + size / 2, blocked);
     }
 
     public boolean isAreaClear(GameSession session, int col, int row, int width, int height) {
@@ -446,7 +444,7 @@ public class MapBattleRulesService {
                     int dx = col - source.xFloor();
                     int dy = row - source.yFloor();
                     if (dx * dx + dy * dy > radiusSq) continue;
-                    if (MapBattleRulesGeometrySupport.hasLineOfSight(source.xFloor(), source.yFloor(), col, row, blockers)) {
+                    if (hasLineOfSight(session, source.xFloor(), source.yFloor(), col, row, blockers)) {
                         visible[row][col] = true;
                     }
                 }
@@ -714,6 +712,85 @@ public class MapBattleRulesService {
         }
 
         return blocked;
+    }
+
+    private boolean hasLineOfSight(GameSession session, int startCol, int startRow, int endCol, int endRow, boolean[][] blockers) {
+        return MapBattleRulesGeometrySupport.hasLineOfSight(startCol, startRow, endCol, endRow, blockers)
+                && !intersectsWallSegment(session, startCol, startRow, 1, endCol, endRow, false);
+    }
+
+    private boolean intersectsWallSegment(GameSession session,
+                                          int fromCol,
+                                          int fromRow,
+                                          int tokenSize,
+                                          int toCol,
+                                          int toRow,
+                                          boolean forMovement) {
+        if (session == null || session.getGrid() == null) {
+            return false;
+        }
+        GridConfig grid = session.getGrid();
+        double cellSize = Math.max(1.0, grid.getCellSize());
+        double ax = grid.getOffsetX() + (fromCol + Math.max(1, tokenSize) / 2.0) * cellSize;
+        double ay = grid.getOffsetY() + (fromRow + Math.max(1, tokenSize) / 2.0) * cellSize;
+        double bx = grid.getOffsetX() + (toCol + Math.max(1, tokenSize) / 2.0) * cellSize;
+        double by = grid.getOffsetY() + (toRow + Math.max(1, tokenSize) / 2.0) * cellSize;
+        Map<String, Object> wallMap = JsonPayloads.toMap(session.getWallLayer());
+        Object paths = wallMap.get("paths");
+        if (!(paths instanceof List<?> list)) {
+            return false;
+        }
+        for (Object pathObj : list) {
+            if (!(pathObj instanceof Map<?, ?> path)) continue;
+            boolean blocks = forMovement
+                    ? MapBattleRulesGeometrySupport.readBoolean(path.get("blocksMovement"), true)
+                    : MapBattleRulesGeometrySupport.readBoolean(path.get("blocksSight"), MapBattleRulesGeometrySupport.readBoolean(path.get("blocksMovement"), true));
+            if (!blocks) continue;
+            Object points = path.get("points");
+            if (!(points instanceof List<?> pts) || pts.size() < 2) continue;
+            Map<?, ?> prev = null;
+            for (Object p : pts) {
+                if (!(p instanceof Map<?, ?> pm)) continue;
+                if (prev != null) {
+                    double wx1 = MapBattleRulesGeometrySupport.readDouble(prev.get("x"), 0.0);
+                    double wy1 = MapBattleRulesGeometrySupport.readDouble(prev.get("y"), 0.0);
+                    double wx2 = MapBattleRulesGeometrySupport.readDouble(pm.get("x"), 0.0);
+                    double wy2 = MapBattleRulesGeometrySupport.readDouble(pm.get("y"), 0.0);
+                    if (segmentsIntersect(ax, ay, bx, by, wx1, wy1, wx2, wy2)) {
+                        return true;
+                    }
+                }
+                prev = pm;
+            }
+        }
+        return false;
+    }
+
+    private static boolean segmentsIntersect(double ax, double ay, double bx, double by,
+                                             double cx, double cy, double dx, double dy) {
+        double o1 = orientation(ax, ay, bx, by, cx, cy);
+        double o2 = orientation(ax, ay, bx, by, dx, dy);
+        double o3 = orientation(cx, cy, dx, dy, ax, ay);
+        double o4 = orientation(cx, cy, dx, dy, bx, by);
+        if (((o1 > 0 && o2 < 0) || (o1 < 0 && o2 > 0))
+                && ((o3 > 0 && o4 < 0) || (o3 < 0 && o4 > 0))) {
+            return true;
+        }
+        return isOnSegment(ax, ay, bx, by, cx, cy)
+                || isOnSegment(ax, ay, bx, by, dx, dy)
+                || isOnSegment(cx, cy, dx, dy, ax, ay)
+                || isOnSegment(cx, cy, dx, dy, bx, by);
+    }
+
+    private static double orientation(double ax, double ay, double bx, double by, double px, double py) {
+        return (bx - ax) * (py - ay) - (by - ay) * (px - ax);
+    }
+
+    private static boolean isOnSegment(double ax, double ay, double bx, double by, double px, double py) {
+        double epsilon = 0.000001;
+        return Math.abs(orientation(ax, ay, bx, by, px, py)) <= epsilon
+                && px >= Math.min(ax, bx) - epsilon && px <= Math.max(ax, bx) + epsilon
+                && py >= Math.min(ay, by) - epsilon && py <= Math.max(ay, by) + epsilon;
     }
     private record VisibilitySource(double x, double y, int radius) {
         int xFloor() { return (int) Math.floor(x); }

@@ -4,6 +4,10 @@ export function resolveDefaultServerBaseUrl(): string {
         return envUrl;
     }
 
+    if (import.meta.env.DEV && typeof window !== 'undefined' && window.location?.origin) {
+        return window.location.origin;
+    }
+
     if (typeof window !== 'undefined' && window.location?.hostname) {
         return `http://${window.location.hostname}:8080`;
     }
@@ -29,7 +33,14 @@ export function normalizeServerBaseUrl(input: string | null | undefined): string
     try {
         const origin = new URL(candidate).origin;
         if (typeof window !== 'undefined' && window.location?.hostname) {
-            const candidateHost = new URL(candidate).hostname;
+            const parsedCandidate = new URL(candidate);
+            const candidateHost = parsedCandidate.hostname;
+            if (import.meta.env.DEV
+                && window.location.origin
+                && (isLoopbackHost(candidateHost)
+                    || (candidateHost === window.location.hostname && (parsedCandidate.port === '' || parsedCandidate.port === '8080')))) {
+                return window.location.origin;
+            }
             if (isLoopbackHost(candidateHost) && !isLoopbackHost(window.location.hostname)) {
                 return `http://${window.location.hostname}:8080`;
             }

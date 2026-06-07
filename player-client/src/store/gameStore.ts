@@ -26,6 +26,8 @@ interface GameState {
     backgroundUrl: string | null;
     initiative: InitiativeStateDto | null;
     visibility: VisibilityStateDto | null;
+    terrainLayer: MapLayoutUpdateDto['terrainLayer'] | null;
+    wallLayer: MapLayoutUpdateDto['wallLayer'] | null;
 
     applyState: (state: SessionStateDto, sessionId: string) => void;
     applyMapLayoutUpdate: (dto: MapLayoutUpdateDto) => void;
@@ -52,6 +54,8 @@ export const useGameStore = create<GameState>((set) => ({
     backgroundUrl: null,
     initiative: null,
     visibility: null,
+    terrainLayer: null,
+    wallLayer: null,
 
     applyState: (state, sessionId) =>
         set((current) => ({
@@ -68,6 +72,8 @@ export const useGameStore = create<GameState>((set) => ({
             backgroundUrl: resolveBackgroundUrl(state.backgroundUrl ?? null),
             initiative: state.initiative ?? null,
             visibility: state.visibility ?? null,
+            terrainLayer: state.terrainLayer ?? null,
+            wallLayer: state.wallLayer ?? null,
         })),
 
     applyMapLayoutUpdate: (dto) =>
@@ -77,6 +83,8 @@ export const useGameStore = create<GameState>((set) => ({
             objects: dto.objects ? Object.fromEntries(dto.objects.map((o) => [o.id, o])) : current.objects,
             backgroundUrl: resolveBackgroundUrl(dto.backgroundUrl ?? current.backgroundUrl),
             visibility: dto.visibility ?? current.visibility,
+            terrainLayer: dto.terrainLayer ?? current.terrainLayer,
+            wallLayer: dto.wallLayer ?? current.wallLayer,
         })),
 
     moveToken: (token) =>

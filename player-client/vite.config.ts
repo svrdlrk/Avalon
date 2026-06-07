@@ -17,6 +17,14 @@ export default defineConfig(({ mode }) => {
                     changeOrigin: true,
                     ws: true,
                 },
+                '/api': {
+                    target,
+                    changeOrigin: true,
+                },
+                '/uploads': {
+                    target,
+                    changeOrigin: true,
+                },
                 '/sockjs': {
                     target,
                     changeOrigin: true,

@@ -3,7 +3,7 @@ import {
     Stage, Layer, Rect, Line, Circle, Text, Group, Image as KonvaImage,
 } from 'react-konva';
 import { useGameStore } from '../store/gameStore';
-import type { TokenDto, MapObjectDto } from '../types/types';
+import type { JsonValue, TokenDto, MapObjectDto, GridConfig } from '../types/types';
 import { wsClient } from '../net/wsClient';
 import useImage from '../hooks/useImage';
 import type Konva from 'konva';
@@ -57,6 +57,248 @@ function computeVisibleBounds(transform: StageTransform, viewport: { width: numb
 
 function itemBounds(x: number, y: number, width: number, height: number): ViewBounds {
     return { left: x, top: y, right: x + width, bottom: y + height };
+}
+
+type JsonRecord = Record<string, JsonValue>;
+
+type WallSegment = {
+    id: string;
+    points: number[];
+    thickness: number;
+    opacity: number;
+    blocksMovement: boolean;
+    blocksSight: boolean;
+};
+
+function isRecord(value: JsonValue | null | undefined): value is JsonRecord {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function asArray(value: JsonValue | null | undefined): JsonValue[] {
+    return Array.isArray(value) ? value : [];
+}
+
+function readBoolean(value: JsonValue | null | undefined, fallback: boolean): boolean {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'string') return value.trim().toLowerCase() === 'true';
+    return fallback;
+}
+
+function readNumber(value: JsonValue | null | undefined, fallback: number): number {
+    return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+function createBlockedCells(grid: GridConfig): boolean[][] {
+    return Array.from({ length: Math.max(0, grid.rows) }, () => Array<boolean>(Math.max(0, grid.cols)).fill(false));
+}
+
+function markRect(blocked: boolean[][], col: number, row: number, width: number, height: number) {
+    for (let r = Math.max(0, row); r < Math.min(blocked.length, row + height); r++) {
+        for (let c = Math.max(0, col); c < Math.min(blocked[r]?.length ?? 0, col + width); c++) {
+            blocked[r][c] = true;
+        }
+    }
+}
+
+function lineCells(startCol: number, startRow: number, endCol: number, endRow: number): Array<{ col: number; row: number }> {
+    const cells: Array<{ col: number; row: number }> = [];
+    let x = startCol;
+    let y = startRow;
+    const dx = Math.abs(endCol - startCol);
+    const dy = Math.abs(endRow - startRow);
+    const sx = startCol < endCol ? 1 : -1;
+    const sy = startRow < endRow ? 1 : -1;
+    let err = dx - dy;
+
+    while (true) {
+        cells.push({ col: x, row: y });
+        if (x === endCol && y === endRow) break;
+        const e2 = 2 * err;
+        if (e2 > -dy) {
+            err -= dy;
+            x += sx;
+        }
+        if (e2 < dx) {
+            err += dx;
+            y += sy;
+        }
+    }
+
+    return cells;
+}
+
+function markSegment(blocked: boolean[][], grid: GridConfig, ax: number, ay: number, bx: number, by: number, expand: number) {
+    const cellSize = Math.max(1, grid.cellSize);
+    const startCol = Math.floor((ax - grid.offsetX) / cellSize);
+    const startRow = Math.floor((ay - grid.offsetY) / cellSize);
+    const endCol = Math.floor((bx - grid.offsetX) / cellSize);
+    const endRow = Math.floor((by - grid.offsetY) / cellSize);
+
+    for (const cell of lineCells(startCol, startRow, endCol, endRow)) {
+        for (let row = cell.row - expand; row <= cell.row + expand; row++) {
+            if (row < 0 || row >= blocked.length) continue;
+            for (let col = cell.col - expand; col <= cell.col + expand; col++) {
+                if (col < 0 || col >= (blocked[row]?.length ?? 0)) continue;
+                blocked[row][col] = true;
+            }
+        }
+    }
+}
+
+function buildTerrainBlockedCells(grid: GridConfig, terrainLayer: JsonValue | null | undefined, forSight: boolean): boolean[][] {
+    const blocked = createBlockedCells(grid);
+    if (!isRecord(terrainLayer)) return blocked;
+
+    for (const cellValue of asArray(terrainLayer.cells)) {
+        if (!isRecord(cellValue)) continue;
+        const blocks = forSight
+            ? readBoolean(cellValue.blocksSight, readBoolean(cellValue.blocksMovement, false))
+            : readBoolean(cellValue.blocksMovement, false);
+        if (!blocks) continue;
+
+        markRect(
+            blocked,
+            Math.trunc(readNumber(cellValue.col, 0)),
+            Math.trunc(readNumber(cellValue.row, 0)),
+            Math.max(1, Math.trunc(readNumber(cellValue.width, 1))),
+            Math.max(1, Math.trunc(readNumber(cellValue.height, 1))),
+        );
+    }
+
+    return blocked;
+}
+
+function extractWallSegments(wallLayer: JsonValue | null | undefined): WallSegment[] {
+    if (!isRecord(wallLayer)) return [];
+    const layerOpacity = Math.max(0, Math.min(1, readNumber(wallLayer.opacity, 1)));
+
+    return asArray(wallLayer.paths).flatMap((pathValue, index) => {
+        if (!isRecord(pathValue)) return [];
+        const pointPairs = asArray(pathValue.points)
+            .filter(isRecord)
+            .map((point) => ({
+                x: readNumber(point.x, Number.NaN),
+                y: readNumber(point.y, Number.NaN),
+            }))
+            .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y));
+
+        if (pointPairs.length < 2) return [];
+        return [{
+            id: typeof pathValue.id === 'string' && pathValue.id.trim() ? pathValue.id : `wall-${index}`,
+            points: pointPairs.flatMap((point) => [point.x, point.y]),
+            thickness: Math.max(0.5, readNumber(pathValue.thickness, readNumber(wallLayer.defaultThickness, 2.5))),
+            opacity: Math.max(0, Math.min(1, readNumber(pathValue.opacity, 1) * layerOpacity)),
+            blocksMovement: readBoolean(pathValue.blocksMovement, readBoolean(wallLayer.defaultBlocksMovement, true)),
+            blocksSight: readBoolean(pathValue.blocksSight, readBoolean(wallLayer.defaultBlocksSight, true)),
+        }];
+    });
+}
+
+function buildWallBlockedCells(grid: GridConfig, wallSegments: WallSegment[], forSight: boolean): boolean[][] {
+    const blocked = createBlockedCells(grid);
+    const cellSize = Math.max(1, grid.cellSize);
+
+    for (const wall of wallSegments) {
+        const blocks = forSight ? wall.blocksSight : wall.blocksMovement;
+        if (!blocks || wall.points.length < 4) continue;
+        const expand = Math.max(0, Math.ceil(wall.thickness / cellSize));
+        for (let i = 0; i <= wall.points.length - 4; i += 2) {
+            markSegment(blocked, grid, wall.points[i], wall.points[i + 1], wall.points[i + 2], wall.points[i + 3], expand);
+        }
+    }
+
+    return blocked;
+}
+
+function mergeBlockedCells(left: boolean[][], right: boolean[][]): boolean[][] {
+    const rows = Math.max(left.length, right.length);
+    const merged = Array.from({ length: rows }, (_, row) => {
+        const cols = Math.max(left[row]?.length ?? 0, right[row]?.length ?? 0);
+        return Array<boolean>(cols).fill(false);
+    });
+
+    for (let row = 0; row < rows; row++) {
+        for (let col = 0; col < merged[row].length; col++) {
+            merged[row][col] = Boolean(left[row]?.[col] || right[row]?.[col]);
+        }
+    }
+
+    return merged;
+}
+
+function intersectsBlocked(blocked: boolean[][], col: number, row: number, width: number, height: number): boolean {
+    for (let r = row; r < row + height; r++) {
+        if (r < 0 || r >= blocked.length) return true;
+        for (let c = col; c < col + width; c++) {
+            if (c < 0 || c >= (blocked[r]?.length ?? 0)) return true;
+            if (blocked[r][c]) return true;
+        }
+    }
+    return false;
+}
+
+function isBlockedCell(blocked: boolean[][], col: number, row: number): boolean {
+    return row < 0 || row >= blocked.length || col < 0 || col >= (blocked[row]?.length ?? 0) || Boolean(blocked[row][col]);
+}
+
+function hasClearMovementPath(blocked: boolean[][], startCol: number, startRow: number, endCol: number, endRow: number): boolean {
+    for (const cell of lineCells(startCol, startRow, endCol, endRow)) {
+        if (cell.col === startCol && cell.row === startRow) continue;
+        if (cell.col === endCol && cell.row === endRow) continue;
+        if (isBlockedCell(blocked, cell.col, cell.row)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+function orientation(ax: number, ay: number, bx: number, by: number, px: number, py: number): number {
+    return (bx - ax) * (py - ay) - (by - ay) * (px - ax);
+}
+
+function isOnSegment(ax: number, ay: number, bx: number, by: number, px: number, py: number): boolean {
+    const epsilon = 0.000001;
+    return Math.abs(orientation(ax, ay, bx, by, px, py)) <= epsilon
+        && px >= Math.min(ax, bx) - epsilon
+        && px <= Math.max(ax, bx) + epsilon
+        && py >= Math.min(ay, by) - epsilon
+        && py <= Math.max(ay, by) + epsilon;
+}
+
+function segmentsIntersect(ax: number, ay: number, bx: number, by: number, cx: number, cy: number, dx: number, dy: number): boolean {
+    const o1 = orientation(ax, ay, bx, by, cx, cy);
+    const o2 = orientation(ax, ay, bx, by, dx, dy);
+    const o3 = orientation(cx, cy, dx, dy, ax, ay);
+    const o4 = orientation(cx, cy, dx, dy, bx, by);
+
+    if (((o1 > 0 && o2 < 0) || (o1 < 0 && o2 > 0))
+        && ((o3 > 0 && o4 < 0) || (o3 < 0 && o4 > 0))) {
+        return true;
+    }
+
+    return isOnSegment(ax, ay, bx, by, cx, cy)
+        || isOnSegment(ax, ay, bx, by, dx, dy)
+        || isOnSegment(cx, cy, dx, dy, ax, ay)
+        || isOnSegment(cx, cy, dx, dy, bx, by);
+}
+
+function crossesBlockingWall(grid: GridConfig, wallSegments: WallSegment[], fromCol: number, fromRow: number, tokenSize: number, toCol: number, toRow: number): boolean {
+    const size = Math.max(1, tokenSize);
+    const ax = grid.offsetX + (fromCol + size / 2) * grid.cellSize;
+    const ay = grid.offsetY + (fromRow + size / 2) * grid.cellSize;
+    const bx = grid.offsetX + (toCol + size / 2) * grid.cellSize;
+    const by = grid.offsetY + (toRow + size / 2) * grid.cellSize;
+
+    for (const wall of wallSegments) {
+        if (!wall.blocksMovement || wall.points.length < 4) continue;
+        for (let i = 0; i <= wall.points.length - 4; i += 2) {
+            if (segmentsIntersect(ax, ay, bx, by, wall.points[i], wall.points[i + 1], wall.points[i + 2], wall.points[i + 3])) {
+                return true;
+            }
+        }
+    }
+
+    return false;
 }
 
 type TokenShapeProps = {
@@ -359,10 +601,14 @@ const BattleMap: React.FC = () => {
     const clearSelection = useGameStore((s) => s.clearSelection);
     const backgroundUrl = useGameStore((s) => s.backgroundUrl);
     const visibility = useGameStore((s) => s.visibility);
+    const terrainLayer = useGameStore((s) => s.terrainLayer);
+    const wallLayer = useGameStore((s) => s.wallLayer);
     const stageRef = useRef<Konva.Stage>(null);
     const gridRef = useRef(grid);
     const tokensRef = useRef(tokens);
     const objectsRef = useRef(objects);
+    const terrainLayerRef = useRef(terrainLayer);
+    const wallLayerRef = useRef(wallLayer);
     const [stageTransform, setStageTransform] = useState<StageTransform>({ x: 0, y: 0, scale: 1 });
     const stageTransformFrameRef = useRef<number | null>(null);
     const stageTransformPendingRef = useRef<StageTransform | null>(null);
@@ -384,6 +630,14 @@ const BattleMap: React.FC = () => {
     useEffect(() => {
         objectsRef.current = objects;
     }, [objects]);
+
+    useEffect(() => {
+        terrainLayerRef.current = terrainLayer;
+    }, [terrainLayer]);
+
+    useEffect(() => {
+        wallLayerRef.current = wallLayer;
+    }, [wallLayer]);
 
     useEffect(() => {
         const update = () => setViewport({
@@ -432,6 +686,7 @@ const BattleMap: React.FC = () => {
     }, [isDm, visibility]);
 
     const visibleBounds = useMemo(() => computeVisibleBounds(stageTransform, viewport), [stageTransform, viewport]);
+    const wallSegments = useMemo(() => extractWallSegments(wallLayer), [wallLayer]);
 
     const commitStageTransform = useCallback((next: StageTransform) => {
         stageTransformPendingRef.current = next;
@@ -715,6 +970,11 @@ const BattleMap: React.FC = () => {
 
         const currentTokens = tokensRef.current;
         const currentObjects = objectsRef.current;
+        const currentWallSegments = extractWallSegments(wallLayerRef.current);
+        const currentBlockedCells = mergeBlockedCells(
+            buildTerrainBlockedCells(gridValue, terrainLayerRef.current, false),
+            buildWallBlockedCells(gridValue, currentWallSegments, false),
+        );
 
         const collidesWithToken = Object.values(currentTokens).some((other) => {
             if (other.id === token.id) return false;
@@ -739,7 +999,15 @@ const BattleMap: React.FC = () => {
             );
         });
 
-        if (collidesWithToken || collidesWithObject) {
+        const fromCenterCol = token.col + Math.floor(gs / 2);
+        const fromCenterRow = token.row + Math.floor(gs / 2);
+        const toCenterCol = clampedCol + Math.floor(gs / 2);
+        const toCenterRow = clampedRow + Math.floor(gs / 2);
+        const collidesWithBattleGeometry = intersectsBlocked(currentBlockedCells, clampedCol, clampedRow, gs, gs)
+            || !hasClearMovementPath(currentBlockedCells, fromCenterCol, fromCenterRow, toCenterCol, toCenterRow)
+            || crossesBlockingWall(gridValue, currentWallSegments, token.col, token.row, gs, clampedCol, clampedRow);
+
+        if (collidesWithToken || collidesWithObject || collidesWithBattleGeometry) {
             node.position({
                 x: gridValue.offsetX + token.col * gridValue.cellSize,
                 y: gridValue.offsetY + token.row * gridValue.cellSize,
@@ -811,6 +1079,18 @@ const BattleMap: React.FC = () => {
                             listening={false}
                         />
                     )}
+                    {wallSegments.map((wall) => (
+                        <Line
+                            key={wall.id}
+                            points={wall.points}
+                            stroke={wall.blocksSight ? 'rgba(184, 74, 63, 0.9)' : 'rgba(214, 169, 88, 0.78)'}
+                            strokeWidth={Math.max(1.5, wall.thickness)}
+                            opacity={wall.opacity}
+                            lineCap="round"
+                            lineJoin="round"
+                            listening={false}
+                        />
+                    ))}
                     {fogOverlay}
                     {gridLines}
                     {renderObjects.map((obj) => (

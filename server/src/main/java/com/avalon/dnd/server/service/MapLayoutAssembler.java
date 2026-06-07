@@ -38,8 +38,8 @@ public class MapLayoutAssembler {
                 backgroundUrl,
                 visibility,
                 isDm && session != null ? session.getReferenceOverlayLayer() : null,
-                isDm && session != null ? session.getTerrainLayer() : null,
-                isDm && session != null ? session.getWallLayer() : null,
+                session != null ? session.getTerrainLayer() : null,
+                session != null ? session.getWallLayer() : null,
                 isDm && session != null ? session.getFogSettings() : null,
                 isDm && session != null ? session.getMicroLocations() : List.of(),
                 isDm && session != null ? session.getAssetPackIds() : List.of()

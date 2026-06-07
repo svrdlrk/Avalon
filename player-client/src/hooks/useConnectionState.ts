@@ -32,10 +32,13 @@ function readInitialConnectionState() {
     const savedSessionId = readSavedValue(STORAGE_KEYS.sessionId);
     const savedPlayerName = readSavedValue(STORAGE_KEYS.playerName);
     const savedAutoConnect = readSavedValue(STORAGE_KEYS.autoConnect, 'false');
+    const params = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+    const queryServerUrl = params?.get('serverUrl') ?? params?.get('server') ?? '';
+    const querySessionId = params?.get('sessionId') ?? params?.get('session') ?? '';
 
     return {
-        serverUrl: suggestServerBaseUrl(savedServerUrl),
-        sessionId: savedSessionId,
+        serverUrl: suggestServerBaseUrl(queryServerUrl || savedServerUrl),
+        sessionId: querySessionId || savedSessionId,
         playerName: savedPlayerName,
         autoConnect: savedAutoConnect === 'true',
     };
@@ -68,6 +71,8 @@ function resetGameStore() {
         backgroundUrl: null,
         initiative: null,
         visibility: null,
+        terrainLayer: null,
+        wallLayer: null,
     });
 }
 
