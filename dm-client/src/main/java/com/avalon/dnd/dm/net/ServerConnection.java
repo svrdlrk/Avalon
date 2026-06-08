@@ -371,7 +371,7 @@ public class ServerConnection {
             return false;
         }
         return switch (key) {
-            case "imageUrl", "imagePath", "image", "path", "file", "src", "url", "assetPath", "sprite", "thumbnail", "backgroundUrl" -> true;
+            case "imageUrl", "imagePath", "image", "file", "src", "url", "assetPath", "sprite", "thumbnail", "backgroundUrl" -> true;
             default -> false;
         };
     }

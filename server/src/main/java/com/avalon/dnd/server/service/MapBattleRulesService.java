@@ -26,6 +26,7 @@ import java.util.Set;
 
 import static com.avalon.dnd.server.service.MapBattleRulesFogSupport.isNightMode;
 import static com.avalon.dnd.server.service.MapBattleRulesFogSupport.resolveVisionRadius;
+import static com.avalon.dnd.server.service.MapBattleRulesGeometrySupport.firstNonNull;
 
 /**
  * Server-side gameplay rules derived from map-editor metadata.
@@ -675,7 +676,14 @@ public class MapBattleRulesService {
 
         Map<String, Object> wallMap = JsonPayloads.toMap(session.getWallLayer());
         if (!wallMap.isEmpty()) {
-            Object paths = wallMap.get("paths");
+            // map-editor может экспортировать под разными ключами
+            Object paths = firstNonNull(
+                    wallMap.get("paths"),
+                    wallMap.get("walls"),
+                    wallMap.get("segments"),
+                    wallMap.get("polylines"),
+                    wallMap.get("lines")
+            );
             if (paths instanceof List<?> list) {
                 double cellSize = Math.max(1.0, grid.getCellSize());
                 double ox = grid.getOffsetX();
@@ -688,7 +696,12 @@ public class MapBattleRulesService {
                     if (!blocks) continue;
                     double thickness = Math.max(0.5, MapBattleRulesGeometrySupport.readDouble(path.get("thickness"), 2.5));
                     int expand = Math.max(0, (int) Math.ceil(thickness / cellSize));
-                    Object points = path.get("points");
+                    Object points = MapBattleRulesGeometrySupport.firstNonNull(
+                            path.get("points"),
+                            path.get("vertices"),
+                            path.get("coords"),
+                            path.get("pts")
+                    );
                     if (!(points instanceof List<?> pts) || pts.size() < 2) continue;
                     Map<?, ?> prev = null;
                     for (Object p : pts) {

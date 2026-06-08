@@ -7,6 +7,8 @@ import com.avalon.dnd.server.service.SessionValidationService;
 import com.avalon.dnd.server.service.TokenService;
 import com.avalon.dnd.server.service.SessionService;
 import com.avalon.dnd.shared.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
@@ -14,6 +16,8 @@ import org.springframework.stereotype.Controller;
 
 @Controller
 public class TokenWsController {
+
+    private static final Logger log = LoggerFactory.getLogger(TokenWsController.class);
 
     private final TokenService tokenService;
     private final SessionService sessionService;
@@ -39,8 +43,13 @@ public class TokenWsController {
                           @Header("sessionId") String sessionId) {
         Player player = validationService.validateBound(sessionId, wsSessionId);
         GameSession session = getSession(sessionId);
-        Token updated = tokenService.moveToken(event, player);
-        broadcast(sessionId, session, WsEventType.TOKEN_MOVED, TokenService.toDto(updated));
+        try {
+            Token updated = tokenService.moveToken(event, player);
+            broadcast(sessionId, session, WsEventType.TOKEN_MOVED, TokenService.toDto(updated));
+        } catch (RuntimeException e) {
+            log.debug("[token.move] move rejected for token {} by player {}: {}",
+                    event.getTokenId(), player.getId(), e.getMessage());
+        }
         sessionWsController.broadcastSessionState(session);
     }
 

@@ -12,18 +12,11 @@ export default defineConfig(({ mode }) => {
             port: 5173,
             strictPort: true,
             proxy: {
+                // WebSocket / STOMP
                 '/ws': {
                     target,
                     changeOrigin: true,
                     ws: true,
-                },
-                '/api': {
-                    target,
-                    changeOrigin: true,
-                },
-                '/uploads': {
-                    target,
-                    changeOrigin: true,
                 },
                 '/sockjs': {
                     target,
@@ -39,8 +32,20 @@ export default defineConfig(({ mode }) => {
                     target,
                     changeOrigin: true,
                     ws: true,
-                }
-            }
-        }
+                },
+                // Static assets served by Spring Boot.
+                // Without this proxy, mobile devices (same WiFi, port 8080 blocked by
+                // Windows Firewall) cannot load map backgrounds or token images.
+                '/uploads': {
+                    target,
+                    changeOrigin: true,
+                },
+                // REST API (session create, save, server-info, asset catalog …)
+                '/api': {
+                    target,
+                    changeOrigin: true,
+                },
+            },
+        },
     }
 })
