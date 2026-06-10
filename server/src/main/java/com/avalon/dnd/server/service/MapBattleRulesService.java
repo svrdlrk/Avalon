@@ -749,7 +749,13 @@ public class MapBattleRulesService {
         double bx = grid.getOffsetX() + (toCol + Math.max(1, tokenSize) / 2.0) * cellSize;
         double by = grid.getOffsetY() + (toRow + Math.max(1, tokenSize) / 2.0) * cellSize;
         Map<String, Object> wallMap = JsonPayloads.toMap(session.getWallLayer());
-        Object paths = wallMap.get("paths");
+        Object paths = firstNonNull(
+                wallMap.get("paths"),
+                wallMap.get("walls"),
+                wallMap.get("segments"),
+                wallMap.get("polylines"),
+                wallMap.get("lines")
+        );
         if (!(paths instanceof List<?> list)) {
             return false;
         }
@@ -759,8 +765,15 @@ public class MapBattleRulesService {
                     ? MapBattleRulesGeometrySupport.readBoolean(path.get("blocksMovement"), true)
                     : MapBattleRulesGeometrySupport.readBoolean(path.get("blocksSight"), MapBattleRulesGeometrySupport.readBoolean(path.get("blocksMovement"), true));
             if (!blocks) continue;
-            Object points = path.get("points");
+
+            Object points = firstNonNull(
+                    path.get("points"),
+                    path.get("vertices"),
+                    path.get("coords"),
+                    path.get("pts")
+            );
             if (!(points instanceof List<?> pts) || pts.size() < 2) continue;
+
             Map<?, ?> prev = null;
             for (Object p : pts) {
                 if (!(p instanceof Map<?, ?> pm)) continue;

@@ -49,7 +49,7 @@ public class MapImportController {
                         extractBackgroundUrl(dto.getBackgroundLayer(), dto.getBackgroundUrl(), dto.getReferenceOverlayLayer())));
                 session.setReferenceOverlayLayer(dto.getReferenceOverlayLayer());
                 session.setTerrainLayer(dto.getTerrainLayer());
-                session.setWallLayer(dto.getWallLayer());
+                session.setWallLayer(normalizeWallLayer(dto.getWallLayer()));
                 session.setFogSettings(dto.getFogSettings());
                 session.setMicroLocations(dto.getMicroLocations());
                 session.setAssetPackIds(dto.getAssetPackIds());
@@ -147,5 +147,33 @@ public class MapImportController {
             }
         }
         return null;
+    }
+
+    private static JsonNode normalizeWallLayer(JsonNode wallLayer) {
+        if (wallLayer == null || wallLayer.isNull() || wallLayer.isMissingNode() || !wallLayer.isObject()) {
+            return wallLayer;
+        }
+
+        com.fasterxml.jackson.databind.node.ObjectNode root = wallLayer.deepCopy();
+        boolean defaultBlocksMovement = root.path("defaultBlocksMovement").asBoolean(true);
+        boolean defaultBlocksSight = root.path("defaultBlocksSight").asBoolean(true);
+
+        JsonNode pathsNode = root.get("paths");
+        if (pathsNode != null && pathsNode.isArray()) {
+            for (JsonNode pathNode : pathsNode) {
+                if (!(pathNode instanceof com.fasterxml.jackson.databind.node.ObjectNode path)) {
+                    continue;
+                }
+
+                if (path.get("blocksMovement") == null || path.get("blocksMovement").isNull()) {
+                    path.put("blocksMovement", defaultBlocksMovement);
+                }
+                if (path.get("blocksSight") == null || path.get("blocksSight").isNull()) {
+                    path.put("blocksSight", defaultBlocksSight);
+                }
+            }
+        }
+
+        return root;
     }
 }

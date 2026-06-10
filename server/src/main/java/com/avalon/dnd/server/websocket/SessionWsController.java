@@ -386,9 +386,21 @@ public class SessionWsController {
         }
         SharedSnapshotKey key = new SharedSnapshotKey(
                 session.getVersion(),
-                session.getVisibilityState(),
-                session.getVisibilityStatesByPlayer(),
-                session.getVisibilityShareSuggestions()
+                JsonPayloads.toNode(session.getVisibilityState()),
+                JsonPayloads.toNode(session.getVisibilityStatesByPlayer()),
+                JsonPayloads.toNode(session.getVisibilityShareSuggestions()),
+                JsonPayloads.toNode(session.getGrid()),
+                JsonPayloads.toNode(session.getTokens().values()),
+                JsonPayloads.toNode(session.getPlayers().values()),
+                JsonPayloads.toNode(session.getObjects().values()),
+                JsonPayloads.toNode(session.getBackgroundUrl()),
+                JsonPayloads.toNode(session.getInitiativeState()),
+                JsonPayloads.toNode(session.getReferenceOverlayLayer()),
+                JsonPayloads.toNode(session.getTerrainLayer()),
+                JsonPayloads.toNode(session.getWallLayer()),
+                JsonPayloads.toNode(session.getFogSettings()),
+                JsonPayloads.toNode(session.getMicroLocations()),
+                JsonPayloads.toNode(session.getAssetPackIds())
         );
         CachedSharedSnapshot cached = sharedSnapshotCache.get(session.getId());
         if (cached != null && cached.key().equals(key)) {
@@ -425,10 +437,24 @@ public class SessionWsController {
         );
     }
 
-    private record SharedSnapshotKey(long version,
-                                     Object visibilityState,
-                                     Object visibilityStatesByPlayer,
-                                     Object visibilityShareSuggestions) {}
+    private record SharedSnapshotKey(
+            long version,
+            JsonNode visibilityState,
+            JsonNode visibilityStatesByPlayer,
+            JsonNode visibilityShareSuggestions,
+            JsonNode grid,
+            JsonNode tokens,
+            JsonNode players,
+            JsonNode objects,
+            JsonNode backgroundUrl,
+            JsonNode initiativeState,
+            JsonNode referenceOverlayLayer,
+            JsonNode terrainLayer,
+            JsonNode wallLayer,
+            JsonNode fogSettings,
+            JsonNode microLocations,
+            JsonNode assetPackIds
+    ) {}
 
     private record CachedSharedSnapshot(SharedSnapshotKey key, SharedSessionSnapshot snapshot) {}
 

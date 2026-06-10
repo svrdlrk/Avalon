@@ -76,8 +76,8 @@ public class ClientState {
         this.grid = copyGrid(state.getGrid() != null ? state.getGrid() : this.grid);
         this.backgroundUrl = resolveBackgroundUrl(state.getBackgroundUrl(), state.getReferenceOverlayLayer());
         this.referenceOverlayLayer = state.getReferenceOverlayLayer();
-        this.terrainLayer = state.getTerrainLayer();
-        this.wallLayer = state.getWallLayer();
+        this.terrainLayer = state.getTerrainLayer() != null ? state.getTerrainLayer() : this.terrainLayer;
+        this.wallLayer = state.getWallLayer() != null ? state.getWallLayer() : this.wallLayer;
         this.fogSettings = state.getFogSettings();
         cacheOpaqueLayers();
         this.microLocations = new CopyOnWriteArrayList<>(safeList(state.getMicroLocations()));
@@ -100,8 +100,8 @@ public class ClientState {
         }
         this.backgroundUrl = resolveBackgroundUrl(dto.getBackgroundUrl(), dto.getReferenceOverlayLayer());
         this.referenceOverlayLayer = dto.getReferenceOverlayLayer();
-        this.terrainLayer = dto.getTerrainLayer();
-        this.wallLayer = dto.getWallLayer();
+        this.terrainLayer = dto.getTerrainLayer() != null ? dto.getTerrainLayer() : this.terrainLayer;
+        this.wallLayer = dto.getWallLayer() != null ? dto.getWallLayer() : this.wallLayer;
         this.fogSettings = dto.getFogSettings();
         cacheOpaqueLayers();
         this.assetPackIds = new CopyOnWriteArrayList<>(safeList(dto.getAssetPackIds()));

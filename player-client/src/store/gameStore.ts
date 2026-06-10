@@ -72,8 +72,8 @@ export const useGameStore = create<GameState>((set) => ({
             backgroundUrl: resolveBackgroundUrl(state.backgroundUrl ?? null),
             initiative: state.initiative ?? null,
             visibility: state.visibility ?? null,
-            terrainLayer: state.terrainLayer ?? null,
-            wallLayer: state.wallLayer ?? null,
+            terrainLayer: state.terrainLayer ?? current.terrainLayer,
+            wallLayer: state.wallLayer ?? current.wallLayer,
         })),
 
     applyMapLayoutUpdate: (dto) =>
