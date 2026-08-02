@@ -30,6 +30,7 @@ public class MainStage {
     private double mapZoom = 1.0;
 
     private String currentSessionId = "";
+    private String currentDmSecret = "";
     private String currentPlayerClientBase = RuntimeConfig.defaultPlayerClientUrl();
     private final Label sessionSummaryLabel = new Label("Session —");
     private final Label sessionCountsLabel = new Label("Players 0 • Tokens 0 • Objects 0");
@@ -161,8 +162,10 @@ public class MainStage {
                 if (url.isEmpty() || sid.isEmpty() || nm.isEmpty()) {
                     statusLbl.setText("⚠ Заполните все поля"); return;
                 }
-                currentServerUrl = url; statusLbl.setText("Подключение...");
-                loadCatalog(url, () -> ServerConnection.getInstance().connect(url, sid, nm, true, dmSecretField.getText().trim(),
+                currentServerUrl = url;
+                currentDmSecret = dmSecretField.getText().trim();
+                statusLbl.setText("Подключение...");
+                loadCatalog(url, () -> ServerConnection.getInstance().connect(url, sid, nm, true, currentDmSecret,
                         v -> Platform.runLater(() ->
                                 switchToBattleMap(playerClientField.getText().trim(), sid))));
             });
@@ -201,6 +204,7 @@ public class MainStage {
                 ServerConnection.getInstance().loadSession(url, sid, handle -> {
                     if (handle == null) { statusLbl.setText("❌ Ошибка"); return; }
                     currentServerUrl = url;
+                    currentDmSecret = handle.dmSecret();
                     loadCatalog(url, () -> ServerConnection.getInstance().connect(url, handle.id(), name, true, handle.dmSecret(),
                             v -> Platform.runLater(() ->
                                     switchToBattleMap(playerClientField.getText().trim(), handle.id()))));
@@ -545,6 +549,29 @@ public class MainStage {
         Label idLbl = new Label("ID: " + sessionId); idLbl.setStyle("-fx-font-family: monospace;");
         TextField nameField = new TextField("Моя сессия");
         Button saveBtn = new Button("💾 Сохранить"); Label saveStatus = new Label("");
+        Button projectorBtn = new Button("Copy projector link");
+        projectorBtn.setOnAction(e -> {
+            if (currentDmSecret == null || currentDmSecret.isBlank()) {
+                saveStatus.setText("DM secret is unavailable");
+                return;
+            }
+            projectorBtn.setDisable(true);
+            ServerConnection.getInstance().issueProjectorAccess(currentServerUrl, sessionId, currentDmSecret, access -> {
+                projectorBtn.setDisable(false);
+                if (access == null) {
+                    saveStatus.setText("Could not issue projector link");
+                    return;
+                }
+                String base = (currentPlayerClientBase == null || currentPlayerClientBase.isBlank()
+                        ? RuntimeConfig.defaultPlayerClientUrl() : currentPlayerClientBase).replaceAll("/+$", "");
+                String link = base + (base.contains("?") ? "&" : "?")
+                        + "sessionId=" + java.net.URLEncoder.encode(access.sessionId(), java.nio.charset.StandardCharsets.UTF_8)
+                        + "&projectorToken=" + java.net.URLEncoder.encode(access.projectorToken(), java.nio.charset.StandardCharsets.UTF_8)
+                        + "&serverUrl=" + java.net.URLEncoder.encode(currentServerUrl, java.nio.charset.StandardCharsets.UTF_8);
+                copyToClipboard(link);
+                saveStatus.setText("Projector link copied; the previous link was revoked");
+            });
+        });
         saveBtn.setOnAction(e -> {
             String n = nameField.getText().trim().isEmpty() ? "Сессия" : nameField.getText().trim();
             saveBtn.setDisable(true); saveStatus.setText("...");
@@ -565,7 +592,7 @@ public class MainStage {
                 saveStatus.setText("Автосохранение включено");
             } else { if (tl[0] != null) tl[0].stop(); saveStatus.setText("Отключено"); }
         });
-        VBox c = new VBox(10, idLbl, DmUiControls.hbox(8, new Label("Название:"), nameField, saveBtn), auto, saveStatus);
+        VBox c = new VBox(10, idLbl, DmUiControls.hbox(8, new Label("Название:"), nameField, saveBtn), projectorBtn, auto, saveStatus);
         c.setPadding(new Insets(10)); tab.setContent(c); return tab;
     }
 

@@ -206,9 +206,9 @@ public class AssetCatalogController {
                 scanFolderManifest(jsonPath, root, tokens, objects, seen);
                 return;
             }
-            collectCatalogNodes(root, baseDir, tokens, objects, seen);
+            collectCatalogNodes(root, baseDir, names, tokens, objects, seen);
             if (root != null && root.isObject()) {
-                root.fields().forEachRemaining(entry -> collectCatalogNodes(entry.getValue(), baseDir, tokens, objects, seen));
+                root.fields().forEachRemaining(entry -> collectCatalogNodes(entry.getValue(), baseDir, names, tokens, objects, seen));
             }
         }
     }
@@ -256,11 +256,13 @@ public class AssetCatalogController {
                                         JsonNode defaults, JsonNode folderNode,
                                         ArrayNode tokens, ArrayNode objects, Set<String> seen) {
         String imageUrl = toWebUrl(image);
-        String category = firstText(folderNode, "category", "group", "pack");
+        // The folder tree is the source of truth for browsing.  A manifest
+        // category is a semantic label (for example, "creature"), not a
+        // replacement for the physical hierarchy shown in the asset picker.
+        String category = AssetCatalogFolderManifestSupport.relativeCategory(baseDir, image);
         if (category == null || category.isBlank()) {
-            category = AssetCatalogFolderManifestSupport.relativeCategory(baseDir, image);
-        } else {
-            category = AssetCatalogFolderManifestSupport.normalizeCategoryPath(category);
+            category = AssetCatalogFolderManifestSupport.normalizeCategoryPath(
+                    firstText(folderNode, "category", "group", "pack"));
         }
 
         String baseName = AssetCatalogSupport.stripExtension(image.getFileName().toString());
@@ -321,16 +323,21 @@ public class AssetCatalogController {
     }
 
     private void collectCatalogNodes(JsonNode node, ArrayNode tokens, ArrayNode objects, Set<String> seen) {
-        collectCatalogNodes(node, null, tokens, objects, seen);
+        collectCatalogNodes(node, null, Map.of(), tokens, objects, seen);
     }
 
     private void collectCatalogNodes(JsonNode node, Path baseDir, ArrayNode tokens, ArrayNode objects, Set<String> seen) {
+        collectCatalogNodes(node, baseDir, Map.of(), tokens, objects, seen);
+    }
+
+    private void collectCatalogNodes(JsonNode node, Path baseDir, Map<String, String> names,
+                                     ArrayNode tokens, ArrayNode objects, Set<String> seen) {
         if (node == null || node.isNull()) {
             return;
         }
         if (node.isArray()) {
             for (JsonNode item : node) {
-                collectCatalogNodes(item, baseDir, tokens, objects, seen);
+                collectCatalogNodes(item, baseDir, names, tokens, objects, seen);
             }
             return;
         }
@@ -339,7 +346,7 @@ public class AssetCatalogController {
         }
 
         if (looksLikeAssetNode(node)) {
-            ObjectNode normalized = normalizeAssetNode(node, baseDir);
+            ObjectNode normalized = normalizeAssetNode(node, baseDir, names);
             if (isAllowedCatalogAsset(normalized)) {
                 String sig = signature(normalized);
                 if (seen.add(sig)) {
@@ -352,10 +359,14 @@ public class AssetCatalogController {
             }
         }
 
-        node.fields().forEachRemaining(entry -> collectCatalogNodes(entry.getValue(), baseDir, tokens, objects, seen));
+        node.fields().forEachRemaining(entry -> collectCatalogNodes(entry.getValue(), baseDir, names, tokens, objects, seen));
     }
 
     private ObjectNode normalizeAssetNode(JsonNode node, Path baseDir) {
+        return normalizeAssetNode(node, baseDir, Map.of());
+    }
+
+    private ObjectNode normalizeAssetNode(JsonNode node, Path baseDir, Map<String, String> names) {
         ObjectNode out = MAPPER.createObjectNode();
         String rawId = text(node, "id", "assetId", "key", "slug", "name", "filename", "fileName");
         String rawName = text(node, "name", "title", "displayName", "label", "ru", "caption");
@@ -395,7 +406,7 @@ public class AssetCatalogController {
             imageUrl = AssetCatalogSupport.normalizeImageUrl(imageUrl, baseDir);
         }
 
-        String resolvedName = resolveName(rawName, rawId, imageUrl);
+        String resolvedName = resolveName(rawName, rawId, imageUrl, names);
         if (resolvedName == null) {
             resolvedName = AssetCatalogSupport.humanize(rawId != null ? rawId : AssetCatalogSupport.stripExtension(AssetCatalogSupport.lastPathSegment(imageUrl)));
         }
@@ -561,16 +572,13 @@ public class AssetCatalogController {
     }
 
     private String resolveName(String explicitName, String id, String imageUrl, Map<String, String> names) {
-        if (explicitName != null && !explicitName.isBlank()) {
-            return explicitName;
-        }
         for (String key : List.of(id, AssetCatalogSupport.stripExtension(AssetCatalogSupport.lastPathSegment(id)), AssetCatalogSupport.lastPathSegment(imageUrl), AssetCatalogSupport.stripExtension(AssetCatalogSupport.lastPathSegment(imageUrl)))) {
             String value = names.get(AssetCatalogSupport.normalizeKey(key));
             if (value != null && !value.isBlank()) {
                 return value;
             }
         }
-        return null;
+        return explicitName != null && !explicitName.isBlank() ? explicitName : null;
     }
 
     private void readNamesFile(Path path, Map<String, String> names) {
@@ -641,7 +649,7 @@ public class AssetCatalogController {
             for (Path manifest : manifests) {
                 try (InputStream is = Files.newInputStream(manifest)) {
                     JsonNode node = MAPPER.readTree(is);
-                    collectCatalogNodes(node, tokens, objects, seen);
+                    collectCatalogNodes(node, manifest.getParent(), names, tokens, objects, seen);
                 }
             }
 

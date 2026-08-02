@@ -112,10 +112,23 @@ public final class AssetCatalogJsonSupport {
     public static void collectNames(JsonNode node, Map<String, String> names) {
         if (node == null || names == null) return;
         if (node.isObject()) {
+            // names.ru.json is commonly a flat "file_stem": "localized name"
+            // dictionary.  The previous implementation only understood asset
+            // objects with image/name fields, so every real names.ru.json was
+            // silently ignored during catalog scanning.
+            node.fields().forEachRemaining(entry -> {
+                JsonNode value = entry.getValue();
+                if (value != null && value.isTextual() && !value.asText().isBlank()) {
+                    String key = AssetCatalogSupport.normalizeKey(entry.getKey());
+                    if (!key.isBlank()) {
+                        names.putIfAbsent(key, value.asText());
+                    }
+                }
+            });
             String image = text(node, "image", "imageUrl", "url", "path");
             String name = text(node, "name", "title", "label");
             if (image != null && name != null) {
-                names.putIfAbsent(image, name);
+                names.putIfAbsent(AssetCatalogSupport.normalizeKey(image), name);
             }
             node.fields().forEachRemaining(entry -> collectNames(entry.getValue(), names));
         } else if (node.isArray()) {

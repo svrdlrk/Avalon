@@ -78,6 +78,13 @@ function asArray(value: JsonValue | null | undefined): JsonValue[] {
     return Array.isArray(value) ? value : [];
 }
 
+function firstArray(...values: Array<JsonValue | null | undefined>): JsonValue[] {
+    for (const value of values) {
+        if (Array.isArray(value)) return value;
+    }
+    return [];
+}
+
 function readBoolean(value: JsonValue | null | undefined, fallback: boolean): boolean {
     if (typeof value === 'boolean') return value;
     if (typeof value === 'string') return value.trim().toLowerCase() === 'true';
@@ -170,11 +177,15 @@ function buildTerrainBlockedCells(grid: GridConfig, terrainLayer: JsonValue | nu
 
 function extractWallSegments(wallLayer: JsonValue | null | undefined): WallSegment[] {
     if (!isRecord(wallLayer)) return [];
+    if (!readBoolean(wallLayer.visible, true)) return [];
     const layerOpacity = Math.max(0, Math.min(1, readNumber(wallLayer.opacity, 1)));
+    const paths = firstArray(wallLayer.paths, wallLayer.walls, wallLayer.segments, wallLayer.polylines, wallLayer.lines);
 
-    return asArray(wallLayer.paths).flatMap((pathValue, index) => {
+    return paths.flatMap((pathValue, index) => {
         if (!isRecord(pathValue)) return [];
-        const pointPairs = asArray(pathValue.points)
+        if (!readBoolean(pathValue.visible, true)) return [];
+        const points = firstArray(pathValue.points, pathValue.vertices, pathValue.coords, pathValue.pts);
+        const pointPairs = points
             .filter(isRecord)
             .map((point) => ({
                 x: readNumber(point.x, Number.NaN),
@@ -305,6 +316,7 @@ type TokenShapeProps = {
     token: TokenDto;
     isMyToken: boolean;
     isDm: boolean;
+    canDrag: boolean;
     isSelected: boolean;
     cellSize: number;
     offsetX: number;
@@ -326,6 +338,7 @@ function tokenShapePropsEqual(prev: TokenShapeProps, next: TokenShapeProps): boo
     const b = next.token;
     return prev.isMyToken === next.isMyToken
         && prev.isDm === next.isDm
+        && prev.canDrag === next.canDrag
         && prev.isSelected === next.isSelected
         && prev.cellSize === next.cellSize
         && prev.offsetX === next.offsetX
@@ -373,7 +386,7 @@ function objectShapePropsEqual(prev: ObjectShapeProps, next: ObjectShapeProps): 
 
 // ================================================================ TokenShape
 
-const TokenShape: React.FC<TokenShapeProps> = React.memo(({ token, isMyToken, isDm, isSelected, cellSize, offsetX, offsetY, onSelect, onDragStart, onDragEnd }) => {
+const TokenShape: React.FC<TokenShapeProps> = React.memo(({ token, isMyToken, isDm, canDrag, isSelected, cellSize, offsetX, offsetY, onSelect, onDragStart, onDragEnd }) => {
     const gs = Math.max(1, token.gridSize ?? 1);
 
     // Group positioned at top-left of the token cell(s)
@@ -385,7 +398,6 @@ const TokenShape: React.FC<TokenShapeProps> = React.memo(({ token, isMyToken, is
     const radius = size / 2 - 4;
 
     const isNpc = token.ownerId === null;
-    const canDrag = isMyToken || isDm;
     const facingAngle = token.facingAngleDeg ?? 0;
 
     const [tokenImage] = useRemoteImage(token.imageUrl);
@@ -596,6 +608,8 @@ const BattleMap: React.FC = () => {
     const objects = useGameStore((s) => s.objects);
     const players = useGameStore((s) => s.players);
     const myPlayerId = useGameStore((s) => s.myPlayerId);
+    const viewerRole = useGameStore((s) => s.viewerRole);
+    const initiative = useGameStore((s) => s.initiative);
     const selectedTokenId = useGameStore((s) => s.selectedTokenId);
     const setSelectedTokenId = useGameStore((s) => s.setSelectedTokenId);
     const clearSelection = useGameStore((s) => s.clearSelection);
@@ -665,7 +679,7 @@ const BattleMap: React.FC = () => {
     }, []);
 
     const myPlayer = myPlayerId ? players[myPlayerId] : null;
-    const isDm = myPlayer?.role === 'DM';
+    const isDm = viewerRole === 'DM' || myPlayer?.role === 'DM';
 
     const fullBgUrl = normalizeAssetUrl(backgroundUrl, wsClient.getServerBaseUrl());
     const [bgImage] = useImage(fullBgUrl);
@@ -687,6 +701,14 @@ const BattleMap: React.FC = () => {
 
     const visibleBounds = useMemo(() => computeVisibleBounds(stageTransform, viewport), [stageTransform, viewport]);
     const wallSegments = useMemo(() => extractWallSegments(wallLayer), [wallLayer]);
+    const canControlToken = useCallback((token: TokenDto) => {
+        if (viewerRole === 'DM') return true;
+        if (viewerRole !== 'PLAYER' || token.ownerId !== myPlayerId) return false;
+        const entries = initiative?.entries ?? [];
+        if (entries.length === 0) return true;
+        const current = entries[initiative?.currentIndex ?? -1];
+        return current?.tokenId === token.id;
+    }, [initiative, myPlayerId, viewerRole]);
 
     const commitStageTransform = useCallback((next: StageTransform) => {
         stageTransformPendingRef.current = next;
@@ -1102,6 +1124,7 @@ const BattleMap: React.FC = () => {
                             token={token}
                             isMyToken={token.ownerId != null && token.ownerId === myPlayerId}
                             isDm={isDm}
+                            canDrag={canControlToken(token)}
                             isSelected={selectedTokenId === token.id}
                             cellSize={grid.cellSize}
                             offsetX={grid.offsetX}

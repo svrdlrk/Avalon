@@ -49,6 +49,9 @@ public class TokenWsController {
         } catch (RuntimeException e) {
             log.debug("[token.move] move rejected for token {} by player {}: {}",
                     event.getTokenId(), player.getId(), e.getMessage());
+            messaging.convertAndSend(
+                    "/topic/session/" + sessionId + "/private/" + player.getId(),
+                    new WsMessage<>(WsEventType.COMMAND_REJECTED, sessionId, session.getVersion(), e.getMessage()));
         }
         sessionWsController.broadcastSessionState(session);
     }
@@ -105,10 +108,8 @@ public class TokenWsController {
 
     private <T> void broadcast(String sessionId, GameSession session,
                                WsEventType type, T payload) {
-        long version = session.incrementVersion();
-        messaging.convertAndSend(
-                "/topic/session/" + sessionId,
-                new WsMessage<>(type, sessionId, version, payload)
-        );
+        // Full state is sent through per-connection private topics immediately
+        // afterwards. Never publish token coordinates on a guessable public topic.
+        session.incrementVersion();
     }
 }

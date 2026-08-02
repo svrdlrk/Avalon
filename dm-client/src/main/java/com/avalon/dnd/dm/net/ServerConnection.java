@@ -31,6 +31,7 @@ public class ServerConnection {
     public static ServerConnection getInstance() { return INSTANCE; }
 
     public record SessionHandle(String id, String dmSecret) {}
+    public record ProjectorAccess(String sessionId, String projectorToken) {}
 
     private StompSession stompSession;
     private final ObjectMapper mapper = new ObjectMapper();
@@ -71,7 +72,6 @@ public class ServerConnection {
             @Override
             public void afterConnected(StompSession session, StompHeaders headers) {
                 stompSession = session;
-                stompSession.subscribe("/topic/session/" + normalizedSessionId, new BroadcastHandler());
                 stompSession.subscribe(
                         "/topic/session/" + normalizedSessionId + "/join/" + joinNonce,
                         new JoinStateHandler(normalizedSessionId, true));
@@ -233,6 +233,27 @@ public class ServerConnection {
                 }
             }
             return null;
+        }, onDone);
+    }
+
+    public void issueProjectorAccess(String serverUrl, String sessionId, String dmSecret,
+                                     Consumer<ProjectorAccess> onDone) {
+        String baseUrl = normalizeServerUrl(serverUrl);
+        httpAsync(() -> {
+            Request request = new Request.Builder()
+                    .url(baseUrl + "/api/session/" + normalizeSessionId(sessionId) + "/projector-link")
+                    .header("X-DM-Secret", dmSecret == null ? "" : dmSecret)
+                    .post(RequestBody.create(new byte[0]))
+                    .build();
+            try (Response response = httpClient.newCall(request).execute()) {
+                if (!response.isSuccessful() || response.body() == null) {
+                    return null;
+                }
+                JsonNode node = mapper.readTree(response.body().string());
+                String token = node.path("projectorToken").asText("");
+                String id = node.path("sessionId").asText(normalizeSessionId(sessionId));
+                return token.isBlank() ? null : new ProjectorAccess(id, token);
+            }
         }, onDone);
     }
 

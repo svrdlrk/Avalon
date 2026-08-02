@@ -58,10 +58,7 @@ public class InitiativeWsController {
         session.setInitiativeState(state);
         session.markVisibilityDirty();
 
-        long version = session.incrementVersion();
-        messaging.convertAndSend(
-                "/topic/session/" + sessionId,
-                new WsMessage<>(WsEventType.INITIATIVE_UPDATED, sessionId, version, state));
+        session.incrementVersion();
         sessionWsController.broadcastSessionState(session);
     }
 
@@ -83,11 +80,7 @@ public class InitiativeWsController {
         session.setInitiativeState(null);
         session.markVisibilityDirty();
 
-        long version = session.incrementVersion();
-        messaging.convertAndSend(
-                "/topic/session/" + sessionId,
-                new WsMessage<>(WsEventType.INITIATIVE_UPDATED, sessionId, version,
-                        new InitiativeStateDto(java.util.List.of(), 0)));
+        session.incrementVersion();
         sessionWsController.broadcastSessionState(session);
     }
 }

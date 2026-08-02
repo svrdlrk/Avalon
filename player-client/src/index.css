@@ -950,6 +950,28 @@ button {
     pointer-events: auto;
 }
 
+/* Projector is a presentation surface: initiative owns the top row and the
+   interactive HUD never competes with it through transparent layers. */
+.app-shell--projector .battle-chrome {
+    display: none;
+}
+
+.app-shell--projector .initiative-rail {
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 220;
+    border-radius: 0;
+    border-left: 0;
+    border-right: 0;
+    background: rgba(7, 12, 22, 0.98);
+    backdrop-filter: none;
+}
+
+.initiative-rail--projector .initiative-rail__header-actions {
+    display: none;
+}
+
 .initiative-rail__header {
     display: flex;
     align-items: flex-end;

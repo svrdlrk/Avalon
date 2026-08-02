@@ -2,7 +2,6 @@ package com.avalon.dnd.server.service;
 
 import com.avalon.dnd.server.model.GameSession;
 import com.avalon.dnd.server.persistence.SessionSnapshot;
-import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.stereotype.Component;
 
 /**
@@ -26,6 +25,7 @@ public class SessionSnapshotRestorer {
         // createSessionWithId returns existing OR creates new
         GameSession session = sessionService.createSessionWithId(snap.id);
         session.setDmSecret(snap.dmSecret);
+        session.setProjectorToken(snap.projectorToken);
 
         if (snap.grid != null) session.setGrid(snap.grid);
         session.setBackgroundUrl(
@@ -36,7 +36,7 @@ public class SessionSnapshotRestorer {
         );
         session.setReferenceOverlayLayer(snap.referenceOverlayLayer);
         session.setTerrainLayer(snap.terrainLayer);
-        session.setWallLayer(normalizeWallLayer(snap.wallLayer));
+        session.setWallLayer(WallLayerNormalizer.normalize(snap.wallLayer));
         session.setFogSettings(snap.fogSettings);
         session.setAssetPackIds(snap.assetPackIds);
 
@@ -69,31 +69,10 @@ public class SessionSnapshotRestorer {
         session.setSharedVisibilityState(snap.sharedVisibility);
         session.setVisibilityStatesByPlayer(snap.visibilityStatesByPlayer);
         session.setVisibilityShareSuggestions(snap.visibilityShareSuggestions);
-        session.clearVisibilityDirty();
+        session.markVisibilityDirty();
         session.setVersion(Math.max(session.getVersion(), snap.version) + 1);
 
         return session;
     }
 
-    private static JsonNode normalizeWallLayer(JsonNode wallLayer) {
-        if (wallLayer == null || wallLayer.isNull() || wallLayer.isMissingNode() || !wallLayer.isObject()) {
-            return wallLayer;
-        }
-
-        com.fasterxml.jackson.databind.node.ObjectNode root = wallLayer.deepCopy();
-        root.put("visible", true);
-
-        JsonNode pathsNode = root.get("paths");
-        if (pathsNode != null && pathsNode.isArray()) {
-            for (JsonNode pathNode : pathsNode) {
-                if (pathNode instanceof com.fasterxml.jackson.databind.node.ObjectNode path) {
-                    if (path.get("visible") == null || path.get("visible").isNull()) {
-                        path.put("visible", true);
-                    }
-                }
-            }
-        }
-
-        return root;
-    }
 }

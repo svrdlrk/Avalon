@@ -722,14 +722,14 @@ public class BattleMapCanvas extends Canvas {
         if (map == null) {
             return;
         }
-        Object pathsObj = map.get("paths");
-        if (!(pathsObj instanceof List<?> paths)) {
+        List<?> paths = firstList(map, "paths", "walls", "segments", "polylines", "lines");
+        if (paths == null) {
             return;
         }
         for (Object pathObj : paths) {
             if (!(pathObj instanceof java.util.Map<?, ?> path)) continue;
-            Object pointsObj = path.get("points");
-            if (!(pointsObj instanceof List<?> points) || points.size() < 2) continue;
+            List<?> points = firstList(path, "points", "vertices", "coords", "pts");
+            if (points == null || points.size() < 2) continue;
             double[] xs = new double[points.size()];
             double[] ys = new double[points.size()];
             int i = 0;
@@ -798,6 +798,19 @@ public class BattleMapCanvas extends Canvas {
 
     private static String getString(Object value) {
         return value == null ? null : String.valueOf(value);
+    }
+
+    private static List<?> firstList(java.util.Map<?, ?> map, String... keys) {
+        if (map == null || keys == null) {
+            return null;
+        }
+        for (String key : keys) {
+            Object value = map.get(key);
+            if (value instanceof List<?> list) {
+                return list;
+            }
+        }
+        return null;
     }
 
     private static boolean getBoolean(Object value, boolean defaultValue) {

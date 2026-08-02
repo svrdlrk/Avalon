@@ -18,6 +18,7 @@ function resolveBackgroundUrl(backgroundUrl: string | null | undefined): string 
 interface GameState {
     sessionId: string | null;
     myPlayerId: string | null;
+    viewerRole: 'DM' | 'PLAYER' | 'OBSERVER' | null;
     selectedTokenId: string | null;
     grid: GridConfig;
     tokens: Record<string, TokenDto>;
@@ -28,6 +29,7 @@ interface GameState {
     visibility: VisibilityStateDto | null;
     terrainLayer: MapLayoutUpdateDto['terrainLayer'] | null;
     wallLayer: MapLayoutUpdateDto['wallLayer'] | null;
+    commandError: string | null;
 
     applyState: (state: SessionStateDto, sessionId: string) => void;
     applyMapLayoutUpdate: (dto: MapLayoutUpdateDto) => void;
@@ -41,11 +43,13 @@ interface GameState {
     setInitiative: (state: InitiativeStateDto | null) => void;
     setSelectedTokenId: (tokenId: string | null) => void;
     clearSelection: () => void;
+    setCommandError: (message: string | null) => void;
 }
 
 export const useGameStore = create<GameState>((set) => ({
     sessionId: null,
     myPlayerId: null,
+    viewerRole: null,
     selectedTokenId: null,
     grid: { cellSize: 64, cols: 20, rows: 20, offsetX: 0, offsetY: 0 },
     tokens: {},
@@ -56,11 +60,13 @@ export const useGameStore = create<GameState>((set) => ({
     visibility: null,
     terrainLayer: null,
     wallLayer: null,
+    commandError: null,
 
     applyState: (state, sessionId) =>
         set((current) => ({
             sessionId,
             myPlayerId: state.myPlayerId,
+            viewerRole: state.viewerRole ?? null,
             selectedTokenId:
                 current.selectedTokenId && state.tokens.some((token) => token.id === current.selectedTokenId)
                     ? current.selectedTokenId
@@ -74,6 +80,7 @@ export const useGameStore = create<GameState>((set) => ({
             visibility: state.visibility ?? null,
             terrainLayer: state.terrainLayer ?? current.terrainLayer,
             wallLayer: state.wallLayer ?? current.wallLayer,
+            commandError: null,
         })),
 
     applyMapLayoutUpdate: (dto) =>
@@ -125,4 +132,5 @@ export const useGameStore = create<GameState>((set) => ({
     setInitiative: (initiative) => set({ initiative }),
     setSelectedTokenId: (tokenId) => set({ selectedTokenId: tokenId }),
     clearSelection: () => set({ selectedTokenId: null }),
+    setCommandError: (commandError) => set({ commandError }),
 }));

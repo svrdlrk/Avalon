@@ -98,6 +98,10 @@ public class SessionWsController {
                                        com.avalon.dnd.shared.VisibilityStateDto viewerVisibility) {
         Player currentPlayer = forPlayerId == null ? null : session.getPlayers().get(forPlayerId);
         boolean isDm = currentPlayer != null && currentPlayer.getRole() == com.avalon.dnd.server.model.Role.DM;
+        boolean isObserver = currentPlayer != null && currentPlayer.getRole() == com.avalon.dnd.server.model.Role.OBSERVER;
+        if (isObserver) {
+            viewerVisibility = session.getVisibilityState();
+        }
         java.util.List<com.avalon.dnd.shared.VisibilityShareSuggestionDto> suggestions =
                 isDm ? shared.visibilityShareSuggestions() : java.util.List.of();
         java.util.List<TokenDto> tokensForViewer = isDm
@@ -106,7 +110,7 @@ public class SessionWsController {
         java.util.List<MapObjectDto> objectsForViewer = isDm
                 ? shared.objects() == null ? java.util.List.of() : shared.objects()
                 : filterObjectsForViewer(shared, viewerVisibility);
-        return new SessionStateDto(
+        SessionStateDto state = new SessionStateDto(
                 forPlayerId,
                 shared.grid(),
                 tokensForViewer,
@@ -123,6 +127,8 @@ public class SessionWsController {
                 isDm ? shared.assetPackIds() : java.util.List.of(),
                 isDm ? suggestions : java.util.List.of()
         );
+        state.setViewerRole(currentPlayer == null ? null : currentPlayer.getRole().name());
+        return state;
     }
 
     public void broadcastSessionState(GameSession session) {
@@ -134,6 +140,9 @@ public class SessionWsController {
         session.getPlayers().values().forEach(player -> {
             com.avalon.dnd.shared.VisibilityStateDto viewerVisibility = visibilityByPlayer == null ? null : visibilityByPlayer.get(player.getId());
             if (player.getRole() == com.avalon.dnd.server.model.Role.DM) {
+                viewerVisibility = merged;
+            }
+            if (player.getRole() == com.avalon.dnd.server.model.Role.OBSERVER) {
                 viewerVisibility = merged;
             }
             if (viewerVisibility == null) {
@@ -178,16 +187,16 @@ public class SessionWsController {
         }
         ensureVisibilityComputed(session, null);
         long version = session.getVersion();
-        if (includePublicTopic) {
-            messaging.convertAndSend(
-                    "/topic/session/" + session.getId(),
-                    new WsMessage<>(eventType, session.getId(), version, baseLayout));
-        }
+        // State is visibility-filtered per recipient below. A public topic would
+        // let an unauthenticated subscriber receive hidden tokens and objects.
         java.util.Map<String, com.avalon.dnd.shared.VisibilityStateDto> visibilityByPlayer = session.getVisibilityStatesByPlayer();
         com.avalon.dnd.shared.VisibilityStateDto merged = session.getVisibilityState();
         for (Player player : session.getPlayers().values()) {
             com.avalon.dnd.shared.VisibilityStateDto viewerVisibility = visibilityByPlayer == null ? null : visibilityByPlayer.get(player.getId());
             if (player.getRole() == com.avalon.dnd.server.model.Role.DM) {
+                viewerVisibility = merged;
+            }
+            if (player.getRole() == com.avalon.dnd.server.model.Role.OBSERVER) {
                 viewerVisibility = merged;
             }
             if (viewerVisibility == null) {
@@ -223,7 +232,7 @@ public class SessionWsController {
     public void join(JoinSessionRequestDto request,
                      @Header("simpSessionId") String wsSessionId) {
 
-        if (request.getPlayerName() == null || request.getPlayerName().isBlank())
+        if (!request.isObserver() && (request.getPlayerName() == null || request.getPlayerName().isBlank()))
             throw new RuntimeException("Player name required");
         if (request.getJoinNonce() == null || request.getJoinNonce().isBlank())
             throw new RuntimeException("joinNonce required");
@@ -232,8 +241,12 @@ public class SessionWsController {
         GameSession session = sessionService.getSession(sessionId);
         if (session == null) throw new RuntimeException("Session not found");
 
-        Player player = sessionService.joinSession(
-                sessionId, request.getPlayerName(), request.isDm(), request.getDmSecret());
+        if (request.isObserver() && request.isDm()) {
+            throw new RuntimeException("Observer cannot be DM");
+        }
+        Player player = request.isObserver()
+                ? sessionService.joinObserver(sessionId, request.getProjectorToken())
+                : sessionService.joinSession(sessionId, request.getPlayerName(), request.isDm(), request.getDmSecret());
 
         cancelPendingDisconnect(sessionId, player.getId());
 
@@ -241,12 +254,9 @@ public class SessionWsController {
         connectionRegistry.bind(wsSessionId, sessionId, player.getId());
 
         // Broadcast PLAYER_JOINED so DM refreshes its player list
-        messaging.convertAndSend(
-                "/topic/session/" + sessionId,
-                new WsMessage<>(WsEventType.PLAYER_JOINED,
-                        sessionId,
-                        session.incrementVersion(),
-                        new PlayerDto(player.getId(), player.getName(), player.getRole().name())));
+        if (player.getRole() != com.avalon.dnd.server.model.Role.OBSERVER) {
+            session.incrementVersion();
+        }
 
         // Send full state to the joining player
         ensureVisibilityComputed(session, player.getId());
@@ -344,10 +354,7 @@ public class SessionWsController {
         long version = session.incrementVersion();
 
         // Notify everyone the player left
-        messaging.convertAndSend(
-                "/topic/session/" + ref.sessionId(),
-                new WsMessage<>(WsEventType.PLAYER_LEFT,
-                        ref.sessionId(), version, ref.playerId()));
+        // The following private SESSION_STATE replaces public PLAYER_LEFT events.
 
         // Notify everyone about unassigned tokens
         for (TokenDto t : released) {
@@ -414,6 +421,7 @@ public class SessionWsController {
     private SharedSessionSnapshot buildSharedSnapshot(GameSession session) {
         java.util.List<TokenDto> tokens = session.getTokens().values().stream().map(TokenService::toDto).toList();
         java.util.List<PlayerDto> players = session.getPlayers().values().stream()
+                .filter(p -> p.getRole() != com.avalon.dnd.server.model.Role.OBSERVER)
                 .map(p -> new PlayerDto(p.getId(), p.getName(), p.getRole().name()))
                 .toList();
         java.util.List<MapObjectDto> objects = session.getObjects().values().stream().map(MapObjectService::toDto).toList();

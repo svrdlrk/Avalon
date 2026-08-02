@@ -79,6 +79,8 @@ class WsClient {
                     this.applySessionState(msg as WsMessage<SessionStateDto>, sid);
                 } else if (msg.type === 'MAP_UPDATED') {
                     useGameStore.getState().applyMapLayoutUpdate(msg.payload as MapLayoutUpdateDto);
+                } else if (msg.type === 'COMMAND_REJECTED') {
+                    useGameStore.getState().setCommandError(String(msg.payload ?? 'Command rejected'));
                 }
             },
         );
@@ -92,6 +94,7 @@ class WsClient {
         playerName: string,
         isDm: boolean,
         onConnected: () => void,
+        projectorToken?: string,
     ) {
         this.disconnect();
         this.onConnectedCallback = onConnected;
@@ -138,8 +141,10 @@ class WsClient {
                     destination: '/app/session.join',
                     body: JSON.stringify({
                         sessionId: cleanSessionId,
-                        playerName,
+                        playerName: projectorToken ? 'Projector' : playerName,
                         isDm,
+                        isObserver: Boolean(projectorToken),
+                        projectorToken,
                         joinNonce,
                     }),
                 });

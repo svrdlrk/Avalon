@@ -1,9 +1,11 @@
 package com.avalon.dnd.server.service;
 
 import com.avalon.dnd.server.model.GameSession;
+import com.avalon.dnd.server.model.MapEditorProjectImportDto;
 import com.avalon.dnd.shared.WsEventType;
 import com.avalon.dnd.shared.WsMessage;
 import com.avalon.dnd.server.websocket.SessionWsController;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
@@ -14,8 +16,12 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 @Service
 public class MapService {
@@ -25,15 +31,24 @@ public class MapService {
     private final SessionService sessionService;
     private final SimpMessagingTemplate messagingTemplate;
     private final SessionWsController sessionWsController;
+    private final MapBattleRulesService battleRulesService;
+    private final MapWorkspaceImportService mapWorkspaceImportService;
+    private final ObjectMapper objectMapper;
     private final Path uploadDir;
 
     public MapService(SessionService sessionService,
                       SimpMessagingTemplate messagingTemplate,
                       SessionWsController sessionWsController,
+                      MapBattleRulesService battleRulesService,
+                      MapWorkspaceImportService mapWorkspaceImportService,
+                      ObjectMapper objectMapper,
                       @Value("${upload.path:./uploads/maps/finished}") String uploadPath) {
         this.sessionService = sessionService;
         this.messagingTemplate = messagingTemplate;
         this.sessionWsController = sessionWsController;
+        this.battleRulesService = battleRulesService;
+        this.mapWorkspaceImportService = mapWorkspaceImportService;
+        this.objectMapper = objectMapper;
         this.uploadDir = Paths.get(uploadPath).toAbsolutePath().normalize();
         try {
             Files.createDirectories(uploadDir);
@@ -60,12 +75,18 @@ public class MapService {
         file.transferTo(filePath.toFile());
 
         String url = "/uploads/maps/finished/" + filename;
-        session.setBackgroundUrl(url);
+        synchronized (session) {
+            importMatchingWorkspace(session, normalizedSessionId, originalName, url);
+            session.setBackgroundUrl(url);
+            session.incrementVersion();
+            battleRulesService.computeVisibility(session);
+        }
 
-        long version = session.incrementVersion();
-        messagingTemplate.convertAndSend(
-                "/topic/session/" + normalizedSessionId,
-                new WsMessage<>(WsEventType.MAP_BACKGROUND_UPDATED, normalizedSessionId, version, url)
+        sessionWsController.broadcastMapLayout(
+                session,
+                WsEventType.MAP_UPDATED,
+                battleRulesService.buildMapLayout(session, null),
+                false
         );
         sessionWsController.broadcastSessionState(session);
 
@@ -77,12 +98,132 @@ public class MapService {
         return session != null ? session.getBackgroundUrl() : null;
     }
 
+    private boolean importMatchingWorkspace(GameSession session, String sessionId, String originalName, String uploadedUrl) {
+        Path workspace = findMatchingWorkspace(originalName);
+        if (workspace == null) {
+            return false;
+        }
+        try {
+            MapEditorProjectImportDto dto = objectMapper.readValue(workspace.toFile(), MapEditorProjectImportDto.class);
+            mapWorkspaceImportService.apply(session, sessionId, dto);
+            session.setBackgroundUrl(uploadedUrl);
+            return session.getWallLayer() != null && session.getWallLayer().path("paths").isArray();
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private Path findMatchingWorkspace(String originalName) {
+        String baseName = stripExtension(originalName);
+        if (baseName == null || baseName.isBlank()) {
+            return null;
+        }
+        String normalizedBase = normalizeKey(baseName);
+        String normalizedFileName = normalizeKey(originalName);
+        List<Path> fallbackMatches = new ArrayList<>();
+
+        for (Path root : resolveProjectRoots()) {
+            Path finishedRoot = root.resolve("uploads/maps/finished").toAbsolutePath().normalize();
+            if (!Files.isDirectory(finishedRoot)) {
+                continue;
+            }
+            try (Stream<Path> walk = Files.walk(finishedRoot, 3)) {
+                for (Path mapFile : walk
+                        .filter(Files::isRegularFile)
+                        .filter(path -> "map.json".equalsIgnoreCase(path.getFileName().toString()))
+                        .toList()) {
+                    Path folder = mapFile.getParent();
+                    String folderName = folder == null ? "" : normalizeKey(folder.getFileName().toString());
+                    if (folderName.equals(normalizedBase)) {
+                        return mapFile;
+                    }
+                    if (workspaceBackgroundMatches(mapFile, normalizedFileName)) {
+                        fallbackMatches.add(mapFile);
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+        }
+
+        return fallbackMatches.size() == 1 ? fallbackMatches.get(0) : null;
+    }
+
+    private boolean workspaceBackgroundMatches(Path mapFile, String normalizedFileName) {
+        if (normalizedFileName == null || normalizedFileName.isBlank()) {
+            return false;
+        }
+        try {
+            MapEditorProjectImportDto dto = objectMapper.readValue(mapFile.toFile(), MapEditorProjectImportDto.class);
+            String background = MapWorkspaceImportService.extractBackgroundUrl(
+                    dto.getBackgroundLayer(),
+                    dto.getBackgroundUrl(),
+                    dto.getReferenceOverlayLayer()
+            );
+            return normalizeKey(lastSegment(background)).equals(normalizedFileName);
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
     private String normalizeSessionId(String sessionId) {
         if (sessionId == null) return null;
         String normalized = sessionId.trim();
         int comma = normalized.indexOf(',');
         if (comma >= 0) normalized = normalized.substring(0, comma).trim();
         return normalized;
+    }
+
+    private List<Path> resolveProjectRoots() {
+        LinkedHashSet<Path> roots = new LinkedHashSet<>();
+        addProjectRoot(roots, System.getProperty("avalon.project.root"));
+        addProjectRoot(roots, System.getenv("AVALON_PROJECT_ROOT"));
+        addProjectRoot(roots, Path.of("").toAbsolutePath().normalize().toString());
+        return new ArrayList<>(roots);
+    }
+
+    private void addProjectRoot(LinkedHashSet<Path> roots, String raw) {
+        if (raw == null || raw.isBlank()) {
+            return;
+        }
+        try {
+            Path found = findProjectRoot(Path.of(raw).toAbsolutePath().normalize());
+            if (found != null) {
+                roots.add(found);
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    private Path findProjectRoot(Path start) {
+        for (Path current = start; current != null; current = current.getParent()) {
+            if ((Files.exists(current.resolve("settings.gradle")) || Files.exists(current.resolve("gradlew.bat")))
+                    && Files.isDirectory(current.resolve("uploads/maps/finished"))) {
+                return current;
+            }
+        }
+        return null;
+    }
+
+    private static String stripExtension(String filename) {
+        String last = lastSegment(filename);
+        if (last == null) {
+            return null;
+        }
+        int dot = last.lastIndexOf('.');
+        return dot > 0 ? last.substring(0, dot) : last;
+    }
+
+    private static String lastSegment(String value) {
+        if (value == null) {
+            return null;
+        }
+        String normalized = value.trim().replace('\\', '/');
+        int slash = normalized.lastIndexOf('/');
+        return slash >= 0 ? normalized.substring(slash + 1) : normalized;
+    }
+
+    private static String normalizeKey(String value) {
+        return value == null ? "" : value.trim().replace('\\', '/').toLowerCase(Locale.ROOT);
     }
 
     private void validateUpload(MultipartFile file) {

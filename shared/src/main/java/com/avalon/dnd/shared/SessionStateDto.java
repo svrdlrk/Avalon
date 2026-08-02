@@ -9,6 +9,8 @@ import java.util.List;
 public class SessionStateDto {
 
     private String myPlayerId;
+    /** Role resolved by the server for this connection, including OBSERVER. */
+    private String viewerRole;
     private GridConfig grid;
     private List<TokenDto> tokens;
     private List<PlayerDto> players;
@@ -105,6 +107,7 @@ public class SessionStateDto {
     }
 
     public String getMyPlayerId() { return myPlayerId; }
+    public String getViewerRole() { return viewerRole; }
     public GridConfig getGrid() { return grid; }
     public List<TokenDto> getTokens() { return tokens; }
     public List<PlayerDto> getPlayers() { return players; }
@@ -121,6 +124,7 @@ public class SessionStateDto {
     public java.util.List<VisibilityShareSuggestionDto> getVisibilityShareSuggestions() { return visibilityShareSuggestions; }
 
     public void setMyPlayerId(String v) { this.myPlayerId = v; }
+    public void setViewerRole(String v) { this.viewerRole = v; }
     public void setGrid(GridConfig v) { this.grid = v; }
     public void setTokens(List<TokenDto> v) { this.tokens = v; }
     public void setPlayers(List<PlayerDto> v) { this.players = v; }

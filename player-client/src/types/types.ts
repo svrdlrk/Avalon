@@ -1,4 +1,4 @@
-export type Role = 'DM' | 'PLAYER';
+export type Role = 'DM' | 'PLAYER' | 'OBSERVER';
 
 export type JsonPrimitive = string | number | boolean | null;
 type JsonObject = { [key: string]: JsonValue };
@@ -96,6 +96,7 @@ export interface VisibilityShareSuggestionDto {
 
 export interface SessionStateDto {
     myPlayerId:    string;
+    viewerRole?:   'DM' | 'PLAYER' | 'OBSERVER';
     grid:          GridConfig;
     tokens:        TokenDto[];
     players:       PlayerDto[];
@@ -155,7 +156,8 @@ export type WsEventType =
     | 'PLAYER_LEFT'
     | 'SESSION_STATE'
     | 'MAP_BACKGROUND_UPDATED'
-    | 'INITIATIVE_UPDATED';
+    | 'INITIATIVE_UPDATED'
+    | 'COMMAND_REJECTED';
 
 export interface WsMessage<T> {
     type:      WsEventType;

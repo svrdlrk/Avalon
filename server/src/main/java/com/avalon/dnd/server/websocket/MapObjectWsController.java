@@ -40,12 +40,7 @@ public class MapObjectWsController {
         if (session == null) throw new RuntimeException("Session not found");
 
         var obj = service.create(request, player);
-        long version = session.incrementVersion();
-        messagingTemplate.convertAndSend(
-                "/topic/session/" + sessionId,
-                new WsMessage<>(WsEventType.MAP_OBJECT_ADDED, sessionId, version,
-                        MapObjectService.toDto(obj))
-        );
+        session.incrementVersion();
         sessionWsController.broadcastSessionState(session);
     }
 
@@ -58,11 +53,7 @@ public class MapObjectWsController {
         if (session == null) throw new RuntimeException("Session not found");
 
         String id = service.remove(request, player);
-        long version = session.incrementVersion();
-        messagingTemplate.convertAndSend(
-                "/topic/session/" + sessionId,
-                new WsMessage<>(WsEventType.MAP_OBJECT_REMOVED, sessionId, version, id)
-        );
+        session.incrementVersion();
         sessionWsController.broadcastSessionState(session);
     }
 }

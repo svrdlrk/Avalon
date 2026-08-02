@@ -20,6 +20,7 @@ public class SessionSnapshot {
 
     public String             id;
     public String             dmSecret;
+    public String             projectorToken;
     public GridConfig         grid;
     public String             backgroundUrl;
     public JsonNode           referenceOverlayLayer;
@@ -157,6 +158,7 @@ public class SessionSnapshot {
         SessionSnapshot snap = new SessionSnapshot();
         snap.id            = session.getId();
         snap.dmSecret      = session.getDmSecret();
+        snap.projectorToken = session.getProjectorToken();
         snap.grid          = session.getGrid();
         snap.backgroundUrl = session.getBackgroundUrl();
         snap.referenceOverlayLayer = session.getReferenceOverlayLayer();

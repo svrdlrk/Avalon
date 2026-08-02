@@ -8,9 +8,13 @@ public class JoinSessionRequestDto {
     private String playerName;
     private String joinNonce;
     private String dmSecret;
+    private String projectorToken;
 
     @JsonProperty("isDm")
     private boolean isDm;
+
+    @JsonProperty("isObserver")
+    private boolean isObserver;
 
     public JoinSessionRequestDto() {}
 
@@ -26,6 +30,12 @@ public class JoinSessionRequestDto {
     public String getDmSecret() { return dmSecret; }
     public void setDmSecret(String dmSecret) { this.dmSecret = dmSecret; }
 
+    public String getProjectorToken() { return projectorToken; }
+    public void setProjectorToken(String projectorToken) { this.projectorToken = projectorToken; }
+
     public boolean isDm() { return isDm; }
     public void setDm(boolean dm) { isDm = dm; }
+
+    public boolean isObserver() { return isObserver; }
+    public void setObserver(boolean observer) { isObserver = observer; }
 }

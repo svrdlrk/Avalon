@@ -4,8 +4,9 @@ import ConnectionPanel from './components/ConnectionPanel';
 import InitiativeBar from './components/InitiativeBar';
 import ErrorBoundary from './components/ErrorBoundary';
 import JoinSessionScreen from './components/JoinSessionScreen';
-import { DEFAULT_LAUNCHER_CONTROL_URL } from './config/runtime';
+import { DEFAULT_LAUNCHER_CONTROL_URL, DEFAULT_SERVER_BASE_URL, suggestServerBaseUrl } from './config/runtime';
 import { useGameStore } from './store/gameStore';
+import { wsClient } from './net/wsClient';
 
 const launcherControlUrl = DEFAULT_LAUNCHER_CONTROL_URL;
 
@@ -81,6 +82,8 @@ function App() {
     const tokens = useGameStore((state) => state.tokens);
     const players = useGameStore((state) => state.players);
     const initiative = useGameStore((state) => state.initiative);
+    const viewerRole = useGameStore((state) => state.viewerRole);
+    const commandError = useGameStore((state) => state.commandError);
     const clearSelection = useGameStore((state) => state.clearSelection);
 
     const selectedToken = selectedTokenId ? tokens[selectedTokenId] : null;
@@ -95,6 +98,21 @@ function App() {
         : '—';
 
     const isConnected = Boolean(sessionId && myPlayerId);
+
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+        const projectorToken = params.get('projectorToken');
+        const projectorSessionId = params.get('sessionId') ?? params.get('session');
+        if (!projectorToken || !projectorSessionId || isConnected) return;
+        wsClient.connect(
+            suggestServerBaseUrl(params.get('serverUrl') ?? params.get('server') ?? DEFAULT_SERVER_BASE_URL),
+            projectorSessionId,
+            'Projector',
+            false,
+            () => undefined,
+            projectorToken,
+        );
+    }, [isConnected]);
 
     const pushHudNotice = useCallback((message: string) => {
         setHudNotice(message);
@@ -162,7 +180,7 @@ function App() {
 
     return (
         <ErrorBoundary>
-            <div className={`app-shell ${chromeCollapsed ? 'app-shell--immersive' : ''} ${isNarrowViewport ? 'app-shell--compact' : ''}`}>
+            <div className={`app-shell ${viewerRole === 'OBSERVER' ? 'app-shell--projector' : ''} ${chromeCollapsed ? 'app-shell--immersive' : ''} ${isNarrowViewport ? 'app-shell--compact' : ''}`}>
                 <div className="app-shell__ambient app-shell__ambient--a" aria-hidden="true" />
                 <div className="app-shell__ambient app-shell__ambient--b" aria-hidden="true" />
 
@@ -171,7 +189,7 @@ function App() {
                         <div className="battle-chrome__sigil">A</div>
                         <div className="battle-chrome__text">
                             <div className="battle-chrome__title">Avalon DnD</div>
-                            <div className="battle-chrome__subtitle">Player view · tactical HUD</div>
+                            <div className="battle-chrome__subtitle">{viewerRole === 'OBSERVER' ? 'Projector view · read only' : 'Player view · tactical HUD'}</div>
                         </div>
                     </div>
 
@@ -179,6 +197,7 @@ function App() {
                         <div className="hud-chip">Players {playerCount}</div>
                         {currentTurn && <div className="hud-chip hud-chip--turn">Turn · {currentTurn.name}</div>}
                         {hudNotice && <div className="hud-chip hud-chip--notice">{hudNotice}</div>}
+                        {commandError && <div className="hud-chip hud-chip--notice">{commandError}</div>}
                     </div>
 
                     <div className="battle-chrome__actions">
@@ -195,7 +214,7 @@ function App() {
 
                 <InitiativeBar />
 
-                {selectedToken && (
+                {selectedToken && viewerRole !== 'OBSERVER' && (
                     <aside className={`battle-sheet ${isNarrowViewport ? 'battle-sheet--mobile' : ''}`} aria-label="Selected token">
                         <div className="battle-sheet__card battle-sheet__card--selected">
                             <div className="battle-sheet__topline">

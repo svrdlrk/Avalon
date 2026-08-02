@@ -128,6 +128,12 @@ public class MapBattleRulesService {
             VisibilityStateDto merged = session.getVisibilityState();
             return merged == null ? emptyVisibilityState() : merged;
         }
+        // A projector is intentionally shown the union of what all players
+        // have discovered, never a private player view and never the DM view.
+        if (player != null && player.getRole() == com.avalon.dnd.server.model.Role.OBSERVER) {
+            VisibilityStateDto merged = session.getVisibilityState();
+            return merged == null ? emptyVisibilityState() : merged;
+        }
 
         VisibilityStateDto shared = session.getSharedVisibilityState();
         Map<String, VisibilityStateDto> states = session.getVisibilityStatesByPlayer();

@@ -524,9 +524,6 @@ public final class AssetCatalogLoader {
     }
 
     private static String resolveName(String explicitName, String id, String imageUrl, Map<String, String> names) {
-        if (explicitName != null && !explicitName.isBlank()) {
-            return explicitName;
-        }
         for (String key : nameLookupKeys(id, imageUrl)) {
             String normalized = AssetCatalogSupport.normalizeKey(key);
             String value = names.get(normalized);
@@ -534,7 +531,7 @@ public final class AssetCatalogLoader {
                 return value;
             }
         }
-        return null;
+        return explicitName != null && !explicitName.isBlank() ? explicitName : null;
     }
 
     private static List<String> nameLookupKeys(String id, String imageUrl) {

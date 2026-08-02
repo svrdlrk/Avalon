@@ -63,6 +63,7 @@ function resetGameStore() {
     useGameStore.setState({
         sessionId: null,
         myPlayerId: null,
+        viewerRole: null,
         selectedTokenId: null,
         grid: DEFAULT_GRID,
         tokens: {},
@@ -73,6 +74,7 @@ function resetGameStore() {
         visibility: null,
         terrainLayer: null,
         wallLayer: null,
+        commandError: null,
     });
 }
 

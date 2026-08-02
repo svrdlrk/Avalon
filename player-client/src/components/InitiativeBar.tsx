@@ -8,6 +8,7 @@ const InitiativeBar: React.FC = () => {
     const tokens = useGameStore((state) => state.tokens);
     const players = useGameStore((state) => state.players);
     const myPlayerId = useGameStore((state) => state.myPlayerId);
+    const viewerRole = useGameStore((state) => state.viewerRole);
     const setSelectedTokenId = useGameStore((state) => state.setSelectedTokenId);
     const scrollRef = useRef<HTMLDivElement>(null);
     const activeRef = useRef<HTMLButtonElement>(null);
@@ -52,7 +53,7 @@ const InitiativeBar: React.FC = () => {
     const currentToken = currentEntry ? tokens[currentEntry.tokenId] : null;
 
     return (
-        <section className={`initiative-rail ${isCollapsed ? 'initiative-rail--collapsed' : ''}`} aria-label="Initiative order">
+        <section className={`initiative-rail ${viewerRole === 'OBSERVER' ? 'initiative-rail--projector' : ''} ${isCollapsed ? 'initiative-rail--collapsed' : ''}`} aria-label="Initiative order">
             <div className="initiative-rail__header">
                 <div>
                     <div className="initiative-rail__eyebrow">Initiative</div>
@@ -64,7 +65,7 @@ const InitiativeBar: React.FC = () => {
                     <div className="initiative-rail__summary">
                         {currentToken?.ownerId === myPlayerId ? 'Your turn soon' : 'Combat pacing ready'}
                     </div>
-                    {currentEntry && (
+                    {currentEntry && viewerRole !== 'OBSERVER' && (
                         <button
                             className="hud-button hud-button--ghost initiative-rail__focus"
                             type="button"
@@ -76,13 +77,13 @@ const InitiativeBar: React.FC = () => {
                             Focus active
                         </button>
                     )}
-                    <button
+                    {viewerRole !== 'OBSERVER' && <button
                         className="hud-button hud-button--ghost initiative-rail__toggle"
                         type="button"
                         onClick={() => setIsCollapsed((value) => !value)}
                     >
                         {isCollapsed ? 'Show turns' : 'Hide turns'}
-                    </button>
+                    </button>}
                 </div>
             </div>
 

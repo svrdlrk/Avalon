@@ -19,6 +19,7 @@ public class GameSession {
 
     private String id;
     private String dmSecret;
+    private String projectorToken;
     private GridConfig grid = new GridConfig(64, 20, 20);
     private String backgroundUrl;
     private final AtomicLong version = new AtomicLong(0);
@@ -46,6 +47,7 @@ public class GameSession {
     public GameSession(String id) {
         this.id = id;
         this.dmSecret = java.util.UUID.randomUUID().toString();
+        this.projectorToken = java.util.UUID.randomUUID().toString();
     }
 
     public String getId() { return id; }
@@ -54,6 +56,18 @@ public class GameSession {
         this.dmSecret = dmSecret == null || dmSecret.isBlank()
                 ? java.util.UUID.randomUUID().toString()
                 : dmSecret;
+    }
+
+    /** Opaque, revocable capability used exclusively by the read-only projector. */
+    public String getProjectorToken() { return projectorToken; }
+    public void setProjectorToken(String projectorToken) {
+        this.projectorToken = projectorToken == null || projectorToken.isBlank()
+                ? java.util.UUID.randomUUID().toString()
+                : projectorToken;
+    }
+    public void rotateProjectorToken() { this.projectorToken = java.util.UUID.randomUUID().toString(); }
+    public boolean hasProjectorToken(String candidate) {
+        return candidate != null && !candidate.isBlank() && candidate.trim().equals(projectorToken);
     }
 
     public Map<String, Player>    getPlayers() { return players; }

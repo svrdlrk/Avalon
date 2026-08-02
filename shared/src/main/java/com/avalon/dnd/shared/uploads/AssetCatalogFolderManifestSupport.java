@@ -3,7 +3,6 @@ package com.avalon.dnd.shared.uploads;
 import com.fasterxml.jackson.databind.JsonNode;
 
 import java.nio.file.Path;
-import java.util.Locale;
 
 /**
  * Manifest parsing helpers shared by asset catalog loader/controller implementations.
@@ -59,7 +58,7 @@ public final class AssetCatalogFolderManifestSupport {
 
     public static String normalizeCategoryPath(String category) {
         if (category == null) return null;
-        return category.replace('\\', '/').replaceAll("^/+", "").replaceAll("/+$", "").toLowerCase(Locale.ROOT);
+        return category.replace('\\', '/').replaceAll("^/+", "").replaceAll("/+$", "");
     }
 
     public static String relativeCategory(Path baseDir, Path image) {
@@ -72,7 +71,7 @@ public final class AssetCatalogFolderManifestSupport {
                     Path relative = normalizedBase.relativize(parent);
                     String text = relative.toString().replace('\\', '/').trim();
                     if (!text.isBlank()) {
-                        return text.toLowerCase(Locale.ROOT);
+                        return text;
                     }
                 }
             } catch (Exception ignored) {

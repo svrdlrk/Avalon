@@ -22,10 +22,14 @@ public class TokenService {
 
     private final SessionService sessionService;
     private final MapBattleRulesService battleRulesService;
+    private final TurnAuthorizationService turnAuthorizationService;
 
-    public TokenService(SessionService sessionService, MapBattleRulesService battleRulesService) {
+    public TokenService(SessionService sessionService,
+                        MapBattleRulesService battleRulesService,
+                        TurnAuthorizationService turnAuthorizationService) {
         this.sessionService = sessionService;
         this.battleRulesService = battleRulesService;
+        this.turnAuthorizationService = turnAuthorizationService;
     }
 
     public Token createToken(TokenCreateRequest request, Player player) {
@@ -83,10 +87,7 @@ public class TokenService {
             Token token = session.getTokens().get(event.getTokenId());
             if (token == null) throw new RuntimeException("Token not found: " + event.getTokenId());
 
-            if (!canMove(token, player)) {
-                throw new RuntimeException("Forbidden: player " + player.getId()
-                        + " cannot move token " + token.getId());
-            }
+            turnAuthorizationService.requireMovePermission(session, player, token);
 
             var grid = session.getGrid();
             int size = PlacementSizingRules.clampTokenGridSize(token.getGridSize());
@@ -181,12 +182,6 @@ public class TokenService {
         );
         dto.setFacingAngleDeg(t.getFacingAngleDeg());
         return dto;
-    }
-
-    private boolean canMove(Token token, Player player) {
-        if (player.getRole() == Role.DM) return true;
-        return token.getOwnerId() != null
-                && token.getOwnerId().equals(player.getId());
     }
 
     private static String normalizeTokenName(String name, String fallbackId) {

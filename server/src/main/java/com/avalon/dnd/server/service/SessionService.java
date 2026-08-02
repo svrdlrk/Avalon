@@ -77,6 +77,42 @@ public class SessionService {
         }
     }
 
+    /**
+     * Creates a distinct, short-lived read-only connection. It deliberately
+     * does not reuse a player identity, therefore it can never own a token.
+     */
+    public Player joinObserver(String sessionId, String projectorToken) {
+        String normalizedSessionId = validateSessionId(sessionId);
+        GameSession session = sessions.get(normalizedSessionId);
+        if (session == null) {
+            throw new RuntimeException("Session not found: " + normalizedSessionId);
+        }
+        synchronized (session) {
+            if (!session.hasProjectorToken(projectorToken)) {
+                throw new RuntimeException("Invalid or revoked projector link");
+            }
+            Player observer = new Player(UUID.randomUUID().toString(), "Projector", normalizedSessionId, Role.OBSERVER);
+            session.getPlayers().put(observer.getId(), observer);
+            return observer;
+        }
+    }
+
+    public String issueProjectorToken(String sessionId, String dmSecret) {
+        GameSession session = requireSessionAndDmSecret(sessionId, dmSecret);
+        synchronized (session) {
+            session.rotateProjectorToken();
+            return session.getProjectorToken();
+        }
+    }
+
+    public void revokeProjectorToken(String sessionId, String dmSecret) {
+        GameSession session = requireSessionAndDmSecret(sessionId, dmSecret);
+        synchronized (session) {
+            session.rotateProjectorToken();
+            session.getPlayers().entrySet().removeIf(entry -> entry.getValue().getRole() == Role.OBSERVER);
+        }
+    }
+
     public GameSession getSession(String sessionId) {
         if (sessionId == null || sessionId.isBlank()) {
             return null;
@@ -123,5 +159,14 @@ public class SessionService {
         if (providedSecret == null || !expected.equals(providedSecret.trim())) {
             throw new RuntimeException("Invalid DM secret");
         }
+    }
+
+    private GameSession requireSessionAndDmSecret(String sessionId, String dmSecret) {
+        GameSession session = getSession(validateSessionId(sessionId));
+        if (session == null) {
+            throw new RuntimeException("Session not found");
+        }
+        validateDmSecret(session, dmSecret);
+        return session;
     }
 }
