@@ -146,6 +146,8 @@ export function useConnectionState(): UseConnectionStateResult {
             () => {
                 setStatus(null);
             },
+            undefined,
+            (message) => setStatus(message),
         );
         return true;
     }, [autoConnect, canConnect, serverUrl, sessionId, playerName]);

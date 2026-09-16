@@ -1,5 +1,4 @@
 import { Client, StompHeaders } from '@stomp/stompjs';
-import SockJS from 'sockjs-client';
 import { useGameStore } from '../store/gameStore';
 import { DEFAULT_SERVER_BASE_URL, normalizeServerBaseUrl } from '../config/runtime';
 import type {
@@ -14,7 +13,10 @@ class WsClient {
     private playerId:  string | null = null;
     private serverBaseUrl = DEFAULT_SERVER_BASE_URL;
     private onConnectedCallback: (() => void) | null = null;
+    private onErrorCallback: ((message: string) => void) | null = null;
     private connectedOnce = false;
+    private fallbackAttempted = false;
+    private connectTimeout: number | null = null;
 
     // ---------------------------------------------------------------- helpers
 
@@ -95,10 +97,14 @@ class WsClient {
         isDm: boolean,
         onConnected: () => void,
         projectorToken?: string,
+        onError?: (message: string) => void,
+        forceDirect = false,
     ) {
         this.disconnect();
         this.onConnectedCallback = onConnected;
+        this.onErrorCallback = onError ?? null;
         this.connectedOnce = false;
+        if (!forceDirect) this.fallbackAttempted = false;
 
         const cleanSessionId = this.normalizeSessionId(sessionId) ?? sessionId;
         this.sessionId = cleanSessionId;
@@ -107,17 +113,19 @@ class WsClient {
         // Normalise the URL the user entered, then decide whether we should
         // route through the Vite proxy (mobile / LAN scenario).
         const normalised = this.normalizeServerUrl(serverUrl);
-        this.serverBaseUrl = this.resolveEffectiveBaseUrl(normalised);
+        this.serverBaseUrl = forceDirect ? normalised : this.resolveEffectiveBaseUrl(normalised);
 
         const joinNonce = crypto.randomUUID();
 
-        this.client = new Client({
-            // SockJS URL: points to the effective base (page origin when proxied,
-            // direct Spring Boot URL otherwise).
-            webSocketFactory: () => new SockJS(`${this.serverBaseUrl}/ws`),
+        let candidateClient: Client;
+        candidateClient = new Client({
+            // A native STOMP WebSocket avoids SockJS XHR polling/streaming,
+            // which was the only transport failing on LAN devices via Vite.
+            brokerURL: this.toWebSocketUrl(this.serverBaseUrl),
             reconnectDelay: 5000,
 
             onConnect: () => {
+                if (this.client !== candidateClient) return;
                 console.log('[ws] connected via', this.serverBaseUrl);
 
                 // One-time join channel
@@ -127,12 +135,15 @@ class WsClient {
                         const msg: WsMessage<SessionStateDto> = JSON.parse(frame.body);
                         if (msg.type === 'SESSION_STATE') {
                             this.applySessionState(msg, cleanSessionId);
+                            this.clearConnectTimeout();
                             this.subscribePrivateChannel(cleanSessionId);
 
                             if (!this.connectedOnce) {
                                 this.connectedOnce = true;
                                 this.onConnectedCallback?.();
                             }
+                        } else if (msg.type === 'COMMAND_REJECTED') {
+                            this.reportConnectionError(String(msg.payload ?? 'Unable to join the session'));
                         }
                     },
                 );
@@ -150,11 +161,65 @@ class WsClient {
                 });
             },
 
-            onDisconnect:  () => console.log('[ws] disconnected'),
-            onStompError:  (frame) => console.error('[ws] STOMP error', frame),
+            onDisconnect: () => console.log('[ws] disconnected'),
+            onStompError: (frame) => {
+                console.error('[ws] STOMP error', frame);
+                this.reportConnectionError(frame.headers.message || 'The server rejected the connection');
+            },
+            onWebSocketError: () => this.handleTransportFailure(candidateClient, normalised, cleanSessionId,
+                playerName, isDm, projectorToken, onConnected, onError),
+            onWebSocketClose: () => this.handleTransportFailure(candidateClient, normalised, cleanSessionId,
+                playerName, isDm, projectorToken, onConnected, onError),
         });
 
-        this.client.activate();
+        this.client = candidateClient;
+        candidateClient.activate();
+        this.connectTimeout = window.setTimeout(() => {
+            this.handleTransportFailure(candidateClient, normalised, cleanSessionId,
+                playerName, isDm, projectorToken, onConnected, onError);
+        }, 8_000);
+    }
+
+    private handleTransportFailure(
+        candidateClient: Client,
+        directServerUrl: string,
+        sessionId: string,
+        playerName: string,
+        isDm: boolean,
+        projectorToken: string | undefined,
+        onConnected: () => void,
+        onError: ((message: string) => void) | undefined,
+    ) {
+        if (candidateClient !== this.client || this.connectedOnce) return;
+        if (!this.fallbackAttempted && this.serverBaseUrl !== directServerUrl) {
+            this.fallbackAttempted = true;
+            this.connect(directServerUrl, sessionId, playerName, isDm, onConnected, projectorToken, onError, true);
+            return;
+        }
+        this.reportConnectionError('Cannot reach the game server. Check the server URL and Wi-Fi access.');
+    }
+
+    private reportConnectionError(message: string) {
+        if (!this.connectedOnce) {
+            this.clearConnectTimeout();
+            this.onErrorCallback?.(message);
+        }
+    }
+
+    private clearConnectTimeout() {
+        if (this.connectTimeout != null) {
+            window.clearTimeout(this.connectTimeout);
+            this.connectTimeout = null;
+        }
+    }
+
+    private toWebSocketUrl(baseUrl: string): string {
+        const url = new URL(baseUrl);
+        url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+        url.pathname = `${url.pathname.replace(/\/$/, '')}/ws-native`;
+        url.search = '';
+        url.hash = '';
+        return url.toString();
     }
 
     // ---------------------------------------------------------------- send
@@ -191,12 +256,14 @@ class WsClient {
     // ---------------------------------------------------------------- misc
 
     disconnect() {
+        this.clearConnectTimeout();
         this.client?.deactivate();
         this.client = null;
         this.sessionId = null;
         this.playerId = null;
         this.connectedOnce = false;
         this.onConnectedCallback = null;
+        this.onErrorCallback = null;
     }
 
     getPlayerId(): string | null { return this.playerId; }

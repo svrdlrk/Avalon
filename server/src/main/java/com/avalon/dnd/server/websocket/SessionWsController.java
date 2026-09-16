@@ -231,13 +231,37 @@ public class SessionWsController {
     @MessageMapping("/session.join")
     public void join(JoinSessionRequestDto request,
                      @Header("simpSessionId") String wsSessionId) {
+        String requestedSessionId = request == null ? null : normalizeSessionId(request.getSessionId());
+        String joinNonce = request == null ? null : request.getJoinNonce();
+        try {
+            joinInternal(request, wsSessionId, requestedSessionId, joinNonce);
+        } catch (RuntimeException ex) {
+            // Without this reply Spring exposes the reason only in the browser
+            // console. A scoped join topic lets mobile/projector clients show it.
+            if (requestedSessionId != null && joinNonce != null && !joinNonce.isBlank()) {
+                messaging.convertAndSend(joinTopic(requestedSessionId, joinNonce),
+                        new WsMessage<>(WsEventType.COMMAND_REJECTED, requestedSessionId, 0,
+                                safeJoinErrorMessage(ex)));
+                return;
+            }
+            throw ex;
+        }
+    }
+
+    private void joinInternal(JoinSessionRequestDto request,
+                              String wsSessionId,
+                              String requestedSessionId,
+                              String joinNonce) {
+        if (request == null) {
+            throw new RuntimeException("Join request required");
+        }
 
         if (!request.isObserver() && (request.getPlayerName() == null || request.getPlayerName().isBlank()))
             throw new RuntimeException("Player name required");
-        if (request.getJoinNonce() == null || request.getJoinNonce().isBlank())
+        if (joinNonce == null || joinNonce.isBlank())
             throw new RuntimeException("joinNonce required");
 
-        String sessionId = normalizeSessionId(request.getSessionId());
+        String sessionId = requestedSessionId;
         GameSession session = sessionService.getSession(sessionId);
         if (session == null) throw new RuntimeException("Session not found");
 
@@ -262,11 +286,19 @@ public class SessionWsController {
         ensureVisibilityComputed(session, player.getId());
         SharedSessionSnapshot shared = snapshotShared(session);
         messaging.convertAndSend(
-                joinTopic(sessionId, request.getJoinNonce()),
+                joinTopic(sessionId, joinNonce),
                 new WsMessage<>(WsEventType.SESSION_STATE,
                         sessionId,
                         session.getVersion(),
                         buildState(session, player.getId(), shared)));
+    }
+
+    private String safeJoinErrorMessage(RuntimeException ex) {
+        String message = ex.getMessage();
+        if (message == null || message.isBlank()) {
+            return "Unable to join the session";
+        }
+        return message.length() > 180 ? message.substring(0, 180) : message;
     }
 
     // ---- sync ----

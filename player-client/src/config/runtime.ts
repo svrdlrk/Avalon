@@ -35,14 +35,16 @@ export function normalizeServerBaseUrl(input: string | null | undefined): string
         if (typeof window !== 'undefined' && window.location?.hostname) {
             const parsedCandidate = new URL(candidate);
             const candidateHost = parsedCandidate.hostname;
+            // A link produced on the host naturally contains localhost.  On a
+            // phone/projector that must mean the host serving the page, while
+            // retaining port 8080 so WsClient can use it as a direct fallback.
+            if (isLoopbackHost(candidateHost) && !isLoopbackHost(window.location.hostname)) {
+                return `http://${window.location.hostname}:${parsedCandidate.port || '8080'}`;
+            }
             if (import.meta.env.DEV
                 && window.location.origin
-                && (isLoopbackHost(candidateHost)
-                    || (candidateHost === window.location.hostname && (parsedCandidate.port === '' || parsedCandidate.port === '8080')))) {
+                && isLoopbackHost(candidateHost)) {
                 return window.location.origin;
-            }
-            if (isLoopbackHost(candidateHost) && !isLoopbackHost(window.location.hostname)) {
-                return `http://${window.location.hostname}:8080`;
             }
         }
         return origin;

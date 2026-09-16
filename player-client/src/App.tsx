@@ -4,30 +4,9 @@ import ConnectionPanel from './components/ConnectionPanel';
 import InitiativeBar from './components/InitiativeBar';
 import ErrorBoundary from './components/ErrorBoundary';
 import JoinSessionScreen from './components/JoinSessionScreen';
-import { DEFAULT_LAUNCHER_CONTROL_URL, DEFAULT_SERVER_BASE_URL, suggestServerBaseUrl } from './config/runtime';
+import { DEFAULT_SERVER_BASE_URL, suggestServerBaseUrl } from './config/runtime';
 import { useGameStore } from './store/gameStore';
 import { wsClient } from './net/wsClient';
-
-const launcherControlUrl = DEFAULT_LAUNCHER_CONTROL_URL;
-
-function notifyLauncher(endpoint: 'client-closed' | 'client-heartbeat') {
-    if (!launcherControlUrl) return;
-
-    const url = `${launcherControlUrl.replace(/\/+$/, '')}/launcher/${endpoint}?client=player`;
-    const body = new Blob([], { type: 'text/plain' });
-
-    if (endpoint === 'client-closed' && navigator.sendBeacon) {
-        navigator.sendBeacon(url, body);
-        return;
-    }
-
-    fetch(url, {
-        method: 'POST',
-        keepalive: true,
-        mode: 'cors',
-        credentials: 'omit',
-    }).catch(() => undefined);
-}
 
 function dispatchMapCenterSelected() {
     window.dispatchEvent(new Event('avalon-map:center-selected'));
@@ -38,23 +17,6 @@ function App() {
     const [isNarrowViewport, setIsNarrowViewport] = useState(() => typeof window !== 'undefined' ? window.matchMedia('(max-width: 960px)').matches : false);
     const [hudNotice, setHudNotice] = useState<string | null>(null);
     const hudNoticeTimer = useRef<number | null>(null);
-
-    useEffect(() => {
-        const onBeforeUnload = () => notifyLauncher('client-closed');
-        const onPageHide = () => notifyLauncher('client-closed');
-
-        window.addEventListener('beforeunload', onBeforeUnload);
-        window.addEventListener('pagehide', onPageHide);
-
-        notifyLauncher('client-heartbeat');
-        const heartbeat = window.setInterval(() => notifyLauncher('client-heartbeat'), 5000);
-
-        return () => {
-            window.removeEventListener('beforeunload', onBeforeUnload);
-            window.removeEventListener('pagehide', onPageHide);
-            window.clearInterval(heartbeat);
-        };
-    }, []);
 
     useEffect(() => {
         if (typeof window === 'undefined') return;
@@ -111,6 +73,7 @@ function App() {
             false,
             () => undefined,
             projectorToken,
+            (message) => useGameStore.getState().setCommandError(message),
         );
     }, [isConnected]);
 

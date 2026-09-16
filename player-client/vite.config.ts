@@ -3,7 +3,13 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, process.cwd(), 'VITE_')
-    const target = env.VITE_AVALON_SERVER_URL?.trim() || 'http://localhost:8080'
+    // Do not use "localhost" here. On Windows Node may resolve it to ::1 while
+    // Spring Boot is intentionally bound to IPv4 (0.0.0.0) for LAN clients.
+    // That made the Vite page available on :5173 but broke every proxied route:
+    // /ws, /api and /uploads.
+    const configuredTarget = env.VITE_AVALON_SERVER_URL?.trim()
+    const target = (configuredTarget || 'http://127.0.0.1:8080')
+        .replace(/^http:\/\/localhost(?=[:/]|$)/i, 'http://127.0.0.1')
 
     return {
         plugins: [react()],
@@ -14,6 +20,11 @@ export default defineConfig(({ mode }) => {
             proxy: {
                 // WebSocket / STOMP
                 '/ws': {
+                    target,
+                    changeOrigin: true,
+                    ws: true,
+                },
+                '/ws-native': {
                     target,
                     changeOrigin: true,
                     ws: true,

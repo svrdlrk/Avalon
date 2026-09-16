@@ -27,6 +27,11 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
+        // Browser clients use a native WebSocket endpoint. It is a single
+        // upgraded connection and avoids SockJS XHR fallback on the LAN.
+        registry.addEndpoint("/ws-native")
+                .setAllowedOriginPatterns(resolveAllowedOriginPatterns());
+        // DM uses Spring's SockJsClient and must keep the historical /ws URL.
         registry.addEndpoint("/ws")
                 .setAllowedOriginPatterns(resolveAllowedOriginPatterns())
                 .withSockJS();

@@ -177,7 +177,6 @@ function buildTerrainBlockedCells(grid: GridConfig, terrainLayer: JsonValue | nu
 
 function extractWallSegments(wallLayer: JsonValue | null | undefined): WallSegment[] {
     if (!isRecord(wallLayer)) return [];
-    if (!readBoolean(wallLayer.visible, true)) return [];
     const layerOpacity = Math.max(0, Math.min(1, readNumber(wallLayer.opacity, 1)));
     const paths = firstArray(wallLayer.paths, wallLayer.walls, wallLayer.segments, wallLayer.polylines, wallLayer.lines);
 

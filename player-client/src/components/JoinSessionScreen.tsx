@@ -27,6 +27,7 @@ const JoinSessionScreen: React.FC = () => {
     const [hudVisible, setHudVisible] = useState(true);
 
     const players = useGameStore((state) => state.players);
+    const commandError = useGameStore((state) => state.commandError);
     const playerCount = useMemo(() => Object.values(players).filter((player) => player.role === 'PLAYER').length, [players]);
 
     return (
@@ -108,6 +109,11 @@ const JoinSessionScreen: React.FC = () => {
                                 showSessionAction
                                 sessionActionLabel="⌁"
                             />
+                            {commandError && (
+                                <p className="connection-form__status" role="alert">
+                                    {commandError}
+                                </p>
+                            )}
                             <div className="player-status-row">
                                 <div className="player-status-row__left">
                                     <span className="player-status-dot" aria-hidden="true" />

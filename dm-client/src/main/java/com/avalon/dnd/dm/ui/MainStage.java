@@ -549,28 +549,56 @@ public class MainStage {
         Label idLbl = new Label("ID: " + sessionId); idLbl.setStyle("-fx-font-family: monospace;");
         TextField nameField = new TextField("Моя сессия");
         Button saveBtn = new Button("💾 Сохранить"); Label saveStatus = new Label("");
-        Button projectorBtn = new Button("Copy projector link");
-        projectorBtn.setOnAction(e -> {
-            if (currentDmSecret == null || currentDmSecret.isBlank()) {
-                saveStatus.setText("DM secret is unavailable");
-                return;
-            }
-            projectorBtn.setDisable(true);
-            ServerConnection.getInstance().issueProjectorAccess(currentServerUrl, sessionId, currentDmSecret, access -> {
-                projectorBtn.setDisable(false);
-                if (access == null) {
-                    saveStatus.setText("Could not issue projector link");
+        Button localProjectorBtn = new Button("🖥 Проектор на этом ПК");
+        Button lanProjectorBtn = new Button("📡 Проектор по сети");
+        Button rotateProjectorBtn = new Button("↻ Обновить ссылки");
+        final ServerConnection.ProjectorAccess[] projectorAccess = {null};
+
+        class ProjectorLinks {
+            void copy(boolean local) {
+                if (currentDmSecret == null || currentDmSecret.isBlank()) {
+                    saveStatus.setText("DM secret is unavailable");
                     return;
                 }
-                String base = (currentPlayerClientBase == null || currentPlayerClientBase.isBlank()
-                        ? RuntimeConfig.defaultPlayerClientUrl() : currentPlayerClientBase).replaceAll("/+$", "");
+                if (projectorAccess[0] != null) {
+                    copyLink(projectorAccess[0], local);
+                    return;
+                }
+                localProjectorBtn.setDisable(true);
+                lanProjectorBtn.setDisable(true);
+                ServerConnection.getInstance().issueProjectorAccess(currentServerUrl, sessionId, currentDmSecret, access -> {
+                    localProjectorBtn.setDisable(false);
+                    lanProjectorBtn.setDisable(false);
+                    if (access == null) {
+                        saveStatus.setText("Could not issue projector links");
+                        return;
+                    }
+                    projectorAccess[0] = access;
+                    copyLink(access, local);
+                });
+            }
+
+            void copyLink(ServerConnection.ProjectorAccess access, boolean local) {
+                String playerBase = local
+                        ? "http://localhost:5173"
+                        : (currentPlayerClientBase == null || currentPlayerClientBase.isBlank()
+                                ? RuntimeConfig.defaultPlayerClientUrl() : currentPlayerClientBase);
+                String serverBase = local ? "http://localhost:8080" : currentServerUrl;
+                String base = playerBase.replaceAll("/+$", "");
                 String link = base + (base.contains("?") ? "&" : "?")
                         + "sessionId=" + java.net.URLEncoder.encode(access.sessionId(), java.nio.charset.StandardCharsets.UTF_8)
                         + "&projectorToken=" + java.net.URLEncoder.encode(access.projectorToken(), java.nio.charset.StandardCharsets.UTF_8)
-                        + "&serverUrl=" + java.net.URLEncoder.encode(currentServerUrl, java.nio.charset.StandardCharsets.UTF_8);
+                        + "&serverUrl=" + java.net.URLEncoder.encode(serverBase, java.nio.charset.StandardCharsets.UTF_8);
                 copyToClipboard(link);
-                saveStatus.setText("Projector link copied; the previous link was revoked");
-            });
+                saveStatus.setText(local ? "Локальная ссылка проектора скопирована" : "Сетевая ссылка проектора скопирована");
+            }
+        }
+        ProjectorLinks projectorLinks = new ProjectorLinks();
+        localProjectorBtn.setOnAction(e -> projectorLinks.copy(true));
+        lanProjectorBtn.setOnAction(e -> projectorLinks.copy(false));
+        rotateProjectorBtn.setOnAction(e -> {
+            projectorAccess[0] = null;
+            saveStatus.setText("Следующее копирование создаст новые ссылки и отзовёт прежние");
         });
         saveBtn.setOnAction(e -> {
             String n = nameField.getText().trim().isEmpty() ? "Сессия" : nameField.getText().trim();
@@ -592,7 +620,8 @@ public class MainStage {
                 saveStatus.setText("Автосохранение включено");
             } else { if (tl[0] != null) tl[0].stop(); saveStatus.setText("Отключено"); }
         });
-        VBox c = new VBox(10, idLbl, DmUiControls.hbox(8, new Label("Название:"), nameField, saveBtn), projectorBtn, auto, saveStatus);
+        VBox c = new VBox(10, idLbl, DmUiControls.hbox(8, new Label("Название:"), nameField, saveBtn),
+                DmUiControls.hbox(8, localProjectorBtn, lanProjectorBtn, rotateProjectorBtn), auto, saveStatus);
         c.setPadding(new Insets(10)); tab.setContent(c); return tab;
     }
 

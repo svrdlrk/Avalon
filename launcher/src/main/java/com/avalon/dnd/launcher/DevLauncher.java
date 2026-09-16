@@ -30,7 +30,6 @@ public class DevLauncher {
     private static volatile String launcherSession;
     private static volatile String controlBaseUrl;
     private static volatile HttpServer controlServer;
-    private static volatile ScheduledExecutorService monitorExecutor;
 
     public static void main(String[] args) throws Exception {
         if (args != null && args.length >= 3 && WATCHDOG_FLAG.equalsIgnoreCase(args[0])) {
@@ -125,7 +124,6 @@ public class DevLauncher {
             controlServer.start();
             int port = controlServer.getAddress().getPort();
             controlBaseUrl = "http://127.0.0.1:" + port;
-            startHeartbeatMonitor();
             log("control server started on " + controlBaseUrl);
         } catch (Exception e) {
             log("control server start failed: " + e.getMessage());
@@ -253,36 +251,6 @@ public class DevLauncher {
         if (shutdownRequested.compareAndSet(false, true)) {
             log("all clients closed; exiting launcher");
             new Thread(() -> System.exit(0), "avalon-launcher-exit").start();
-        }
-    }
-
-    private static void startHeartbeatMonitor() {
-        monitorExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "avalon-launcher-heartbeat-monitor");
-            t.setDaemon(true);
-            return t;
-        });
-        monitorExecutor.scheduleAtFixedRate(() -> {
-            try {
-                monitorPlayerHeartbeat();
-            } catch (Exception e) {
-                log("heartbeat monitor failed: " + e.getMessage());
-            }
-        }, 5, 5, TimeUnit.SECONDS);
-    }
-
-    private static void monitorPlayerHeartbeat() {
-        if (!activeClients.contains("player")) {
-            return;
-        }
-        Long last = lastHeartbeat.get("player");
-        if (last == null) {
-            return;
-        }
-        long age = System.currentTimeMillis() - last;
-        if (age > 15000L) {
-            log("player heartbeat stale (" + age + "ms), closing player process");
-            onClientClosed("player");
         }
     }
 
@@ -467,11 +435,6 @@ public class DevLauncher {
     private static void shutdownAll() {
         log("shutting down...");
 
-        try {
-            if (monitorExecutor != null) {
-                monitorExecutor.shutdownNow();
-            }
-        } catch (Exception ignored) {}
         try {
             if (controlServer != null) {
                 controlServer.stop(0);
